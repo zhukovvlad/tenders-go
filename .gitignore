@@ -1,0 +1,11 @@
+.env
+
+/logs
+
+/cmd/config
+
+/.vscode
+
+/cmd/internal/db/sqlc
+
+prompt.md
