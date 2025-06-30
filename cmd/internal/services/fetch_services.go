@@ -41,47 +41,46 @@ func (s *TenderProcessingService) GetOrCreateObject(ctx context.Context, qtx db.
 		return db.Object{}, fmt.Errorf("адрес объекта (address) не может быть пустым для title '%s'", title)
 	}
 
-	obj, err := qtx.GetObjectByTitle(ctx, title)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			opLogger.Info("Объект не найден, создается новый.")
-			createdObj, createErr := qtx.CreateObject(ctx, db.CreateObjectParams{
+	return getOrCreateOrUpdate(
+		ctx,
+		qtx,
+		func() (db.Object, error) {
+			opLogger.Info("Пытаемся найти объект по названию")
+			return qtx.GetObjectByTitle(ctx, title)
+		},
+		func() (db.Object, error) {
+			opLogger.Info("Объект не найден, создаем новый.")
+			return qtx.CreateObject(ctx, db.CreateObjectParams{
 				Title:   title,
 				Address: address,
 			})
-			if createErr != nil {
-				opLogger.Errorf("Ошибка создания объекта: %v", createErr)
-				return db.Object{}, fmt.Errorf("ошибка создания объекта '%s': %w", title, createErr)
+		},
+		func(existing db.Object) (bool, db.UpdateObjectParams, error) {
+			if existing.Address != address {
+				opLogger.Infof("Адрес объекта отличается ('%s' -> '%s').", existing.Address, address)
+				return true, db.UpdateObjectParams{
+					ID:      existing.ID,
+					Title:   sql.NullString{String: existing.Title, Valid: true}, // title не меняем
+					Address: sql.NullString{String: address, Valid: true},
+				}, nil
 			}
-			opLogger.Infof("Объект успешно создан, ID: %d", createdObj.ID)
-			return createdObj, nil
-		}
-		opLogger.Errorf("Ошибка получения объекта по title: %v", err)
-		return db.Object{}, fmt.Errorf("ошибка получения объекта по title '%s': %w", title, err)
-	}
-
-	if obj.Address != address {
-		opLogger.Infof("Объект найден (ID: %d), но адрес отличается ('%s' -> '%s'). Обновление адреса.", obj.ID, obj.Address, address)
-		updatedObj, updateErr := qtx.UpdateObject(ctx, db.UpdateObjectParams{
-			ID:      obj.ID,
-			Title:   sql.NullString{String: title, Valid: true},
-			Address: sql.NullString{String: address, Valid: true},
-		})
-		if updateErr != nil {
-			opLogger.Errorf("Ошибка обновления адреса объекта: %v", updateErr)
-			return db.Object{}, fmt.Errorf("ошибка обновления адреса для объекта с title '%s': %w", title, updateErr)
-		}
-		opLogger.Info("Адрес объекта успешно обновлен.")
-		return updatedObj, nil
-	}
-
-	opLogger.Info("Найден существующий объект. Адрес совпадает.")
-	return obj, nil
+			return false, db.UpdateObjectParams{}, nil
+		},
+		func(params db.UpdateObjectParams) (db.Object, error) {
+			opLogger.Info("Обновляем существующий объект.")
+			return qtx.UpdateObject(ctx, params)
+		},
+	)
 }
 
 // getOrCreateExecutor находит исполнителя по name. Если не найден, создает нового.
 // Если найден, но телефон отличается, обновляет телефон.
-func (s *TenderProcessingService) GetOrCreateExecutor(ctx context.Context, qtx db.Querier, name string, phone string) (db.Executor, error) {
+func (s *TenderProcessingService) GetOrCreateExecutor(
+	ctx context.Context,
+	qtx db.Querier,
+	name string,
+	phone string,
+) (db.Executor, error) {
 	opLogger := s.logger.WithFields(logrus.Fields{
 		"entity": "executor",
 		"name":   name,
@@ -98,42 +97,36 @@ func (s *TenderProcessingService) GetOrCreateExecutor(ctx context.Context, qtx d
 		return db.Executor{}, fmt.Errorf("телефон исполнителя (phone) не может быть пустым для name '%s'", name)
 	}
 
-	executor, err := qtx.GetExecutorByName(ctx, name)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			opLogger.Info("Исполнитель не найден, создается новый.")
-			createdExecutor, createErr := qtx.CreateExecutor(ctx, db.CreateExecutorParams{
+	return getOrCreateOrUpdate(
+		ctx,
+		qtx,
+		func() (db.Executor, error) {
+			opLogger.Info("Пытаемся найти исполнителя по имени")
+			return qtx.GetExecutorByName(ctx, name)
+		},
+		func() (db.Executor, error) {
+			opLogger.Info("Исполнитель не найден, создаем нового.")
+			return qtx.CreateExecutor(ctx, db.CreateExecutorParams{
 				Name:  name,
 				Phone: phone,
 			})
-			if createErr != nil {
-				opLogger.Errorf("Ошибка создания исполнителя: %v", createErr)
-				return db.Executor{}, fmt.Errorf("ошибка создания исполнителя '%s': %w", name, createErr)
+		},
+		func(existing db.Executor) (bool, db.UpdateExecutorParams, error) {
+			opLogger.Info("Проверяем необходимость обновления исполнителя")
+			if existing.Phone != phone {
+				opLogger.Infof("Телефон исполнителя отличается ('%s' -> '%s').", existing.Phone, phone)
+				return true, db.UpdateExecutorParams{
+					ID:    existing.ID,
+					Name:  sql.NullString{String: existing.Name, Valid: true}, // name не меняем
+					Phone: sql.NullString{String: phone, Valid: true},
+				}, nil
 			}
-			opLogger.Infof("Исполнитель успешно создан, ID: %d", createdExecutor.ID)
-			return createdExecutor, nil
-		}
-		opLogger.Errorf("Ошибка получения исполнителя по имени: %v", err)
-		return db.Executor{}, fmt.Errorf("ошибка получения исполнителя по name '%s': %w", name, err)
-	}
-
-	if executor.Phone != phone {
-		opLogger.Infof("Исполнитель найден (ID: %d), но телефон отличается ('%s' -> '%s'). Обновление телефона.", executor.ID, executor.Phone, phone)
-		updatedExecutor, updateErr := qtx.UpdateExecutor(ctx, db.UpdateExecutorParams{
-			ID:    executor.ID,
-			Name:  sql.NullString{String: executor.Name, Valid: true}, // name не меняем
-			Phone: sql.NullString{String: phone, Valid: true},
-		})
-		if updateErr != nil {
-			opLogger.Errorf("Ошибка обновления телефона исполнителя: %v", updateErr)
-			return db.Executor{}, fmt.Errorf("ошибка обновления телефона для исполнителя с name '%s': %w", name, updateErr)
-		}
-		opLogger.Info("Телефон исполнителя успешно обновлен.")
-		return updatedExecutor, nil
-	}
-
-	opLogger.Info("Найден существующий исполнитель. Телефон совпадает.")
-	return executor, nil
+			return false, db.UpdateExecutorParams{}, nil
+		},
+		func(params db.UpdateExecutorParams) (db.Executor, error) {
+			return qtx.UpdateExecutor(ctx, params)
+		},
+	)
 }
 
 func (s *TenderProcessingService) GetOrCreateContractor(
@@ -144,10 +137,10 @@ func (s *TenderProcessingService) GetOrCreateContractor(
 	address string,
 	accreditation string,
 ) (db.Contractor, error) {
-	opLogger := s.logger.WithFields(logrus.Fields{
-		"service_method": "GetOrCreateContractor",
-		"inn":            inn,
-	})
+	opLogger := s.logger.WithField(
+		"entity",
+		"contractor",
+	).WithField("inn", inn)
 
 	// --- Валидация входных данных ---
 	if strings.TrimSpace(inn) == "" {
@@ -167,67 +160,48 @@ func (s *TenderProcessingService) GetOrCreateContractor(
 		return db.Contractor{}, fmt.Errorf("аккредитация подрядчика (accreditation) не может быть пустой для ИНН %s", inn)
 	}
 
-	// --- Попытка найти существующего подрядчика ---
-	contractor, err := qtx.GetContractorByINN(ctx, inn)
-	if err != nil {
-		// --- Сценарий 1: Подрядчик не найден ---
-		if err == sql.ErrNoRows {
-			opLogger.Info("Подрядчик не найден, создается новый.")
-			createdContractor, createErr := qtx.CreateContractor(ctx, db.CreateContractorParams{
+	return getOrCreateOrUpdate(
+		ctx,
+		qtx,
+		func() (db.Contractor, error) {
+			opLogger.Info("Пытаемся найти подрядчика по ИНН")
+			return qtx.GetContractorByINN(ctx, inn)
+		},
+		func() (db.Contractor, error) {
+			opLogger.Info("Подрядчик не найден, создаем нового.")
+			return qtx.CreateContractor(ctx, db.CreateContractorParams{
 				Inn:           inn,
 				Title:         title,
 				Address:       address,
 				Accreditation: accreditation,
 			})
-			if createErr != nil {
-				opLogger.Errorf("Ошибка создания подрядчика: %v", createErr)
-				return db.Contractor{}, fmt.Errorf("ошибка создания подрядчика с ИНН '%s': %w", inn, createErr)
+		},
+		func(existing db.Contractor) (bool, db.UpdateContractorParams, error) {
+			opLogger.Info("Подрядчик найден, проверяем необходимость обновления.")
+			needsUpdate := false
+			updateParams := db.UpdateContractorParams{
+				ID: existing.ID,
 			}
-			opLogger.Infof("Подрядчик успешно создан, ID: %d", createdContractor.ID)
-			return createdContractor, nil
-		}
-		// --- Другая ошибка при поиске ---
-		opLogger.Errorf("Ошибка получения подрядчика по ИНН: %v", err)
-		return db.Contractor{}, fmt.Errorf("ошибка получения подрядчика по ИНН '%s': %w", inn, err)
-	}
 
-	// --- Сценарий 2: Подрядчик найден, проверяем необходимость обновления ---
-	needsUpdate := false
-	updateParams := db.UpdateContractorParams{
-		ID: contractor.ID,
-		// Остальные поля по умолчанию `sql.Null...{Valid: false}`
-	}
-
-	if contractor.Title != title {
-		opLogger.Infof("Название подрядчика отличается: '%s' -> '%s'", contractor.Title, title)
-		updateParams.Title = sql.NullString{String: title, Valid: true}
-		needsUpdate = true
-	}
-	if contractor.Address != address {
-		opLogger.Infof("Адрес подрядчика отличается: '%s' -> '%s'", contractor.Address, address)
-		updateParams.Address = sql.NullString{String: address, Valid: true}
-		needsUpdate = true
-	}
-	if contractor.Accreditation != accreditation {
-		opLogger.Infof("Аккредитация подрядчика отличается: '%s' -> '%s'", contractor.Accreditation, accreditation)
-		updateParams.Accreditation = sql.NullString{String: accreditation, Valid: true}
-		needsUpdate = true
-	}
-
-	if needsUpdate {
-		opLogger.Info("Обновление данных подрядчика.")
-		updatedContractor, updateErr := qtx.UpdateContractor(ctx, updateParams)
-		if updateErr != nil {
-			opLogger.Errorf("Ошибка обновления подрядчика: %v", updateErr)
-			return db.Contractor{}, fmt.Errorf("ошибка обновления подрядчика с ИНН %s: %w", inn, updateErr)
-		}
-		opLogger.Info("Данные подрядчика успешно обновлены.")
-		return updatedContractor, nil
-	}
-
-	// --- Сценарий 3: Подрядчик найден, данные совпадают ---
-	opLogger.Info("Найден существующий подрядчик. Данные совпадают.")
-	return contractor, nil
+			if existing.Title != title {
+				opLogger.Infof("Название подрядчика отличается: '%s' -> '%s'", existing.Title, title)
+				updateParams.Title = sql.NullString{String: title, Valid: true}
+			}
+			if existing.Address != address {
+				opLogger.Infof("Адрес подрядчика отличается: '%s' -> '%s'", existing.Address, address)
+				updateParams.Address = sql.NullString{String: address, Valid: true}
+			}
+			if existing.Accreditation != accreditation {
+				opLogger.Infof("Аккредитация подрядчика отличается: '%s' -> '%s'", existing.Accreditation, accreditation)
+				updateParams.Accreditation = sql.NullString{String: accreditation, Valid: true}
+			}
+			return needsUpdate, updateParams, nil
+		},
+		func(params db.UpdateContractorParams) (db.Contractor, error) {
+			opLogger.Info("Обновляем данные подрядчика.")
+			return qtx.UpdateContractor(ctx, params)
+		},
+	)
 }
 
 func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
@@ -237,7 +211,7 @@ func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
 	additionalInfoAPI map[string]*string,
 ) error {
 	logger := s.logger.WithField("proposal_id", proposalID).WithField("section", "additional_info")
-    logger.Info("Обработка дополнительной информации")
+	logger.Info("Обработка дополнительной информации")
 
 	if additionalInfoAPI == nil {
 		logger.Warn("Дополнительная информация (additionalInfoAPI) не предоставлена, пропуск обработки")
@@ -255,9 +229,9 @@ func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
 			InfoValue:  util.NullableString(valuePtr),
 		})
 		if err != nil {
-            logger.Errorf("Не удалось сохранить доп. инфо (ключ: %s): %v", key, err)
-            return fmt.Errorf("не удалось сохранить доп. инфо (ключ: %s): %w", key, err)
-        }
+			logger.Errorf("Не удалось сохранить доп. инфо (ключ: %s): %v", key, err)
+			return fmt.Errorf("не удалось сохранить доп. инфо (ключ: %s): %w", key, err)
+		}
 	}
 	logger.Info("Дополнительная информация успешно обработана")
 	return nil
@@ -265,74 +239,78 @@ func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
 
 // ProcessContractorItems обрабатывает positions и summary для предложения
 func (s *TenderProcessingService) ProcessContractorItems(ctx context.Context, qtx db.Querier, proposalID int64, itemsAPI api_models.ContractorItemsContainer) error {
-    logger := s.logger.WithField("proposal_id", proposalID).WithField("section", "contractor_items")
-    logger.Info("Обработка позиций и итогов")
+	logger := s.logger.WithField("proposal_id", proposalID).WithField("section", "contractor_items")
+	logger.Info("Обработка позиций и итогов")
 
-    // Обработка Positions
-    if itemsAPI.Positions != nil {
-        // Опционально: удалить старые position_items перед добавлением новых
-        // if err := qtx.DeleteAllPositionItemsForProposal(ctx, proposalID); err != nil {
-        //     return fmt.Errorf("не удалось удалить старые позиции: %w", err)
-        // }
-        for key, posAPI := range itemsAPI.Positions {
-            posLogger := logger.WithField("position_key", key)
-            
-            catPos, err := s.GetOrCreateCatalogPosition(ctx, qtx, posAPI.JobTitleNormalized, posAPI.JobTitle)
-            if err != nil { return fmt.Errorf("обработка catalog_position для '%s': %w", posAPI.JobTitle, err) }
+	// Обработка Positions
+	if itemsAPI.Positions != nil {
+		// Опционально: удалить старые position_items перед добавлением новых
+		// if err := qtx.DeleteAllPositionItemsForProposal(ctx, proposalID); err != nil {
+		//     return fmt.Errorf("не удалось удалить старые позиции: %w", err)
+		// }
+		for key, posAPI := range itemsAPI.Positions {
+			posLogger := logger.WithField("position_key", key)
 
-            unitID, err := s.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
-            if err != nil { return fmt.Errorf("обработка unit для '%s': %w", *posAPI.Unit, err) }
-            
-            params := db.UpsertPositionItemParams{
-				ProposalID:                      proposalID,
-				CatalogPositionID:               catPos.ID,
-				PositionKeyInProposal:           key,
-				CommentOrganazier:               util.NullableString(posAPI.CommentOrganizer),
-				CommentContractor:               util.NullableString(posAPI.CommentContractor),
-				ItemNumberInProposal:            util.NullableString(&posAPI.Number), // Number - string, not *string в api_models
-				ChapterNumberInProposal:         util.NullableString(posAPI.ChapterNumber),
-				JobTitleInProposal:              posAPI.JobTitle,
-				UnitID:                          unitID, // sql.NullInt64
-				Quantity:                        util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.Quantity)),
-				SuggestedQuantity:               util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.SuggestedQuantity)),
-				TotalCostForOrganizerQuantity:   util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCostForOrganizerQuantity)),
-				UnitCostMaterials:               util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Materials)),
-				UnitCostWorks:                   util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Works)),
-				UnitCostIndirectCosts:           util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.IndirectCosts)),
-				UnitCostTotal:                   util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Total)),
-				TotalCostMaterials:              util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Materials)),
-				TotalCostWorks:                  util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Works)),
-				TotalCostIndirectCosts:          util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.IndirectCosts)),
-				TotalCostTotal:                  util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Total)), // Убедитесь, что это поле nullable в таблице
-				DeviationFromBaselineCost:       util.ConvertNullFloat64ToNullString(util.NullableFloat64(nil)), // Заполните из posAPI, если есть
-				IsChapter:                       posAPI.IsChapter,
-				ChapterRefInProposal:            util.NullableString(posAPI.ChapterRef),
-                // ArticleSMR не было в параметрах UpsertPositionItem, если нужно - добавьте
+			catPos, err := s.GetOrCreateCatalogPosition(ctx, qtx, posAPI.JobTitleNormalized, posAPI.JobTitle)
+			if err != nil {
+				return fmt.Errorf("обработка catalog_position для '%s': %w", posAPI.JobTitle, err)
 			}
-            if posAPI.ArticleSMR != nil { // Пример как добавить ArticleSMR, если он есть в UpsertPositionItemParams
-                // params.ArticleSMR = util.NullableString(posAPI.ArticleSMR)
-            }
-            // В вашей структуре PositionItem в api_models поле JobTitleNormalized было *string.
-            // Оно используется для поиска/создания catalog_position. Если его нужно хранить и в position_items,
-            // то добавьте его в UpsertPositionItemParams и передайте util.NullableString(posAPI.JobTitleNormalized)
 
-            if _, err := qtx.UpsertPositionItem(ctx, params); err != nil {
-                posLogger.Errorf("Не удалось сохранить позицию: %v", err)
-                return fmt.Errorf("сохранение позиции '%s': %w", key, err)
-            }
-        }
-    }
-    logger.Info("Позиции успешно обработаны")
+			unitID, err := s.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
+			if err != nil {
+				return fmt.Errorf("обработка unit для '%s': %w", *posAPI.Unit, err)
+			}
 
-    // Обработка Summary
-    if itemsAPI.Summary != nil {
-        // Опционально: удалить старые summary_lines перед добавлением новых
-        // if err := qtx.DeleteAllSummaryLinesForProposal(ctx, proposalID); err != nil {
-        //     return fmt.Errorf("не удалось удалить старые итоги: %w", err)
-        // }
-        for key, sumLineAPI := range itemsAPI.Summary {
-            sumLogger := logger.WithField("summary_key", key)
-            params := db.UpsertProposalSummaryLineParams{
+			params := db.UpsertPositionItemParams{
+				ProposalID:                    proposalID,
+				CatalogPositionID:             catPos.ID,
+				PositionKeyInProposal:         key,
+				CommentOrganazier:             util.NullableString(posAPI.CommentOrganizer),
+				CommentContractor:             util.NullableString(posAPI.CommentContractor),
+				ItemNumberInProposal:          util.NullableString(&posAPI.Number), // Number - string, not *string в api_models
+				ChapterNumberInProposal:       util.NullableString(posAPI.ChapterNumber),
+				JobTitleInProposal:            posAPI.JobTitle,
+				UnitID:                        unitID, // sql.NullInt64
+				Quantity:                      util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.Quantity)),
+				SuggestedQuantity:             util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.SuggestedQuantity)),
+				TotalCostForOrganizerQuantity: util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCostForOrganizerQuantity)),
+				UnitCostMaterials:             util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Materials)),
+				UnitCostWorks:                 util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Works)),
+				UnitCostIndirectCosts:         util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.IndirectCosts)),
+				UnitCostTotal:                 util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Total)),
+				TotalCostMaterials:            util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Materials)),
+				TotalCostWorks:                util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Works)),
+				TotalCostIndirectCosts:        util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.IndirectCosts)),
+				TotalCostTotal:                util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Total)), // Убедитесь, что это поле nullable в таблице
+				DeviationFromBaselineCost:     util.ConvertNullFloat64ToNullString(util.NullableFloat64(nil)),                    // Заполните из posAPI, если есть
+				IsChapter:                     posAPI.IsChapter,
+				ChapterRefInProposal:          util.NullableString(posAPI.ChapterRef),
+				// ArticleSMR не было в параметрах UpsertPositionItem, если нужно - добавьте
+			}
+			if posAPI.ArticleSMR != nil { // Пример как добавить ArticleSMR, если он есть в UpsertPositionItemParams
+				// params.ArticleSMR = util.NullableString(posAPI.ArticleSMR)
+			}
+			// В вашей структуре PositionItem в api_models поле JobTitleNormalized было *string.
+			// Оно используется для поиска/создания catalog_position. Если его нужно хранить и в position_items,
+			// то добавьте его в UpsertPositionItemParams и передайте util.NullableString(posAPI.JobTitleNormalized)
+
+			if _, err := qtx.UpsertPositionItem(ctx, params); err != nil {
+				posLogger.Errorf("Не удалось сохранить позицию: %v", err)
+				return fmt.Errorf("сохранение позиции '%s': %w", key, err)
+			}
+		}
+	}
+	logger.Info("Позиции успешно обработаны")
+
+	// Обработка Summary
+	if itemsAPI.Summary != nil {
+		// Опционально: удалить старые summary_lines перед добавлением новых
+		// if err := qtx.DeleteAllSummaryLinesForProposal(ctx, proposalID); err != nil {
+		//     return fmt.Errorf("не удалось удалить старые итоги: %w", err)
+		// }
+		for key, sumLineAPI := range itemsAPI.Summary {
+			sumLogger := logger.WithField("summary_key", key)
+			params := db.UpsertProposalSummaryLineParams{
 				ProposalID:        proposalID,
 				SummaryKey:        key,
 				JobTitle:          sumLineAPI.JobTitle,
@@ -340,31 +318,31 @@ func (s *TenderProcessingService) ProcessContractorItems(ctx context.Context, qt
 				WorksCost:         util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.Works)),
 				IndirectCostsCost: util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.IndirectCosts)),
 				TotalCost:         util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.Total)), // Предполагаем, что total_cost.total НЕ NULL в JSON для summary
-                // Убедитесь, что TotalCost в таблице NOT NULL, или используйте util.NullableFloat64
-                // CommentContractor и DeviationFromBaselineCost нужно будет добавить в UpsertProposalSummaryLineParams
-                // и передать сюда: util.NullableString(sumLineAPI.CommentContractor), util.NullableFloat64(sumLineAPI.Deviation)
+				// Убедитесь, что TotalCost в таблице NOT NULL, или используйте util.NullableFloat64
+				// CommentContractor и DeviationFromBaselineCost нужно будет добавить в UpsertProposalSummaryLineParams
+				// и передать сюда: util.NullableString(sumLineAPI.CommentContractor), util.NullableFloat64(sumLineAPI.Deviation)
 			}
-            // Если SuggestedQuantity и OrganizierQuantityCost есть в summary и нужны в БД:
-            // params.SuggestedQuantity = util.NullableFloat64(sumLineAPI.SuggestedQuantity)
-            // params.OrganzierQuantityCost = util.NullableFloat64(sumLineAPI.OrganzierQuantityCost)
+			// Если SuggestedQuantity и OrganizierQuantityCost есть в summary и нужны в БД:
+			// params.SuggestedQuantity = util.NullableFloat64(sumLineAPI.SuggestedQuantity)
+			// params.OrganzierQuantityCost = util.NullableFloat64(sumLineAPI.OrganzierQuantityCost)
 
-            if _, err := qtx.UpsertProposalSummaryLine(ctx, params); err != nil {
-                sumLogger.Errorf("Не удалось сохранить строку итога: %v", err)
-                return fmt.Errorf("сохранение строки итога '%s': %w", key, err)
-            }
-        }
-    }
-    logger.Info("Итоги успешно обработаны")
-    return nil
+			if _, err := qtx.UpsertProposalSummaryLine(ctx, params); err != nil {
+				sumLogger.Errorf("Не удалось сохранить строку итога: %v", err)
+				return fmt.Errorf("сохранение строки итога '%s': %w", key, err)
+			}
+		}
+	}
+	logger.Info("Итоги успешно обработаны")
+	return nil
 }
 
 func (s *TenderProcessingService) GetOrCreateCatalogPosition(
 	ctx context.Context,
 	qtx db.Querier,
 	apiJobTitleNormalized *string, // <--- Принимаем указатель на нормализованное название
-	rawJobTitle string,          // <--- Принимаем "сырое" название
+	rawJobTitle string, // <--- Принимаем "сырое" название
 ) (db.CatalogPosition, error) {
-	
+
 	var standardJobTitleForDB string
 
 	if apiJobTitleNormalized != nil && strings.TrimSpace(*apiJobTitleNormalized) != "" {
@@ -380,7 +358,7 @@ func (s *TenderProcessingService) GetOrCreateCatalogPosition(
 
 	opLogger := s.logger.WithFields(logrus.Fields{
 		"service_method":          "GetOrCreateCatalogPosition",
-		"input_raw_job_title":  rawJobTitle,
+		"input_raw_job_title":     rawJobTitle,
 		"used_standard_job_title": standardJobTitleForDB,
 	})
 
@@ -455,7 +433,7 @@ func (s *TenderProcessingService) GetOrCreateUnitOfMeasurement(
 			// trimmedUnitName (оригинальное, но очищенное от крайних пробелов) или normalizedNameForDB.
 			// trimmedUnitName обычно предпочтительнее для отображения.
 			fullNameParam := sql.NullString{String: trimmedUnitName, Valid: true}
-			
+
 			// Поле description пока оставляем пустым (sql.NullString{Valid: false})
 			descriptionParam := sql.NullString{Valid: false}
 
