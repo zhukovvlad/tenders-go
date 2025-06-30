@@ -22,7 +22,7 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 	// Настройка CORS
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173"}, // Укажите адрес фронтенда
-		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT"}, // Методы, которые разрешены
+		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT", "PATCH"}, // Методы, которые разрешены
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true, // Если вы используете cookies или авторизацию
@@ -39,6 +39,9 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 		v1.GET("/tenders/:id", server.getTenderDetailsHandler)
 		v1.GET("/tenders/:id/proposals", server.listProposalsHandler)
 
+		// Используем PATCH для частичного обновления всего ресурса 'tenders'
+        v1.PATCH("/tenders/:id", server.patchTenderHandler)
+
 		v1.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
 		
 		v1.GET("/tender-types", server.listTenderTypesHandler)
@@ -50,6 +53,7 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 
 		v1.GET("/tender-chapters", server.listTenderChaptersHandler)
 		v1.POST("/tender-chapters", server.createTenderChapterHandler)
+		v1.GET("/tender-chapters/:chapter_id/categories", server.listCategoriesByChapterHandler)
 
 		// --- ДОБАВЛЯЕМ НОВЫЕ РОУТЫ ДЛЯ UPDATE И DELETE ---
         v1.PUT("/tender-chapters/:id", server.updateTenderChapterHandler)

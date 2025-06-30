@@ -771,6 +771,13 @@ func (s *Server) listTenderCategoriesHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
+
+	// дополнительный проверка. Если нет категорий, возвращаем пустой массив
+	// Это важно, чтобы фронт не ломался при отсутствии данных
+	if categories == nil {
+		categories = make([]db.ListTenderCategoriesRow, 0) // Возвращаем пустой массив, если нет данных
+	}	
+
 	c.JSON(http.StatusOK, categories)
 }
 
@@ -869,4 +876,92 @@ func (s *Server) listChaptersByTypeHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, chapters)
+}
+
+func (s *Server) listCategoriesByChapterHandler(c *gin.Context) {
+	chapterID, err := strconv.ParseInt(c.Param("chapter_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный ID раздела")))
+		return
+	}
+
+	// Пагинация (можно оставить для унификации, но для выпадающего списка обычно не нужна)
+	pageIDStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "100") // Берем с запасом
+
+	pageID, _ := strconv.ParseInt(pageIDStr, 10, 32)
+	pageSize, _ := strconv.ParseInt(pageSizeStr, 10, 32)
+	if pageID < 1 { pageID = 1 }
+	if pageSize < 1 { pageSize = 100 }
+
+	params := db.ListTenderCategoriesByChapterParams{
+		TenderChapterID: chapterID,
+		Limit:          int32(pageSize),
+		Offset:         (int32(pageID) - 1) * int32(pageSize),
+	}
+
+	categories, err := s.store.ListTenderCategoriesByChapter(c.Request.Context(), params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	if categories == nil {
+		categories = make([]db.TenderCategory, 0)
+	}
+
+	c.JSON(http.StatusOK, categories)
+}
+
+// Используем указатели (*), чтобы отличить непереданное поле от поля, переданного как `null`.
+type patchTenderRequest struct {
+	CategoryID   *int64  `json:"category_id"`
+	Title        *string `json:"title"`
+	// В будущем сюда можно добавить любые другие поля, которые можно обновлять
+}
+
+// patchTenderHandler - УНИВЕРСАЛЬНЫЙ обработчик для частичного обновления тендера
+func (s *Server) patchTenderHandler(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный ID тендера")))
+		return
+	}
+
+	// Шаг A: Парсим JSON в нашу простую и гибкую структуру `patchTenderRequest`
+	var req patchTenderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	// Шаг B: Создаем сложную структуру `UpdateTenderDetailsParams`, которую ожидает sqlc.
+	// Изначально все поля в ней "невалидны" (Valid: false), и COALESCE их проигнорирует.
+	params := db.UpdateTenderDetailsParams{
+		ID: id,
+	}
+
+	// Шаг C: Вручную заполняем структуру для sqlc, проверяя, какие поля пришли от фронтенда.
+	// Мы обновляем поле, только если оно было явно передано в JSON.
+	
+	if req.CategoryID != nil { // Если поле category_id пришло...
+		params.CategoryID = sql.NullInt64{Int64: *req.CategoryID, Valid: true}
+	}
+
+	if req.Title != nil { // Если поле title пришло...
+		params.Title = sql.NullString{String: *req.Title, Valid: true}
+	}
+	
+	// ... в будущем здесь можно добавить проверки для других полей ...
+
+
+	// Шаг D: Вызываем универсальную функцию обновления с правильно подготовленными параметрами.
+	tender, err := s.store.UpdateTenderDetails(c.Request.Context(), params)
+	if err != nil {
+		s.logger.Errorf("ошибка частичного обновления тендера: %v", err)
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	c.JSON(http.StatusOK, tender)
 }
