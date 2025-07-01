@@ -88,3 +88,28 @@ func ConvertNullFloat64ToNullString(nf sql.NullFloat64) sql.NullString {
 	s := strconv.FormatFloat(nf.Float64, 'f', -1, 64)
 	return sql.NullString{String: s, Valid: true}
 }
+
+// ParseDate разбирает строку с датой в формате "ДД.ММ.ГГГГ ЧЧ:ММ:СС"
+// и возвращает sql.NullTime.
+// Если строка пустая или формат неверный, возвращает невалидный NullTime (эквивалент NULL в БД).
+func ParseDate(dateString string) sql.NullTime {
+	// Если входящая строка пустая, сразу возвращаем невалидное значение.
+	if dateString == "" {
+		return sql.NullTime{Valid: false}
+	}
+
+	// Формат "день.месяц.год час:минута:секунда"
+	const layout = "02.01.2006 15:04:05"
+
+	// Пытаемся распарсить строку
+	t, err := time.Parse(layout, dateString)
+	if err != nil {
+		// Если произошла ошибка парсинга (например, формат не совпал),
+		// также возвращаем невалидное значение.
+		// В реальном приложении здесь можно было бы добавить логгирование.
+		return sql.NullTime{Valid: false}
+	}
+
+	// Если парсинг прошел успешно, возвращаем валидный sql.NullTime.
+	return sql.NullTime{Time: t, Valid: true}
+}

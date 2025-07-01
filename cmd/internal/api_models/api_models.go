@@ -1,5 +1,10 @@
 package api_models
 
+import (
+	"fmt"
+	"strings"
+)
+
 type FullTenderData struct {
 	TenderID      string         `json:"tender_id"`
 	TenderTitle   string         `json:"tender_title"`
@@ -71,4 +76,95 @@ type SummaryLine struct {
 	OrganizierQuantityCost *float64 `json:"total_cost_for_organizer_quantity"`
 	CommentContractor      *string  `json:"comment_contractor,omitempty"`
 	Deviation              *float64 `json:"deviation_from_baseline_cost,omitempty"`
+}
+
+func (cpd *ContractorProposalDetails) Validate(isBaseline bool) error {
+	if strings.TrimSpace(cpd.Title) == "" {
+		return fmt.Errorf("название подрядчика (title) не может быть пустым")
+	}
+	if !isBaseline && strings.TrimSpace(cpd.Inn) == "" {
+		return fmt.Errorf("ИНН подрядчика (inn) не может быть пустым для '%s'", cpd.Title)
+	}
+	if !isBaseline && strings.TrimSpace(cpd.Address) == "" {
+		return fmt.Errorf("адрес подрядчика (address) не может быть пустым")
+	}
+	if !isBaseline && cpd.ContractorCoordinate == "" {
+		return fmt.Errorf("координаты подрядчика (contractor_coordinate) не могут быть пустыми")
+	}
+	if !isBaseline && cpd.ContractorWidth <= 0 {
+		return fmt.Errorf("ширина подрядчика (contractor_width) должна быть положительной")
+	}
+	if !isBaseline && cpd.ContractorHeight <= 0 {
+		return fmt.Errorf("высота подрядчика (contractor_height) должна быть положительной")
+	}
+	if !isBaseline && len(cpd.ContractorItems.Positions) == 0 {
+		return fmt.Errorf("необходимо указать хотя бы одну позицию")
+	}
+	return nil
+}
+
+func (l *Lot) Validate() error {
+	if strings.TrimSpace(l.LotTitle) == "" {
+		return fmt.Errorf("название лота (lot_title) не может быть пустым")
+	}
+
+	// Валидируем базовое предложение
+	if err := l.BaseLineProposal.Validate(true); err != nil {
+		return fmt.Errorf("ошибка в базовом предложении лота '%s': %w", l.LotTitle, err)
+	}
+
+	// Валидируем все предложения подрядчиков в цикле
+	for key, proposal := range l.ProposalData {
+		if err := proposal.Validate(false); err != nil {
+			return fmt.Errorf("ошибка в предложении '%s' лота '%s': %w", key, l.LotTitle, err)
+		}
+	}
+
+	return nil
+}
+
+func (e *Executor) Validate() error {
+	if strings.TrimSpace(e.ExecutorName) == "" {
+		return fmt.Errorf("имя исполнителя (executor_name) не может быть пустым")
+	}
+	if strings.TrimSpace(e.ExecutorPhone) == "" {
+		return fmt.Errorf("телефон исполнителя (executor_phone) не может быть пустым")
+	}
+	return nil
+}
+
+func (ftd *FullTenderData) Validate() error {
+	// 1. Проверяем собственные поля
+	if strings.TrimSpace(ftd.TenderID) == "" {
+		return fmt.Errorf("ID тендера (tender_id) не может быть пустым")
+	}
+	if strings.TrimSpace(ftd.TenderTitle) == "" {
+		return fmt.Errorf("название тендера (tender_title) не может быть пустым")
+	}
+    if strings.TrimSpace(ftd.TenderObject) == "" {
+		return fmt.Errorf("объект тендера (tender_object) не может быть пустым")
+	}
+	if strings.TrimSpace(ftd.TenderAddress) == "" {
+		return fmt.Errorf("адрес тендера (tender_address) не может быть пустым")
+	}
+	if ftd.ExecutorData == (Executor{}) {
+		return fmt.Errorf("данные исполнителя (executor) не могут быть пустыми")
+	}
+	if len(ftd.LotsData) == 0 {
+		return fmt.Errorf("необходимо указать хотя бы один лот (lots)")
+	}
+
+	// 2. Делегируем валидацию дочерним структурам
+	if err := ftd.ExecutorData.Validate(); err != nil {
+		return err // Ошибка уже содержит всю нужную информацию
+	}
+
+	// 3. Делегируем валидацию лотам в цикле
+	for key, lot := range ftd.LotsData {
+		if err := lot.Validate(); err != nil {
+			return fmt.Errorf("ошибка в лоте '%s': %w", key, err)
+		}
+	}
+
+	return nil
 }
