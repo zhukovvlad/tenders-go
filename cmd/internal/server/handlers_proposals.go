@@ -121,28 +121,37 @@ func (s *Server) listProposalsForLotHandler(c *gin.Context) {
 		return
 	}
 
-	// --- Логика преобразования данных (остается такой же, как мы делали раньше) ---
-	// Она преобразует "сырые" данные из БД в "чистый" JSON для API
 	apiResponse := make([]proposalResponse, 0, len(dbProposals))
 	for _, p := range dbProposals {
+		var rawInfo json.RawMessage
+		switch v := p.AdditionalInfo.(type) {
+		case []byte:
+			rawInfo = json.RawMessage(v)
+		case string:
+			rawInfo = json.RawMessage(v)
+		default:
+			rawInfo = json.RawMessage(`{}`)
+		}
+
 		apiProp := proposalResponse{
 			ProposalID:      p.ProposalID,
 			ContractorID:    p.ContractorID,
 			ContractorTitle: p.ContractorTitle,
 			ContractorInn:   p.ContractorInn,
 			IsWinner:        p.IsWinner,
-			AdditionalInfo:  p.AdditionalInfo,
+			AdditionalInfo:  rawInfo,
 		}
+
 		if p.TotalCost.Valid {
-			// Конвертируем строку (p.TotalCost.String) в float64
 			cost, err := strconv.ParseFloat(p.TotalCost.String, 64)
-			if err == nil { // Если конвертация прошла успешно
-				apiProp.TotalCost = &cost // Присваиваем указатель на полученное число
+			if err == nil {
+				apiProp.TotalCost = &cost
 			}
-			// Если конвертация не удалась, поле останется nil, что тоже корректно
 		}
+
 		apiResponse = append(apiResponse, apiProp)
 	}
+
 	// ------------------------------------------------------------------------
 
 	c.JSON(http.StatusOK, apiResponse)

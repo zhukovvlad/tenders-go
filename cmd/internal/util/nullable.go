@@ -6,6 +6,13 @@ import (
 	"time" // Понадобится для NullableTime
 )
 
+func Deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // NullableString преобразует *string в sql.NullString.
 // Пустая строка ("") также будет считаться NULL для базы данных.
 func NullableString(s *string) sql.NullString {

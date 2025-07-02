@@ -13,16 +13,93 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
+// TenderProcessingService отвечает за полную обработку тендерных данных,
+// включая импорт тендера, объектов, лотов, предложений, позиций и итоговых строк.
 type TenderProcessingService struct {
-	store  db.Store // Используем интерфейс Store
-	logger *logging.Logger
+	store  db.Store        // SQLC-совместимый store, обеспечивающий транзакции
+	logger *logging.Logger // Обёртка над logrus с поддержкой полей
 }
 
+// NewTenderProcessingService создает новый экземпляр TenderProcessingService.
 func NewTenderProcessingService(store db.Store, logger *logging.Logger) *TenderProcessingService {
 	return &TenderProcessingService{
 		store:  store,
 		logger: logger,
 	}
+}
+
+// ImportFullTender выполняет полный импорт тендера из API-модели,
+// включая объекты, исполнителей, лоты и все связанные с ними предложения.
+// Он использует транзакции для обеспечения целостности данных.
+// Возвращает ошибку, если что-то пошло не так на любом этапе обработки.
+// Если импорт успешен, возвращает nil.
+// Если транзакция не удалась, возвращает ошибку с контекстом, указывающим на ETP_ID тендера,
+// чтобы было понятно, какой именно тендер не удалось импортировать.
+func (s *TenderProcessingService) ImportFullTender(
+	ctx context.Context,
+	payload *api_models.FullTenderData,
+) error {
+	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
+		// Шаг 1: Обработка основной информации (Объект, Исполнитель, Тендер)
+		dbTender, err := s.processCoreTenderData(ctx, qtx, payload)
+		if err != nil {
+			return err // Ошибка уже содержит нужный контекст
+		}
+
+		// Шаг 2: Обработка каждого лота по очереди
+		for lotKey, lotAPI := range payload.LotsData {
+			if err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI); err != nil {
+				// Оборачиваем ошибку для указания, в каком лоте проблема
+				return fmt.Errorf("ошибка при обработке лота '%s': %w", lotKey, err)
+			}
+		}
+
+		return nil // Транзакция завершится успешно
+	})
+
+	if txErr != nil {
+		// Логируем финальную ошибку верхнего уровня
+		s.logger.Errorf("Не удалось импортировать тендер ETP_ID %s: %v", payload.TenderID, txErr)
+		return fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
+	}
+
+	s.logger.Infof("Тендер ETP_ID %s успешно импортирован.", payload.TenderID)
+	return nil
+}
+
+// processCoreTenderData сохраняет основные данные тендера: объект, исполнитель, дата подготовки.
+func (s *TenderProcessingService) processCoreTenderData(
+	ctx context.Context,
+	qtx db.Querier,
+	payload *api_models.FullTenderData,
+) (*db.Tender, error) {
+	dbObject, err := s.GetOrCreateObject(ctx, qtx, payload.TenderObject, payload.TenderAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	dbExecutor, err := s.GetOrCreateExecutor(ctx, qtx, payload.ExecutorData.ExecutorName, payload.ExecutorData.ExecutorPhone)
+	if err != nil {
+		return nil, err
+	}
+
+	preparedDate := util.ParseDate(payload.ExecutorData.ExecutorDate)
+
+	tenderParams := db.UpsertTenderParams{
+		EtpID:              payload.TenderID,
+		Title:              payload.TenderTitle,
+		ObjectID:           dbObject.ID,
+		ExecutorID:         dbExecutor.ID,
+		DataPreparedOnDate: preparedDate,
+	}
+
+	dbTender, err := qtx.UpsertTender(ctx, tenderParams)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось сохранить тендер: %w", err)
+	}
+
+	s.logger.Infof("Успешно сохранен тендер: ID=%d, ETP_ID=%s", dbTender.ID, dbTender.EtpID)
+	return &dbTender, nil
 }
 
 // processSinglePosition обрабатывает одну позицию
@@ -71,7 +148,12 @@ func (s *TenderProcessingService) processSingleSummaryLine(
 	return nil
 }
 
-func (s *TenderProcessingService) GetOrCreateObject(ctx context.Context, qtx db.Querier, title string, address string) (db.Object, error) {
+func (s *TenderProcessingService) GetOrCreateObject(
+	ctx context.Context,
+	qtx db.Querier,
+	title string,
+	address string,
+) (db.Object, error) {
 	opLogger := s.logger.WithFields(logrus.Fields{
 		"entity":  "object",
 		"title":   title,
@@ -221,7 +303,13 @@ func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
 	qtx db.Querier,
 	proposalID int64,
 	additionalInfoAPI map[string]*string,
+	isBaseline bool, // ← добавь новый аргумент сюда
 ) error {
+	if isBaseline {
+		s.logger.WithField("proposal_id", proposalID).Info("Baseline-предложение, пропускаем доп. информацию")
+		return nil
+	}
+
 	logger := s.logger.WithField("proposal_id", proposalID).WithField("section", "additional_info")
 	logger.Info("Обработка дополнительной информации")
 
@@ -238,7 +326,7 @@ func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
 		_, err := qtx.UpsertProposalAdditionalInfo(ctx, db.UpsertProposalAdditionalInfoParams{
 			ProposalID: proposalID,
 			InfoKey:    key,
-			InfoValue:  util.NullableString(valuePtr),
+			InfoValue:  sql.NullString{String: util.Deref(valuePtr), Valid: true},
 		})
 		if err != nil {
 			logger.Errorf("Не удалось сохранить доп. инфо (ключ: %s): %v", key, err)
@@ -413,72 +501,6 @@ func (s *TenderProcessingService) GetOrCreateUnitOfMeasurement(
 	return sql.NullInt64{Int64: unit.ID, Valid: true}, nil
 }
 
-func (s *TenderProcessingService) ImportFullTender(
-	ctx context.Context,
-	payload *api_models.FullTenderData,
-) error {
-	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
-		// Шаг 1: Обработка основной информации (Объект, Исполнитель, Тендер)
-		dbTender, err := s.processCoreTenderData(ctx, qtx, payload)
-		if err != nil {
-			return err // Ошибка уже содержит нужный контекст
-		}
-
-		// Шаг 2: Обработка каждого лота по очереди
-		for lotKey, lotAPI := range payload.LotsData {
-			if err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI); err != nil {
-				// Оборачиваем ошибку для указания, в каком лоте проблема
-				return fmt.Errorf("ошибка при обработке лота '%s': %w", lotKey, err)
-			}
-		}
-
-		return nil // Транзакция завершится успешно
-	})
-
-	if txErr != nil {
-		// Логируем финальную ошибку верхнего уровня
-		s.logger.Errorf("Не удалось импортировать тендер ETP_ID %s: %v", payload.TenderID, txErr)
-		return fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
-	}
-
-	s.logger.Infof("Тендер ETP_ID %s успешно импортирован.", payload.TenderID)
-	return nil
-}
-
-func (s *TenderProcessingService) processCoreTenderData(
-	ctx context.Context,
-	qtx db.Querier,
-	payload *api_models.FullTenderData,
-) (*db.Tender, error) {
-	dbObject, err := s.GetOrCreateObject(ctx, qtx, payload.TenderObject, payload.TenderAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	dbExecutor, err := s.GetOrCreateExecutor(ctx, qtx, payload.ExecutorData.ExecutorName, payload.ExecutorData.ExecutorPhone)
-	if err != nil {
-		return nil, err
-	}
-
-	preparedDate := util.ParseDate(payload.ExecutorData.ExecutorDate)
-
-	tenderParams := db.UpsertTenderParams{
-		EtpID:              payload.TenderID,
-		Title:              payload.TenderTitle,
-		ObjectID:           dbObject.ID,
-		ExecutorID:         dbExecutor.ID,
-		DataPreparedOnDate: preparedDate,
-	}
-
-	dbTender, err := qtx.UpsertTender(ctx, tenderParams)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось сохранить тендер: %w", err)
-	}
-
-	s.logger.Infof("Успешно сохранен тендер: ID=%d, ETP_ID=%s", dbTender.ID, dbTender.EtpID)
-	return &dbTender, nil
-}
-
 // processLot обрабатывает один лот и все его предложения
 func (s *TenderProcessingService) processLot(ctx context.Context, qtx db.Querier, tenderID int64, lotKey string, lotAPI api_models.Lot) error {
 	dbLot, err := qtx.UpsertLot(ctx, db.UpsertLotParams{
@@ -521,10 +543,10 @@ func (s *TenderProcessingService) processProposal(ctx context.Context, qtx db.Qu
 	}
 
 	dbProposal, err := qtx.UpsertProposal(ctx, db.UpsertProposalParams{
-		LotID:                  lotID,
-		ContractorID:           dbContractor.ID,
-		IsBaseline:             isBaseline,
-		ContractorCoordinate:   util.NullableString(&proposalAPI.ContractorCoordinate),
+		LotID:                lotID,
+		ContractorID:         dbContractor.ID,
+		IsBaseline:           isBaseline,
+		ContractorCoordinate: util.NullableString(&proposalAPI.ContractorCoordinate),
 		// ... другие поля ...
 	})
 	if err != nil {
@@ -532,7 +554,7 @@ func (s *TenderProcessingService) processProposal(ctx context.Context, qtx db.Qu
 	}
 
 	// Вызываем уже существующие у вас публичные методы, сделав их приватными
-	if err := s.ProcessProposalAdditionalInfo(ctx, qtx, dbProposal.ID, proposalAPI.AdditionalInfo); err != nil {
+	if err := s.ProcessProposalAdditionalInfo(ctx, qtx, dbProposal.ID, proposalAPI.AdditionalInfo, isBaseline); err != nil {
 		return err
 	}
 

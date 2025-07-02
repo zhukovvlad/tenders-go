@@ -132,29 +132,39 @@ LIMIT $2
 OFFSET $3;
 
 -- name: ListRichProposalsForLot :many
--- Получает полный, обогащенный список предложений для указанного лота.
--- Структура аналогична ListProposalsForTender, но фильтрация идет по p.lot_id.
--- Запрос безопасен благодаря пагинации.
--- Примечание о производительности сортировки также актуально и для этого запроса.
+-- Получает полный, обогащенный список предложений для указанного лота,
+-- исключая baseline-предложения.
+-- Примечание: безопасен благодаря пагинации и фильтрации.
 SELECT
-    p.id as proposal_id,
-    c.id as contractor_id,
-    c.title as contractor_title,
-    c.inn as contractor_inn,
-    (SELECT total_cost FROM proposal_summary_lines psl WHERE psl.proposal_id = p.id AND psl.summary_key = 'total_cost_with_vat' LIMIT 1) as total_cost,
-    (SELECT EXISTS (SELECT 1 FROM winners w WHERE w.proposal_id = p.id)) as is_winner,
+    p.id AS proposal_id,
+    c.id AS contractor_id,
+    c.title AS contractor_title,
+    c.inn AS contractor_inn,
     (
+        SELECT total_cost
+        FROM proposal_summary_lines psl
+        WHERE psl.proposal_id = p.id AND psl.summary_key = 'total_cost_with_vat'
+        LIMIT 1
+    ) AS total_cost,
+    (
+        SELECT EXISTS (
+            SELECT 1 FROM winners w WHERE w.proposal_id = p.id
+        )
+    ) AS is_winner,
+    COALESCE((
         SELECT jsonb_object_agg(pai.info_key, pai.info_value)
         FROM proposal_additional_info pai
-        WHERE pai.proposal_id = p.id
-    ) as additional_info
+        WHERE pai.proposal_id = p.id AND pai.info_key IS NOT NULL
+    ), '{}'::jsonb) AS additional_info
 FROM
     proposals p
 JOIN
     contractors c ON p.contractor_id = c.id
 WHERE
     p.lot_id = $1
+    AND NOT p.is_baseline
 ORDER BY
-    is_winner DESC, total_cost ASC
+    is_winner DESC,
+    total_cost ASC
 LIMIT $2
 OFFSET $3;
