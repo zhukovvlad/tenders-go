@@ -57,7 +57,13 @@ SELECT
     t.category_id,
     o.address as object_address,
     e.name as executor_name,
-    (SELECT COUNT(*) FROM proposals pr JOIN lots l_sub ON pr.lot_id = l_sub.id WHERE l_sub.tender_id = t.id) as proposals_count
+    (
+        SELECT COUNT(*)
+        FROM proposals pr
+        JOIN lots l_sub ON pr.lot_id = l_sub.id
+        WHERE l_sub.tender_id = t.id
+          AND pr.is_baseline = false
+    ) as proposals_count
 FROM
     tenders t
 JOIN
