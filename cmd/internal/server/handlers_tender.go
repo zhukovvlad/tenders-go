@@ -180,8 +180,8 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 
 // Используем указатели (*), чтобы отличить непереданное поле от поля, переданного как `null`.
 type patchTenderRequest struct {
-	CategoryID *int64  `json:"category_id"`
-	Title      *string `json:"title"`
+	CategoryID *int64  `json:"category_id" binding:"omitempty,gte=1"`
+	Title      *string `json:"title" binding:"omitempty,min=3,max=255"`
 	// В будущем сюда можно добавить любые другие поля, которые можно обновлять
 }
 
@@ -196,7 +196,8 @@ func (s *Server) patchTenderHandler(c *gin.Context) {
 	// Шаг A: Парсим JSON в нашу простую и гибкую структуру `patchTenderRequest`
 	var req patchTenderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse(err))
+		s.logger.Warnf("invalid patchTender input: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("invalid input: %v", err)))
 		return
 	}
 
