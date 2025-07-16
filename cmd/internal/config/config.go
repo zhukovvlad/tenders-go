@@ -7,6 +7,14 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
+type ParserServiceConfig struct {
+	URL string `yaml:"url" env-required:"true"`
+}
+
+type ServicesConfig struct {
+	ParserService ParserServiceConfig `yaml:"parser_service"`
+}
+
 type Config struct {
 	IsDebug *bool `yaml:"is_debug" env-required:"true"`
 	Listen  struct {
@@ -14,6 +22,7 @@ type Config struct {
 		BindIP string `yaml:"bind_ip" env-default:"127.0.0.1"`
 		Port   string `yaml:"port" env-default:"8080"`
 	} `yaml:"listen"`
+	Services ServicesConfig `yaml:"services"`
 }
 
 var instance *Config

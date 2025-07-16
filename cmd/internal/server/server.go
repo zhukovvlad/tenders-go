@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
@@ -17,9 +18,10 @@ type Server struct {
 	logger *logging.Logger
 	tenderService *services.TenderProcessingService
 	httpClient *http.Client
+	config *config.Config
 }
 
-func NewServer(store db.Store, logger *logging.Logger, tenderService *services.TenderProcessingService) *Server {
+func NewServer(store db.Store, logger *logging.Logger, tenderService *services.TenderProcessingService, cfg *config.Config) *Server {
 	httpClient := &http.Client{
 		Timeout: time.Minute * 5,
 	}
@@ -29,6 +31,7 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 		logger: logger,
 		tenderService: tenderService,
 		httpClient: httpClient,
+		config: cfg,
 	}
 	router := gin.Default()
 

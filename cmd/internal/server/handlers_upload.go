@@ -41,7 +41,8 @@ func (s *Server) ProxyUploadHandler(c *gin.Context) {
 		return
 	}
 
-	pythonParserUrl := "http://localhost:9000/parse-tender/"
+	pythonParserBaseUrl := s.config.Services.ParserService.URL
+	pythonParserUrl := fmt.Sprintf("%s/parse-tender/", pythonParserBaseUrl)
 	req, err := http.NewRequest(http.MethodPost, pythonParserUrl, body)
 	if err != nil {
 		s.logger.Errorf("ошибка создания HTTP-запроса для прокси: %v", err)
@@ -69,7 +70,8 @@ func (s *Server) ProxyUploadHandler(c *gin.Context) {
 
 func (s *Server) GetTaskStatusHandler(c *gin.Context) {
     taskID := c.Param("task_id")
-    pythonStatusURL := fmt.Sprintf("http://localhost:9000/tasks/%s/status", taskID)
+	pythonParserBaseUrl := s.config.Services.ParserService.URL
+    pythonStatusURL := fmt.Sprintf("%s/tasks/%s/status", pythonParserBaseUrl, taskID)
 
     req, err := http.NewRequest("GET", pythonStatusURL, nil)
 	if err != nil {

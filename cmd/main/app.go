@@ -45,7 +45,7 @@ func main() {
 
 	store := db.NewStore(conn)
 	tenderService := services.NewTenderProcessingService(store, logger)
-	server := server.NewServer(store, logger, tenderService)
+	server := server.NewServer(store, logger, tenderService, cfg)
 
 	serverAddress := fmt.Sprintf("%s:%s", cfg.Listen.BindIP, cfg.Listen.Port)
 	logger.Infof("Starting server on %s", serverAddress)
