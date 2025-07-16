@@ -2,12 +2,14 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
+	"golang.org/x/sync/errgroup"
 )
 
 type listTendersResponse struct {
@@ -81,53 +83,99 @@ func (s *Server) listTendersHandler(c *gin.Context) {
 // Определяем структуры для нашего комплексного API-ответа
 type tenderPageResponse struct {
 	Details *db.GetTenderDetailsRow `json:"details"`
-	Lots    []db.Lot                `json:"lots"`
+	Lots    []LotResponse           `json:"lots"`
+}
+
+type LotResponse struct {
+	ID            int64             `json:"id"`
+	LotKey        string            `json:"lot_key"`
+	LotTitle      string            `json:"lot_title"`
+	TenderID      int64             `json:"tender_id"`
+	KeyParameters map[string]string `json:"key_parameters"`
+	CreatedAt     string            `json:"created_at"`
+	UpdatedAt     string            `json:"updated_at"`
 }
 
 // getTenderDetailsHandler - возвращает детали тендера и его лоты
 func (s *Server) getTenderDetailsHandler(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный формат ID тендера")))
-		return
-	}
+    id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный формат ID тендера")))
+        return
+    }
 
-	// === ШАГ 1: Получаем детали самого тендера ===
+    // Добавим параметры пагинации из query
+    var queryParams struct {
+        Limit  int `form:"limit,default=100"`
+        Offset int `form:"offset,default=0"`
+    }
+    if err := c.ShouldBindQuery(&queryParams); err != nil {
+        c.JSON(http.StatusBadRequest, errorResponse(err))
+        return
+    }
 
-	tenderDetails, err := s.store.GetTenderDetails(c.Request.Context(), id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, errorResponse(fmt.Errorf("тендер с ID '%d' не найден", id)))
-			return
-		}
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
-		return
-	}
+    var (
+        tenderDetails db.GetTenderDetailsRow
+        lots          []db.Lot
+    )
+    
+    // Используем errgroup для параллельного выполнения независимых запросов
+    g, ctx := errgroup.WithContext(c.Request.Context())
 
-	params := db.ListLotsByTenderIDParams{
-		TenderID: id,
-		Limit:    100, // Ограничиваем количество лотов для упрощения
-		Offset:   0,   // Начинаем с первого лота
-	}
+    // Горутина для получения деталей тендера
+    g.Go(func() error {
+        var err error
+        tenderDetails, err = s.store.GetTenderDetails(ctx, id)
+        if err != nil {
+            if err == sql.ErrNoRows {
+                // Оборачиваем ошибку для корректной обработки ниже
+                return fmt.Errorf("тендер с ID '%d' не найден: %w", id, err)
+            }
+            return err
+        }
+        return nil
+    })
 
-	lots, err := s.store.ListLotsByTenderID(c.Request.Context(), params)
-	if err != nil {
-		s.logger.Errorf("ошибка получения лотов для тендера %d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
-		return
-	}
+    // Горутина для получения списка лотов
+    g.Go(func() error {
+        params := db.ListLotsByTenderIDParams{
+            TenderID: id,
+            Limit:    int32(queryParams.Limit),
+            Offset:   int32(queryParams.Offset),
+        }
+        var err error
+        lots, err = s.store.ListLotsByTenderID(ctx, params)
+        if err != nil {
+            s.logger.Errorf("ошибка получения лотов для тендера %d: %v", id, err)
+            return err
+        }
+        return nil
+    })
 
-	if lots == nil {
-		lots = make([]db.Lot, 0)
-	}
+    // Ждем завершения всех горутин и проверяем на ошибки
+    if err := g.Wait(); err != nil {
+        // Проверяем, была ли это ошибка "не найдено"
+        if errors.Is(err, sql.ErrNoRows) {
+            c.JSON(http.StatusNotFound, errorResponse(err))
+        } else {
+            c.JSON(http.StatusInternalServerError, errorResponse(err))
+        }
+        return
+    }
 
-	// === ШАГ 3: Собираем все в один комплексный ответ ===
-	response := tenderPageResponse{
-		Details: &tenderDetails,
-		Lots:    lots,
-	}
+    // Трансформация данных теперь в одну строку
+    lotResponses := make([]LotResponse, len(lots))
+    for i, lot := range lots {
+        lotResponses[i] = newLotResponse(lot, s.logger)
+    }
 
-	c.JSON(http.StatusOK, response)
+    // Собираем финальный ответ
+    response := tenderPageResponse{
+        Details: &tenderDetails,
+        Lots:    lotResponses,
+    }
+
+    c.JSON(http.StatusOK, response)
 }
 
 // Используем указатели (*), чтобы отличить непереданное поле от поля, переданного как `null`.

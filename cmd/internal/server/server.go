@@ -1,11 +1,14 @@
 package server
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
-	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services"
+	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
 type Server struct {
@@ -13,10 +16,20 @@ type Server struct {
 	router *gin.Engine
 	logger *logging.Logger
 	tenderService *services.TenderProcessingService
+	httpClient *http.Client
 }
 
 func NewServer(store db.Store, logger *logging.Logger, tenderService *services.TenderProcessingService) *Server {
-	server := &Server{store: store, logger: logger, tenderService: tenderService}
+	httpClient := &http.Client{
+		Timeout: time.Minute * 5,
+	}
+
+	server := &Server{
+		store: store,
+		logger: logger,
+		tenderService: tenderService,
+		httpClient: httpClient,
+	}
 	router := gin.Default()
 
 	// Настройка CORS
@@ -35,6 +48,9 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 	// --- ДОБАВЛЯЕМ НОВЫЙ РОУТ ДЛЯ СПИСКА ТЕНДЕРОВ ---
     v1 := router.Group("/api/v1")
     {
+		v1.POST("/upload-tender", server.ProxyUploadHandler)
+		v1.GET("/tasks/:task_id/status", server.GetTaskStatusHandler)
+
         v1.GET("/tenders", server.listTendersHandler)
 		v1.GET("/tenders/:id", server.getTenderDetailsHandler)
 		v1.GET("/tenders/:id/proposals", server.listProposalsHandler)
@@ -43,6 +59,8 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
         v1.PATCH("/tenders/:id", server.patchTenderHandler)
 
 		v1.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
+		v1.PATCH("/lots/:id/key-parameters", server.patchLotKeyParametersHandler)
+
 		
 		v1.GET("/tender-types", server.listTenderTypesHandler)
 		v1.POST("/tender-types", server.createTenderTypeHandler)
