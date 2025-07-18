@@ -8,65 +8,62 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 )
 
-// ImportTenderHandler обрабатывает HTTP-запрос на импорт полного набора данных о тендере.
+// ImportTenderHandler — обработчик импорта полного тендера через POST /api/v1/import-tender.
 //
-// Он выполняет следующие шаги:
-// 1. Декодирует JSON-тело запроса в структуру api_models.FullTenderData.
-// 2. Валидирует полученные данные с помощью метода Validate() самой структуры.
-// 3. Вызывает метод сервисного слоя ImportFullTender для выполнения основной бизнес-логики.
+// Этапы работы:
+// 1. Парсит входящий JSON в структуру api_models.FullTenderData.
+// 2. Валидирует полученные данные методом Validate().
+// 3. Передаёт данные в сервисный слой (ImportFullTender) для сохранения тендера и связанных сущностей.
 //
-// Эндпоинт: POST /api/v1/import-tender
-//
-// Тело запроса (Body):
+// Пример тела запроса:
 //
 //	{
-//	    "tender_id": "string",
-//	    "tender_title": "string",
-//	    "executor": {
-//	        "executor_name": "string",
-//	        "executor_phone": "string",
-//	        "executor_date": "string"
-//	    },
-//	    "lots": {
-//	        "lot_1": { // Ключи для лотов могут быть динамическими (например, lot_1, lot_2)
-//	            "lot_title": "string",
-//	            "proposals": {
-//	                "contractor_1": { // Ключи для подрядчиков также динамические
-//	                    "title": "string",
-//	                    "inn": "string",
-//	                    "contractor_items": {
-//	                        "positions": {
-//	                            "1": { // Ключ - порядковый номер позиции
-//	                                "job_title": "string",
-//	                                "unit": "string | null",
-//	                                "quantity": "number | null",
-//	                                "total_cost": { "total": "number | null" },
-//	                                "is_chapter": "boolean",
-//	                                "chapter_ref": "string | null"
-//	                            }
-//	                            // ... другие позиции ...
-//	                        },
-//	                        "summary": { /* Объект с итоговыми суммами */ }
-//	                    },
-//	                    "additional_info": { /* Карта [string]string с доп. информацией */ }
-//	                }
-//	                // ... другие подрядчики ...
-//	            }
+//	  "tender_id": "строка",
+//	  "tender_title": "строка",
+//	  "executor": {
+//	    "executor_name": "строка",
+//	    "executor_phone": "строка",
+//	    "executor_date": "строка"
+//	  },
+//	  "lots": {
+//	    "lot_1": {
+//	      "lot_title": "строка",
+//	      "proposals": {
+//	        "contractor_1": {
+//	          "title": "строка",
+//	          "inn": "строка",
+//	          "contractor_items": {
+//	            "positions": {
+//	              "1": {
+//	                "job_title": "строка",
+//	                "unit": "строка | null",
+//	                "quantity": "число | null",
+//	                "total_cost": { "total": "число | null" },
+//	                "is_chapter": "boolean",
+//	                "chapter_ref": "строка | null"
+//	              }
+//	            },
+//	            "summary": { /* объект summary */ }
+//	          },
+//	          "additional_info": { /* map[string]string */ }
 //	        }
+//	      }
 //	    }
+//	  }
 //	}
 //
-// Успешный ответ (Success Response):
-// - Код: 201 Created
-// - Тело:
-//   {
-//     "message": "Тендер успешно импортирован",
-//     "tender_id": "<ID импортированного тендера>"
-//   }
+// Пример успешного ответа (201 Created):
 //
-// Ошибки (Error Responses):
-// - Код: 400 Bad Request - в случае некорректного формата JSON или провала валидации данных.
-// - Код: 500 Internal Server Error - в случае внутренней ошибки при обработке и сохранении данных.
+//	{
+//	  "message":   "Тендер успешно импортирован",
+//	  "tender_id": "<оригинальный ID тендера>",
+//	  "db_id":     "<ID тендера в базе данных>",
+//	  "lots_id":   [<список ID лотов>]
+//	}
+//
+// Возможные ошибки:
+// - 400 Bad Request: Некорректный JSON или ошибка валидации данных.
+// - 500 Internal Server Error: Внутренняя ошибка при обработке
 func (s *Server) ImportTenderHandler(c *gin.Context) {
 	// Создаем экземпляр логгера с контекстным полем, чтобы легко отслеживать логи именно этого хендлера.
 	handlerLogger := s.logger.WithField("handler", "ImportTenderHandler")
@@ -95,7 +92,7 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 
 	// Шаг 2: Вызываем метод сервисного слоя для выполнения основной бизнес-логики (сохранение в БД и т.д.).
 	// Передаем контекст запроса для контроля времени выполнения и возможной отмены операции.
-	err := s.tenderService.ImportFullTender(c.Request.Context(), &payload)
+	newDatabaseID, lotsData, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload)
 	// Проверяем, не вернул ли сервисный слой ошибку.
 	if err != nil {
 		// Ошибка уже залогирована в сервисе, поэтому здесь её повторно не логируем.
@@ -104,9 +101,12 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 		return
 	}
 
+	s.logger.Infof("Полученные лоты: %v", lotsData) // Логируем ID лотов для отладки.
 	// Если все прошло успешно, отправляем клиенту ответ со статусом 201 Created.
 	c.JSON(http.StatusCreated, gin.H{
-		"message":   "Тендер успешно импортирован", // Сообщение об успехе.
-		"tender_id": payload.TenderID,             // Возвращаем ID созданного тендера для удобства.
+		"message":   "Тендер успешно импортирован", // Сообщение об успехе
+		"tender_id": payload.TenderID,              // Возвращаем ID созданного тендера для удобства
+		"db_id":     newDatabaseID,                 // Возвращаем ID в базе данных
+		"lots_id":   lotsData,                      // Возвращаем ID лотов
 	})
 }

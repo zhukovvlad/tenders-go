@@ -28,30 +28,45 @@ func NewTenderProcessingService(store db.Store, logger *logging.Logger) *TenderP
 	}
 }
 
-// ImportFullTender выполняет полный импорт тендера из API-модели,
-// включая объекты, исполнителей, лоты и все связанные с ними предложения.
-// Он использует транзакции для обеспечения целостности данных.
-// Возвращает ошибку, если что-то пошло не так на любом этапе обработки.
-// Если импорт успешен, возвращает nil.
-// Если транзакция не удалась, возвращает ошибку с контекстом, указывающим на ETP_ID тендера,
-// чтобы было понятно, какой именно тендер не удалось импортировать.
+// ImportFullTender выполняет полный импорт тендера из API-модели.
+// В случае успеха возвращает:
+//   - ID созданного тендера в базе данных,
+//   - map с ID всех лотов (ключ — lotKey из JSON, значение — ID лота в БД),
+//   - nil в качестве ошибки.
+//
+// В случае ошибки возвращает нулевые значения и ошибку.
+// Все операции выполняются в транзакции: если возникает ошибка на любом этапе, транзакция откатывается.
 func (s *TenderProcessingService) ImportFullTender(
 	ctx context.Context,
 	payload *api_models.FullTenderData,
-) error {
+) (int64, map[string]int64, error) { // <-- ИЗМЕНЕНИЕ 1: Сигнатура функции
+
+	// Объявляем переменные для хранения ID тендера и лотов.
+	// Они должны быть вне замыкания транзакции, чтобы мы могли получить
+	// к ним доступ после её завершения.
+	var newTenderDBID int64
+	lotIDs := make(map[string]int64)
+
 	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
-		// Шаг 1: Обработка основной информации (Объект, Исполнитель, Тендер)
+		// Шаг 1: Обработка основной информации
 		dbTender, err := s.processCoreTenderData(ctx, qtx, payload)
 		if err != nil {
-			return err // Ошибка уже содержит нужный контекст
+			return err
 		}
+		// Захватываем ID созданного тендера
+		newTenderDBID = dbTender.ID
 
 		// Шаг 2: Обработка каждого лота по очереди
 		for lotKey, lotAPI := range payload.LotsData {
-			if err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI); err != nil {
-				// Оборачиваем ошибку для указания, в каком лоте проблема
+			// <-- ИЗМЕНЕНИЕ 2: Вызываем обновленную функцию processLot,
+			// которая теперь возвращает ID созданного лота.
+			lotDBID, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
+			if err != nil {
+				// Если обработка лота не удалась, прерываем всю транзакцию
 				return fmt.Errorf("ошибка при обработке лота '%s': %w", lotKey, err)
 			}
+			// Добавляем полученный ID в наш map
+			lotIDs[lotKey] = lotDBID
 		}
 
 		return nil // Транзакция завершится успешно
@@ -60,11 +75,13 @@ func (s *TenderProcessingService) ImportFullTender(
 	if txErr != nil {
 		// Логируем финальную ошибку верхнего уровня
 		s.logger.Errorf("Не удалось импортировать тендер ETP_ID %s: %v", payload.TenderID, txErr)
-		return fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
+		// <-- ИЗМЕНЕНИЕ 3: Возвращаем нулевые значения и ошибку.
+		return 0, nil, fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
 	}
 
-	s.logger.Infof("Тендер ETP_ID %s успешно импортирован.", payload.TenderID)
-	return nil
+	s.logger.Infof("Тендер ETP_ID %s успешно импортирован с ID базы данных: %d", payload.TenderID, newTenderDBID)
+	// <-- ИЗМЕНЕНИЕ 4: Возвращаем ID тендера, map с ID лотов и nil в качестве ошибки.
+	return newTenderDBID, lotIDs, nil
 }
 
 // processCoreTenderData сохраняет основные данные тендера: объект, исполнитель, дата подготовки.
@@ -501,29 +518,44 @@ func (s *TenderProcessingService) GetOrCreateUnitOfMeasurement(
 	return sql.NullInt64{Int64: unit.ID, Valid: true}, nil
 }
 
-// processLot обрабатывает один лот и все его предложения
-func (s *TenderProcessingService) processLot(ctx context.Context, qtx db.Querier, tenderID int64, lotKey string, lotAPI api_models.Lot) error {
+// processLot обрабатывает один лот и все его предложения.
+// В случае успеха возвращает ID созданного/обновленного лота и nil.
+// В случае ошибки возвращает 0 и саму ошибку.
+func (s *TenderProcessingService) processLot(
+	ctx context.Context,
+	qtx db.Querier,
+	tenderID int64,
+	lotKey string,
+	lotAPI api_models.Lot,
+) (int64, error) { // <-- ИЗМЕНЕНИЕ 1: Сигнатура функции теперь возвращает ID (int64)
+
+	// UpsertLot уже возвращает нам полную запись о лоте, включая его ID
 	dbLot, err := qtx.UpsertLot(ctx, db.UpsertLotParams{
 		TenderID: tenderID,
 		LotKey:   lotKey,
 		LotTitle: lotAPI.LotTitle,
 	})
 	if err != nil {
-		return fmt.Errorf("не удалось сохранить лот: %w", err)
+		// Если лот не удалось сохранить, возвращаем нулевой ID и ошибку
+		return 0, fmt.Errorf("не удалось сохранить лот: %w", err)
 	}
 
 	// Обработка базового предложения
 	if err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true); err != nil {
-		return fmt.Errorf("обработка базового предложения: %w", err)
+		// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
+		return 0, fmt.Errorf("обработка базового предложения: %w", err)
 	}
 
 	// Обработка предложений подрядчиков
 	for _, proposalDetails := range lotAPI.ProposalData {
 		if err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false); err != nil {
-			return fmt.Errorf("обработка предложения от '%s': %w", proposalDetails.Title, err)
+			// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
+			return 0, fmt.Errorf("обработка предложения от '%s': %w", proposalDetails.Title, err)
 		}
 	}
-	return nil
+
+	// <-- ИЗМЕНЕНИЕ 2: Если все прошло успешно, возвращаем ID лота и nil
+	return dbLot.ID, nil
 }
 
 // processProposal — унифицированный метод для обработки любого предложения
