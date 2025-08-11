@@ -2,10 +2,12 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,8 +22,8 @@ func (s *Server) ProxyUploadHandler(c *gin.Context) {
 	}
 	defer sourceFile.Close()
 
-	// Получаем параметр enable_ai (по умолчанию true, как в Python)
-	enableAI := c.DefaultPostForm("enable_ai", "true")
+	// Получаем параметр enable_ai (по умолчанию false, как в Python)
+	enableAI := c.DefaultPostForm("enable_ai", "false")
 
 	// Создаем новый multipart writer для прокси запроса
 	body := &bytes.Buffer{}
@@ -58,7 +60,11 @@ func (s *Server) ProxyUploadHandler(c *gin.Context) {
 	pythonParserBaseUrl := s.config.Services.ParserService.URL
 	pythonParserUrl := fmt.Sprintf("%s/parse-tender/", pythonParserBaseUrl)
 
-	req, err := http.NewRequest(http.MethodPost, pythonParserUrl, body)
+	// Создаем контекст с таймаутом 10 минут
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pythonParserUrl, body)
 	if err != nil {
 		s.logger.Errorf("ошибка создания HTTP-запроса для прокси: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("внутренняя ошибка сервера")))
@@ -67,7 +73,7 @@ func (s *Server) ProxyUploadHandler(c *gin.Context) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Логируем информацию о запросе
-	s.logger.Infof("Проксирование файла %s на Python сервис (enable_ai=%s)", sourceHeader.Filename, enableAI)
+	s.logger.Infof("Проксирование файла %s на Python сервис (enable_ai=%s, timeout=10min)", sourceHeader.Filename, enableAI)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -92,7 +98,11 @@ func (s *Server) GetTaskStatusHandler(c *gin.Context) {
 	pythonParserBaseUrl := s.config.Services.ParserService.URL
 	pythonStatusURL := fmt.Sprintf("%s/tasks/%s/status", pythonParserBaseUrl, taskID)
 
-	req, err := http.NewRequest("GET", pythonStatusURL, nil)
+	// Добавляем контекст с коротким таймаутом для статуса
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", pythonStatusURL, nil)
 	if err != nil {
 		s.logger.Errorf("ошибка создания HTTP-запроса для статуса: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("внутренняя ошибка сервера")))

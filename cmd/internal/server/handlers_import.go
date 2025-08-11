@@ -1,112 +1,74 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 )
 
-// ImportTenderHandler — обработчик импорта полного тендера через POST /api/v1/import-tender.
+// ImportTenderHandler — импорт полного тендера через POST /api/v1/import-tender.
 //
-// Этапы работы:
-// 1. Парсит входящий JSON в структуру api_models.FullTenderData.
-// 2. Валидирует полученные данные методом Validate().
-// 3. Передаёт данные в сервисный слой (ImportFullTender) для сохранения тендера и связанных сущностей.
+// Что делает хэндлер:
+//  1) Считывает исходный JSON из тела запроса в raw []byte (это «слепок» для БД).
+//  2) Восстанавливает c.Request.Body из raw, чтобы можно было распарсить JSON в структуру.
+//  3) Биндит в api_models.FullTenderData и валидирует payload.
+//  4) Передаёт payload + raw в сервисный слой. Сервис в одной транзакции:
+//     - создаёт/обновляет тендер и связанные сущности,
+//     - делает UPSERT в tender_raw_data(raw_data) тем самым исходным raw.
+//  5) Возвращает 201 с db_id и map ID лотов.
 //
-// Пример тела запроса:
-//
-//	{
-//	  "tender_id": "строка",
-//	  "tender_title": "строка",
-//	  "executor": {
-//	    "executor_name": "строка",
-//	    "executor_phone": "строка",
-//	    "executor_date": "строка"
-//	  },
-//	  "lots": {
-//	    "lot_1": {
-//	      "lot_title": "строка",
-//	      "proposals": {
-//	        "contractor_1": {
-//	          "title": "строка",
-//	          "inn": "строка",
-//	          "contractor_items": {
-//	            "positions": {
-//	              "1": {
-//	                "job_title": "строка",
-//	                "unit": "строка | null",
-//	                "quantity": "число | null",
-//	                "total_cost": { "total": "число | null" },
-//	                "is_chapter": "boolean",
-//	                "chapter_ref": "строка | null"
-//	              }
-//	            },
-//	            "summary": { /* объект summary */ }
-//	          },
-//	          "additional_info": { /* map[string]string */ }
-//	        }
-//	      }
-//	    }
-//	  }
-//	}
-//
-// Пример успешного ответа (201 Created):
-//
-//	{
-//	  "message":   "Тендер успешно импортирован",
-//	  "tender_id": "<оригинальный ID тендера>",
-//	  "db_id":     "<ID тендера в базе данных>",
-//	  "lots_id":   [<список ID лотов>]
-//	}
-//
-// Возможные ошибки:
-// - 400 Bad Request: Некорректный JSON или ошибка валидации данных.
-// - 500 Internal Server Error: Внутренняя ошибка при обработке
+// Возможные ответы:
+//  - 201 Created — успешный импорт
+//  - 400 Bad Request — невалидный JSON или провал валидации
+//  - 500 Internal Server Error — ошибка бизнес-логики/БД
 func (s *Server) ImportTenderHandler(c *gin.Context) {
-	// Создаем экземпляр логгера с контекстным полем, чтобы легко отслеживать логи именно этого хендлера.
-	handlerLogger := s.logger.WithField("handler", "ImportTenderHandler")
-	// Информационное сообщение о начале работы.
-	handlerLogger.Info("Начало обработки запроса на импорт тендера")
+	logger := s.logger.WithField("handler", "ImportTenderHandler")
+	logger.Info("Начало обработки запроса на импорт тендера")
 
-	// Объявляем переменную, в которую будут загружены данные из тела запроса.
+	// --- 1) Считываем исходный JSON один раз в raw ---
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("не удалось прочитать тело запроса: %w", err)))
+		return
+	}
+	// Важно: вернуть тело, чтобы биндер смог его прочитать повторно
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(raw))
+
+	// --- 2) Биндинг в модель ---
 	var payload api_models.FullTenderData
-	// Пытаемся распарсить (привязать) JSON из тела HTTP-запроса к нашей структуре `payload`.
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		// Если произошла ошибка (например, невалидный JSON), логируем её...
-		handlerLogger.Errorf("Ошибка парсинга JSON: %v", err)
-		// ...и возвращаем клиенту ошибку 400 Bad Request с подробностями.
+		logger.Errorf("Ошибка парсинга JSON: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректный JSON: %w", err)))
-		return // Прерываем выполнение функции.
+		return
 	}
 
-	// Шаг 1: После успешного парсинга, вызываем метод валидации для проверки бизнес-правил.
+	// --- 3) Валидация бизнес-правил ---
 	if err := payload.Validate(); err != nil {
-		// Если данные не прошли валидацию, логируем это как предупреждение (ошибка на стороне клиента).
-		s.logger.Warnf("Невалидные данные для импорта тендера: %v", err)
-		// Возвращаем клиенту ошибку 400 Bad Request, сообщая о проблеме с данными.
+		logger.Warnf("Невалидные данные для импорта тендера: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
 
-	// Шаг 2: Вызываем метод сервисного слоя для выполнения основной бизнес-логики (сохранение в БД и т.д.).
-	// Передаем контекст запроса для контроля времени выполнения и возможной отмены операции.
-	newDatabaseID, lotsData, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload)
-	// Проверяем, не вернул ли сервисный слой ошибку.
+	// --- 4) Сервисный слой: передаём payload + raw ---
+	dbID, lotsMap, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload, raw)
 	if err != nil {
-		// Ошибка уже залогирована в сервисе, поэтому здесь её повторно не логируем.
-		// Возвращаем клиенту ошибку 500 Internal Server Error, т.к. проблема на нашей стороне.
+		// Ошибка уже должна быть залогирована в сервисе
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
 
-	s.logger.Infof("Полученные лоты: %v", lotsData) // Логируем ID лотов для отладки.
-	// Если все прошло успешно, отправляем клиенту ответ со статусом 201 Created.
+	logger.Infof("Импорт завершён. TenderID=%s, DB_ID=%d, lots=%v", payload.TenderID, dbID, lotsMap)
+
+	// --- 5) Ответ ---
 	c.JSON(http.StatusCreated, gin.H{
-		"message":   "Тендер успешно импортирован", // Сообщение об успехе
-		"tender_id": payload.TenderID,              // Возвращаем ID созданного тендера для удобства
-		"db_id":     newDatabaseID,                 // Возвращаем ID в базе данных
-		"lots_id":   lotsData,                      // Возвращаем ID лотов
+		"message":   "Тендер успешно импортирован",
+		"tender_id": payload.TenderID,
+		"db_id":     dbID,
+		"lots_id":   lotsMap,
 	})
 }

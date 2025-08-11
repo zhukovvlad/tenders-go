@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -28,59 +29,68 @@ func NewTenderProcessingService(store db.Store, logger *logging.Logger) *TenderP
 	}
 }
 
-// ImportFullTender выполняет полный импорт тендера из API-модели.
-// В случае успеха возвращает:
-//   - ID созданного тендера в базе данных,
-//   - map с ID всех лотов (ключ — lotKey из JSON, значение — ID лота в БД),
-//   - nil в качестве ошибки.
+// ImportFullTender выполняет полный импорт тендера из API-модели и сохраняет "сырой" JSON.
+// Все операции выполняются в одной транзакции.
 //
-// В случае ошибки возвращает нулевые значения и ошибку.
-// Все операции выполняются в транзакции: если возникает ошибка на любом этапе, транзакция откатывается.
+// Поведение:
+//   1) Импортирует основную информацию о тендере и связанные сущности (лоты и т.д.).
+//   2) После успешного импорта делает UPSERT исходного JSON в таблицу tender_raw_data.
+//      Перезапись допускается и желательна: при повторной загрузке данные полностью обновляются.
+//   3) При любой ошибке в транзакции изменения откатываются.
+//
+// Аргументы:
+//   - ctx: контекст запроса (таймаут/отмена)
+//   - payload: распарсенная структура тендера (валидация должна быть выполнена до вызова)
+//   - rawJSON: исходное тело запроса в виде байт (тот же JSON, что пришёл от парсера)
+//
+// Возвращает:
+//   - ID тендера в БД,
+//   - map[lotKey]lotDBID для всех созданных/обновлённых лотов,
+//   - ошибку (nil при успехе).
 func (s *TenderProcessingService) ImportFullTender(
 	ctx context.Context,
 	payload *api_models.FullTenderData,
-) (int64, map[string]int64, error) { // <-- ИЗМЕНЕНИЕ 1: Сигнатура функции
+	rawJSON []byte,
+) (int64, map[string]int64, error) {
 
-	// Объявляем переменные для хранения ID тендера и лотов.
-	// Они должны быть вне замыкания транзакции, чтобы мы могли получить
-	// к ним доступ после её завершения.
 	var newTenderDBID int64
 	lotIDs := make(map[string]int64)
 
 	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
-		// Шаг 1: Обработка основной информации
+		// Шаг 1: Обработка основной информации о тендере
 		dbTender, err := s.processCoreTenderData(ctx, qtx, payload)
 		if err != nil {
 			return err
 		}
-		// Захватываем ID созданного тендера
 		newTenderDBID = dbTender.ID
 
-		// Шаг 2: Обработка каждого лота по очереди
+		// Шаг 2: Обработка лотов
 		for lotKey, lotAPI := range payload.LotsData {
-			// <-- ИЗМЕНЕНИЕ 2: Вызываем обновленную функцию processLot,
-			// которая теперь возвращает ID созданного лота.
 			lotDBID, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
 			if err != nil {
-				// Если обработка лота не удалась, прерываем всю транзакцию
 				return fmt.Errorf("ошибка при обработке лота '%s': %w", lotKey, err)
 			}
-			// Добавляем полученный ID в наш map
 			lotIDs[lotKey] = lotDBID
 		}
 
-		return nil // Транзакция завершится успешно
+		// Шаг 3: UPSERT "сырого" JSON в tender_raw_data в рамках той же транзакции.
+		// sqlc сгенерировал тип параметра как json.RawMessage — передаём rawJSON как есть.
+		if _, err := qtx.UpsertTenderRawData(ctx, db.UpsertTenderRawDataParams{
+			TenderID: newTenderDBID,
+			RawData:  json.RawMessage(rawJSON),
+		}); err != nil {
+			return fmt.Errorf("не удалось сохранить исходный JSON (tender_raw_data): %w", err)
+		}
+
+		return nil // транзакция завершится успешно
 	})
 
 	if txErr != nil {
-		// Логируем финальную ошибку верхнего уровня
 		s.logger.Errorf("Не удалось импортировать тендер ETP_ID %s: %v", payload.TenderID, txErr)
-		// <-- ИЗМЕНЕНИЕ 3: Возвращаем нулевые значения и ошибку.
 		return 0, nil, fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
 	}
 
 	s.logger.Infof("Тендер ETP_ID %s успешно импортирован с ID базы данных: %d", payload.TenderID, newTenderDBID)
-	// <-- ИЗМЕНЕНИЕ 4: Возвращаем ID тендера, map с ID лотов и nil в качестве ошибки.
 	return newTenderDBID, lotIDs, nil
 }
 
