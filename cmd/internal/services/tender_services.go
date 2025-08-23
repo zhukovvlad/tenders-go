@@ -33,10 +33,10 @@ func NewTenderProcessingService(store db.Store, logger *logging.Logger) *TenderP
 // Все операции выполняются в одной транзакции.
 //
 // Поведение:
-//   1) Импортирует основную информацию о тендере и связанные сущности (лоты и т.д.).
-//   2) После успешного импорта делает UPSERT исходного JSON в таблицу tender_raw_data.
-//      Перезапись допускается и желательна: при повторной загрузке данные полностью обновляются.
-//   3) При любой ошибке в транзакции изменения откатываются.
+//  1. Импортирует основную информацию о тендере и связанные сущности (лоты и т.д.).
+//  2. После успешного импорта делает UPSERT исходного JSON в таблицу tender_raw_data.
+//     Перезапись допускается и желательна: при повторной загрузке данные полностью обновляются.
+//  3. При любой ошибке в транзакции изменения откатываются.
 //
 // Аргументы:
 //   - ctx: контекст запроса (таймаут/отмена)
@@ -75,12 +75,15 @@ func (s *TenderProcessingService) ImportFullTender(
 
 		// Шаг 3: UPSERT "сырого" JSON в tender_raw_data в рамках той же транзакции.
 		// sqlc сгенерировал тип параметра как json.RawMessage — передаём rawJSON как есть.
+		s.logger.Infof("Сохраняем исходный JSON для тендера ID: %d", newTenderDBID)
 		if _, err := qtx.UpsertTenderRawData(ctx, db.UpsertTenderRawDataParams{
 			TenderID: newTenderDBID,
 			RawData:  json.RawMessage(rawJSON),
 		}); err != nil {
+			s.logger.Errorf("Ошибка при сохранении tender_raw_data для тендера ID %d: %v", newTenderDBID, err)
 			return fmt.Errorf("не удалось сохранить исходный JSON (tender_raw_data): %w", err)
 		}
+		s.logger.Infof("Исходный JSON успешно сохранен для тендера ID: %d", newTenderDBID)
 
 		return nil // транзакция завершится успешно
 	})

@@ -14,10 +14,10 @@ import (
 
 func (s *Server) ProxyUploadHandler(c *gin.Context) {
 	// Получаем файл из формы
-	sourceFile, sourceHeader, err := c.Request.FormFile("tenderFile")
+	sourceFile, sourceHeader, err := c.Request.FormFile("file")
 	if err != nil {
 		s.logger.Errorf("ошибка получения файла из формы: %v", err)
-		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("файл 'tenderFile' не предоставлен")))
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("файл 'file' не предоставлен")))
 		return
 	}
 	defer sourceFile.Close()
