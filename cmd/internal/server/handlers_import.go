@@ -13,18 +13,18 @@ import (
 // ImportTenderHandler — импорт полного тендера через POST /api/v1/import-tender.
 //
 // Что делает хэндлер:
-//  1) Считывает исходный JSON из тела запроса в raw []byte (это «слепок» для БД).
-//  2) Восстанавливает c.Request.Body из raw, чтобы можно было распарсить JSON в структуру.
-//  3) Биндит в api_models.FullTenderData и валидирует payload.
-//  4) Передаёт payload + raw в сервисный слой. Сервис в одной транзакции:
+//  1. Считывает исходный JSON из тела запроса в raw []byte (это «слепок» для БД).
+//  2. Восстанавливает c.Request.Body из raw, чтобы можно было распарсить JSON в структуру.
+//  3. Биндит в api_models.FullTenderData и валидирует payload.
+//  4. Передаёт payload + raw в сервисный слой. Сервис в одной транзакции:
 //     - создаёт/обновляет тендер и связанные сущности,
 //     - делает UPSERT в tender_raw_data(raw_data) тем самым исходным raw.
-//  5) Возвращает 201 с db_id и map ID лотов.
+//  5. Возвращает 201 с db_id и map ID лотов.
 //
 // Возможные ответы:
-//  - 201 Created — успешный импорт
-//  - 400 Bad Request — невалидный JSON или провал валидации
-//  - 500 Internal Server Error — ошибка бизнес-логики/БД
+//   - 201 Created — успешный импорт
+//   - 400 Bad Request — невалидный JSON или провал валидации
+//   - 500 Internal Server Error — ошибка бизнес-логики/БД
 func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ImportTenderHandler")
 	logger.Info("Начало обработки запроса на импорт тендера")

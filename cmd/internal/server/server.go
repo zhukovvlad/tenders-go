@@ -58,6 +58,9 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 		v1.GET("/tenders/:id", server.getTenderDetailsHandler)
 		v1.GET("/tenders/:id/proposals", server.listProposalsHandler)
 
+		// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
+		v1.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
+
 		// Используем PATCH для частичного обновления всего ресурса 'tenders'
 		v1.PATCH("/tenders/:id", server.patchTenderHandler)
 

@@ -27,22 +27,22 @@ type Executor struct {
 
 // Lot описывает отдельный лот тендера, включая предложения подрядчиков.
 type Lot struct {
-	LotTitle         string                               `json:"lot_title"`          // Название лота
-	ProposalData     map[string]ContractorProposalDetails `json:"proposals"`          // Предложения от подрядчиков
-	BaseLineProposal ContractorProposalDetails            `json:"baseline_proposal"`  // Базовое (ориентировочное) предложение от организатора
+	LotTitle         string                               `json:"lot_title"`         // Название лота
+	ProposalData     map[string]ContractorProposalDetails `json:"proposals"`         // Предложения от подрядчиков
+	BaseLineProposal ContractorProposalDetails            `json:"baseline_proposal"` // Базовое (ориентировочное) предложение от организатора
 }
 
 // ContractorProposalDetails содержит данные одного предложения от подрядчика.
 type ContractorProposalDetails struct {
-	Title                string                   `json:"title"`                            // Название подрядчика
-	Inn                  string                   `json:"inn"`                              // ИНН
-	Address              string                   `json:"address"`                          // Юридический адрес
-	Accreditation        string                   `json:"accreditation"`                    // Статус аккредитации
-	ContractorCoordinate string                   `json:"contractor_coordinate"`            // Внутренние координаты для визуализации таблицы
-	ContractorWidth      int                      `json:"contractor_width"`                 // Ширина блока подрядчика
-	ContractorHeight     int                      `json:"contractor_height"`                // Высота блока подрядчика
-	ContractorItems      ContractorItemsContainer `json:"contractor_items"`                 // Позиции и итоги предложения
-	AdditionalInfo       map[string]*string       `json:"additional_info,omitempty"`        // Дополнительная информация (например, сроки, условия)
+	Title                string                   `json:"title"`                     // Название подрядчика
+	Inn                  string                   `json:"inn"`                       // ИНН
+	Address              string                   `json:"address"`                   // Юридический адрес
+	Accreditation        string                   `json:"accreditation"`             // Статус аккредитации
+	ContractorCoordinate string                   `json:"contractor_coordinate"`     // Внутренние координаты для визуализации таблицы
+	ContractorWidth      int                      `json:"contractor_width"`          // Ширина блока подрядчика
+	ContractorHeight     int                      `json:"contractor_height"`         // Высота блока подрядчика
+	ContractorItems      ContractorItemsContainer `json:"contractor_items"`          // Позиции и итоги предложения
+	AdditionalInfo       map[string]*string       `json:"additional_info,omitempty"` // Дополнительная информация (например, сроки, условия)
 }
 
 // ContractorItemsContainer группирует позиции и сводные строки предложения.
@@ -53,21 +53,21 @@ type ContractorItemsContainer struct {
 
 // PositionItem представляет одну позицию из предложения подрядчика.
 type PositionItem struct {
-	Number                        string   `json:"number"`                                        // Порядковый номер
-	ChapterNumber                 *string  `json:"chapter_number,omitempty"`                      // Номер главы (если применимо)
-	ArticleSMR                    *string  `json:"article_smr,omitempty"`                         // Артикул СМР
-	JobTitle                      string   `json:"job_title"`                                     // Название работы
-	CommentOrganizer              *string  `json:"comment_organizer,omitempty"`                   // Комментарий организатора
-	Unit                          *string  `json:"unit,omitempty"`                                // Единица измерения
-	Quantity                      *float64 `json:"quantity,omitempty"`                            // Количество по ТЗ организатора
-	SuggestedQuantity             *float64 `json:"suggested_quantity,omitempty"`                  // Предложенное количество от подрядчика
-	UnitCost                      Cost     `json:"unit_cost"`                                     // Стоимость за единицу
-	TotalCost                     Cost     `json:"total_cost"`                                    // Общая стоимость
-	TotalCostForOrganizerQuantity *float64 `json:"total_cost_for_organizer_quantity,omitempty"`   // Стоимость за объём по ТЗ, но по ценам подрядчика
-	CommentContractor             *string  `json:"comment_contractor,omitempty"`                  // Комментарий подрядчика
-	JobTitleNormalized            *string  `json:"job_title_normalized,omitempty"`                // Нормализованное название работы
-	IsChapter                     bool     `json:"is_chapter"`                                    // Является ли это заголовком главы
-	ChapterRef                    *string  `json:"chapter_ref,omitempty"`                         // Ссылка на главу, если применимо
+	Number                        string   `json:"number"`                                      // Порядковый номер
+	ChapterNumber                 *string  `json:"chapter_number,omitempty"`                    // Номер главы (если применимо)
+	ArticleSMR                    *string  `json:"article_smr,omitempty"`                       // Артикул СМР
+	JobTitle                      string   `json:"job_title"`                                   // Название работы
+	CommentOrganizer              *string  `json:"comment_organizer,omitempty"`                 // Комментарий организатора
+	Unit                          *string  `json:"unit,omitempty"`                              // Единица измерения
+	Quantity                      *float64 `json:"quantity,omitempty"`                          // Количество по ТЗ организатора
+	SuggestedQuantity             *float64 `json:"suggested_quantity,omitempty"`                // Предложенное количество от подрядчика
+	UnitCost                      Cost     `json:"unit_cost"`                                   // Стоимость за единицу
+	TotalCost                     Cost     `json:"total_cost"`                                  // Общая стоимость
+	TotalCostForOrganizerQuantity *float64 `json:"total_cost_for_organizer_quantity,omitempty"` // Стоимость за объём по ТЗ, но по ценам подрядчика
+	CommentContractor             *string  `json:"comment_contractor,omitempty"`                // Комментарий подрядчика
+	JobTitleNormalized            *string  `json:"job_title_normalized,omitempty"`              // Нормализованное название работы
+	IsChapter                     bool     `json:"is_chapter"`                                  // Является ли это заголовком главы
+	ChapterRef                    *string  `json:"chapter_ref,omitempty"`                       // Ссылка на главу, если применимо
 }
 
 // Cost представляет разбивку стоимости по компонентам.
@@ -80,12 +80,12 @@ type Cost struct {
 
 // SummaryLine описывает итог по группе работ/разделу.
 type SummaryLine struct {
-	JobTitle               string   `json:"job_title"`                        // Заголовок итога
-	SuggestedQuantity      *float64 `json:"suggested_quantity"`               // Объём, предложенный подрядчиком
-	UnitCost               Cost     `json:"unit_cost"`                        // Цена за единицу
-	TotalCost              Cost     `json:"total_cost"`                       // Общая стоимость
-	OrganizierQuantityCost *float64 `json:"total_cost_for_organizer_quantity"` // Стоимость по исходному объёму
-	CommentContractor      *string  `json:"comment_contractor,omitempty"`    // Комментарий подрядчика
+	JobTitle               string   `json:"job_title"`                              // Заголовок итога
+	SuggestedQuantity      *float64 `json:"suggested_quantity"`                     // Объём, предложенный подрядчиком
+	UnitCost               Cost     `json:"unit_cost"`                              // Цена за единицу
+	TotalCost              Cost     `json:"total_cost"`                             // Общая стоимость
+	OrganizierQuantityCost *float64 `json:"total_cost_for_organizer_quantity"`      // Стоимость по исходному объёму
+	CommentContractor      *string  `json:"comment_contractor,omitempty"`           // Комментарий подрядчика
 	Deviation              *float64 `json:"deviation_from_baseline_cost,omitempty"` // Отклонение от базовой стоимости
 }
 
@@ -171,6 +171,19 @@ func (ftd *FullTenderData) Validate() error {
 		if err := lot.Validate(); err != nil {
 			return fmt.Errorf("ошибка в лоте '%s': %w", key, err)
 		}
+	}
+	return nil
+}
+
+// SimpleLotAIResult представляет упрощенный результат AI обработки только с lot_id
+type SimpleLotAIResult struct {
+	LotKeyParameters map[string]interface{} `json:"lot_key_parameters" binding:"required"` // Ключевые параметры, извлеченные AI
+}
+
+// Validate проверяет корректность данных упрощенного AI результата
+func (slar *SimpleLotAIResult) Validate() error {
+	if len(slar.LotKeyParameters) == 0 {
+		return fmt.Errorf("ключевые параметры (lot_key_parameters) не могут быть пустыми")
 	}
 	return nil
 }
