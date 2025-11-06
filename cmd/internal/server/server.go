@@ -36,13 +36,21 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 	router := gin.Default()
 
 	// Настройка CORS
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "http://local-api.dev:5173"}, // Укажите адрес фронтенда
-		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT", "PATCH"},             // Методы, которые разрешены
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true, // Если вы используете cookies или авторизацию
-	}))
+	corsConfig := cors.DefaultConfig()
+	if cfg.IsDebug != nil && *cfg.IsDebug {
+		// В режиме отладки разрешаем все origins
+		corsConfig.AllowAllOrigins = true
+		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
+		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"}
+	} else {
+		// В production режиме - строгие настройки
+		corsConfig.AllowOrigins = []string{"http://localhost:5173", "http://local-api.dev:5173"}
+		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
+		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
+		corsConfig.AllowCredentials = true
+	}
+	corsConfig.ExposeHeaders = []string{"Content-Length"}
+	router.Use(cors.New(corsConfig))
 
 	router.GET("/home", server.HomeHandler)
 	router.GET("/api/stats", server.getStatsHandler)

@@ -33,7 +33,7 @@ func (s *Server) patchLotKeyParametersHandler(c *gin.Context) {
 		if floatVal, err := strconv.ParseFloat(strVal, 64); err == nil {
 			parsed[k] = floatVal
 		} else {
-			parsed[k] = strVal // <-- здесь используем исходное strVal, а не shadowed v
+			parsed[k] = strVal
 		}
 	}
 

@@ -7,9 +7,10 @@ DB_PASSWORD = secret
 DB_NAME = tendersdb
 DB_PORT = 5435
 DOCKER_IMAGE = pgvector/pgvector:pg17
-DB_DATA_PATH = "$(pwd)/postgres_data"
+DB_DATA_PATH = $(shell pwd)/postgres_data
 DB_URL = "postgres://$(DB_USER):$(DB_PASSWORD)@localhost:$(DB_PORT)/$(DB_NAME)?sslmode=disable"
 MIGRATION_PATH = "cmd/internal/db/migration"
+GOPATH = $(shell go env GOPATH)
 
 # --- Основные команды ---
 
@@ -19,7 +20,7 @@ run:
 	go run cmd/main/app.go
 
 sqlc:
-	sqlc generate
+	$(GOPATH)/bin/sqlc generate
 
 # --- Команды для БД ---
 
@@ -52,7 +53,7 @@ dropdb:
 	docker exec -it $(CONTAINER_NAME) dropdb $(DB_NAME)
 
 migrateup:
-	migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose up
+	$(GOPATH)/bin/migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose up
 
 migratedown:
-	migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down
+	$(GOPATH)/bin/migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down
