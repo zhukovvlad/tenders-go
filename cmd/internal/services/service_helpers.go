@@ -11,8 +11,8 @@ import (
 )
 
 func getOrCreateOrUpdate[T any, P any](
-	ctx context.Context,
-	qtx db.Querier,
+	_ context.Context,
+	_ db.Querier,
 	// Функция для получения существующей сущности
 	getFn func() (T, error),
 	// Функция для создания новой сущности
