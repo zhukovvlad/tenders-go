@@ -79,7 +79,15 @@ WHERE proposal_id = $1 AND position_key_in_proposal = $2;
 SELECT * FROM position_items
 WHERE proposal_id = $1
 -- ИСПРАВЛЕНО: Сортируем по "номеру" как по числу, а не по "ключу" как по строке.
-ORDER BY (item_number_in_proposal::numeric) NULLS LAST, id
+-- ИСПРАВЛЕНО v3 (R-safe): Безопасная сортировка. Предотвращает ошибку, если
+-- item_number_in_proposal содержит нечисловые значения.
+ORDER BY
+    CASE
+        -- Проверяем, что строка является валидным числом (целым или десятичным)
+        WHEN item_number_in_proposal ~ '^[0-9]+(\.[0-9]+)?$'
+            THEN item_number_in_proposal::numeric
+        ELSE NULL
+    END NULLS LAST, id
 LIMIT $2
 OFFSET $3;
 

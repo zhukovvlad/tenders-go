@@ -170,6 +170,7 @@ CREATE TABLE "suggested_merges" (
   -- 'PENDING', 'APPROVED', 'REJECTED'
   "status" TEXT NOT NULL DEFAULT 'PENDING',
   "created_at" TIMESTAMPTZ NOT NULL DEFAULT (now()),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT (now()),
   
   -- Поля аудита
   "decided_at" TIMESTAMPTZ,
