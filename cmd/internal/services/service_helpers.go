@@ -54,7 +54,7 @@ func getOrCreateOrUpdate[T any, P any](
 func mapApiPositionToDbParams(
 	proposalID int64,
 	positionKey string,
-	catalogPositionID int64,
+	catalogPositionID sql.NullInt64,
 	unitID sql.NullInt64,
 	posAPI api_models.PositionItem,
 ) db.UpsertPositionItemParams {
