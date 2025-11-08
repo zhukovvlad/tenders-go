@@ -11,10 +11,12 @@ INSERT INTO suggested_merges (
     $1, $2, $3
 )
 ON CONFLICT (main_position_id, duplicate_position_id) 
-DO UPDATE SET
-    similarity_score = EXCLUDED.similarity_score,
-    status = 'PENDING', -- Сбрасываем, если вдруг было 'REJECTED'
-    created_at = NOW()
+DO UPDATE 
+SET
+    similarity_score = EXCLUDED.similarity_score, -- Всегда обновляем скор
+    -- Статус сбрасываем в PENDING, только если он не был окончательно решен
+    status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED') THEN suggested_merges.status ELSE 'PENDING' END,
+    updated_at = NOW() -- Обновляем время изменения, но не создания
 RETURNING *;
 
 -- name: ListPendingMerges :many

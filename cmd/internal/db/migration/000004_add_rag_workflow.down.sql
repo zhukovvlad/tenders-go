@@ -57,7 +57,23 @@ DROP COLUMN IF EXISTS "kind";
 
 -- --- ШАГ 5: (КРИТИЧЕСКИ ВАЖНО) Откат `position_items` ---
 -- Возвращаем ограничение NOT NULL
--- ВНИМАНИЕ: Этот откат СЛОМАЕТСЯ, если в таблице есть хоть одно NULL значение.
--- Перед `migratedown` их нужно либо удалить, либо заполнить.
+--
+-- Сначала выполняется атомарная проверка на наличие NULL-значений.
+-- Если они найдены, миграция прерывается с информативным сообщением.
+-- Если проверка пройдена, выполняется ALTER TABLE.
+DO $$
+DECLARE
+    null_count integer;
+BEGIN
+    SELECT count(*) INTO null_count
+    FROM "position_items"
+    WHERE "catalog_position_id" IS NULL;
+
+    IF null_count > 0 THEN
+        RAISE EXCEPTION 'Откат миграции невозможен: Найдено % записей в "position_items" с catalog_position_id = NULL. Перед откатом необходимо либо удалить эти записи, либо присвоить им корректный ID.', null_count;
+    END IF;
+END $$;
+
+-- Эта команда выполнится только если блок DO выше завершился успешно.
 ALTER TABLE "position_items"
 ALTER COLUMN "catalog_position_id" SET NOT NULL;
