@@ -14,6 +14,7 @@
 --    b. *Восстановить* *старый* HNSW-индекс (из 000002).
 --    c. Удалить `CHECK`-ограничение.
 --    d. Удалить колонку `kind` и ее индексы.
+-- 5. Откатить `position_items` (вернуть `NOT NULL` для `catalog_position_id`).
 -- =====================================================================================
 
 
@@ -52,3 +53,11 @@ DROP INDEX IF EXISTS "idx_cp_kind_review";
 -- 4e. Удаляем саму колонку `kind`
 ALTER TABLE "catalog_positions"
 DROP COLUMN IF EXISTS "kind";
+
+
+-- --- ШАГ 5: (КРИТИЧЕСКИ ВАЖНО) Откат `position_items` ---
+-- Возвращаем ограничение NOT NULL
+-- ВНИМАНИЕ: Этот откат СЛОМАЕТСЯ, если в таблице есть хоть одно NULL значение.
+-- Перед `migratedown` их нужно либо удалить, либо заполнить.
+ALTER TABLE "position_items"
+ALTER COLUMN "catalog_position_id" SET NOT NULL;
