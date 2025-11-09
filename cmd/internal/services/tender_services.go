@@ -135,11 +135,23 @@ func (s *TenderProcessingService) processCoreTenderData(
 }
 
 // processSinglePosition обрабатывает одну позицию
-func (s *TenderProcessingService) processSinglePosition(ctx context.Context, qtx db.Querier, proposalID int64, positionKey string, posAPI api_models.PositionItem) error {
+func (s *TenderProcessingService) processSinglePosition(
+	ctx context.Context,
+	qtx db.Querier,
+	proposalID int64,
+	positionKey string,
+	posAPI api_models.PositionItem,
+	lotTitle string,
+) error {
 	// 1. Получаем зависимости
-	catPos, err := s.GetOrCreateCatalogPosition(ctx, qtx, posAPI.JobTitleNormalized, posAPI.JobTitle)
+	catPos, err := s.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle)
 	if err != nil {
 		return fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
+	}
+
+	if catPos.ID == 0 {
+		s.logger.Warnf("Позиция каталога не была создана (возможно, пустой заголовок), пропуск: %s", posAPI.JobTitle)
+		return nil
 	}
 
 	unitID, err := s.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
@@ -147,8 +159,39 @@ func (s *TenderProcessingService) processSinglePosition(ctx context.Context, qtx
 		return fmt.Errorf("не удалось получить/создать единицу измерения: %w", err)
 	}
 
+	var finalCatalogPositionID sql.NullInt64
+
+	if catPos.Kind != "POSITION" {
+		finalCatalogPositionID = sql.NullInt64{Int64: catPos.ID, Valid: true}
+	} else {
+		hashKey := util.GetSHA256Hash(catPos.StandardJobTitle)
+		const currentNormVersion = 1
+
+		cachedMatch, err := qtx.GetMatchingCache(ctx, db.GetMatchingCacheParams{
+			JobTitleHash: hashKey,
+			NormVersion:  currentNormVersion,
+		})
+
+		switch err {
+		case nil:
+			// === CACHE HIT ===
+			// Отлично, Python-воркер уже сделал работу.
+			finalCatalogPositionID = sql.NullInt64{Int64: cachedMatch.CatalogPositionID, Valid: true}
+
+		case sql.ErrNoRows:
+			// === CACHE MISS ===
+			// Python-воркер еще не работал.
+			// МЫ СТАВИМ NULL. ЭТО КЛЮЧЕВОЕ ИЗМЕНЕНИЕ.
+			finalCatalogPositionID = sql.NullInt64{Valid: false}
+
+		default:
+			// Другая, неожиданная ошибка БД
+			return fmt.Errorf("ошибка чтения matching_cache: %w", err)
+		}
+	}
+
 	// 2. Маппинг данных
-	params := mapApiPositionToDbParams(proposalID, positionKey, catPos.ID, unitID, posAPI)
+	params := mapApiPositionToDbParams(proposalID, positionKey, finalCatalogPositionID, unitID, posAPI)
 
 	// 3. Выполнение запроса
 	if _, err := qtx.UpsertPositionItem(ctx, params); err != nil {
@@ -370,14 +413,14 @@ func (s *TenderProcessingService) ProcessProposalAdditionalInfo(
 }
 
 // ProcessContractorItems теперь только оркестрирует процесс
-func (s *TenderProcessingService) ProcessContractorItems(ctx context.Context, qtx db.Querier, proposalID int64, itemsAPI api_models.ContractorItemsContainer) error {
+func (s *TenderProcessingService) ProcessContractorItems(ctx context.Context, qtx db.Querier, proposalID int64, itemsAPI api_models.ContractorItemsContainer, lotTitle string) error {
 	logger := s.logger.WithField("proposal_id", proposalID)
 	logger.Info("Обработка позиций и итогов")
 
 	if itemsAPI.Positions != nil {
 		for key, posAPI := range itemsAPI.Positions {
 			// Вызываем хелпер для одной позиции
-			if err := s.processSinglePosition(ctx, qtx, proposalID, key, posAPI); err != nil {
+			if err := s.processSinglePosition(ctx, qtx, proposalID, key, posAPI, lotTitle); err != nil {
 				// Ошибка уже залогирована внутри хелпера
 				return fmt.Errorf("обработка позиции '%s': %w", key, err)
 			}
@@ -397,36 +440,32 @@ func (s *TenderProcessingService) ProcessContractorItems(ctx context.Context, qt
 	return nil
 }
 
-// Приватный хелпер для инкапсуляции логики нормализации
-func (s *TenderProcessingService) normalizeJobTitle(rawJobTitle string, normalized *string) (string, error) {
-	if normalized != nil && strings.TrimSpace(*normalized) != "" {
-		return strings.TrimSpace(*normalized), nil
-	}
-
-	trimmedRaw := strings.TrimSpace(rawJobTitle)
-	if trimmedRaw == "" {
-		return "", fmt.Errorf("название работы для позиции каталога не может быть пустым")
-	}
-	s.logger.Warnf("Поле 'job_title_normalized' отсутствует для '%s'. Используется raw.", rawJobTitle)
-	return strings.ToLower(strings.Join(strings.Fields(trimmedRaw), " ")), nil
-}
-
 func (s *TenderProcessingService) GetOrCreateCatalogPosition(
 	ctx context.Context,
 	qtx db.Querier,
-	apiJobTitleNormalized *string, // <--- Принимаем указатель на нормализованное название
-	rawJobTitle string, // <--- Принимаем "сырое" название
+	posAPI api_models.PositionItem,
+	lotTitle string,
 ) (db.CatalogPosition, error) {
 
-	standardJobTitleForDB, err := s.normalizeJobTitle(rawJobTitle, apiJobTitleNormalized)
+	// Шаг 1: Получаем и kind, и standardJobTitle
+	kind, standardJobTitleForDB, err := s.getKindAndStandardTitle(posAPI, lotTitle)
 	if err != nil {
+		// Эта ошибка теперь не должна возникать, т.к. хелпер обрабатывает пустые строки
 		return db.CatalogPosition{}, err
+	}
+
+	// Если имя пустое (например, заголовок с пустым job_title),
+	// мы не должны создавать запись в catalog_positions.
+	if standardJobTitleForDB == "" {
+		// Возвращаем пустую структуру, `processSinglePosition` пропустит эту позицию
+		return db.CatalogPosition{}, nil
 	}
 
 	opLogger := s.logger.WithFields(logrus.Fields{
 		"service_method":          "GetOrCreateCatalogPosition",
-		"input_raw_job_title":     rawJobTitle,
+		"input_raw_job_title":     posAPI.JobTitle,
 		"used_standard_job_title": standardJobTitleForDB,
+		"determined_kind":         kind,
 	})
 
 	// Используем getOrCreateOrUpdate.
@@ -442,19 +481,28 @@ func (s *TenderProcessingService) GetOrCreateCatalogPosition(
 			opLogger.Info("Позиция каталога не найдена, создается новая.")
 			return qtx.CreateCatalogPosition(ctx, db.CreateCatalogPositionParams{
 				StandardJobTitle: standardJobTitleForDB,
-				Description:      sql.NullString{String: rawJobTitle, Valid: true},
+				Description:      sql.NullString{String: posAPI.JobTitle, Valid: true},
+				Kind:             kind,
 			})
 		},
-		// diffFn: обновление не требуется, поэтому всегда возвращаем false.
-		// Тип возвращаемых параметров теперь - UpdateCatalogPositionDetailsParams.
+		// diffFn: Проверяем, не изменился ли `kind`
 		func(existing db.CatalogPosition) (bool, db.UpdateCatalogPositionDetailsParams, error) {
+			// Если парсер вдруг передумал (например, `TO_REVIEW` -> `POSITION`), обновляем.
+			if existing.Kind != kind {
+				opLogger.Warnf("Kind для '%s' изменился: '%s' -> '%s'. Обновляем.", standardJobTitleForDB, existing.Kind, kind)
+				return true, db.UpdateCatalogPositionDetailsParams{
+					ID:   existing.ID,
+					Kind: sql.NullString{String: kind, Valid: true},
+					// Обновляем и описание на всякий случай
+					Description: sql.NullString{String: posAPI.JobTitle, Valid: true},
+				}, nil
+			}
 			return false, db.UpdateCatalogPositionDetailsParams{}, nil
 		},
-		// updateFn: передаем реальную функцию обновления.
-		// Она никогда не будет вызвана из-за ложного значения от diffFn,
-		// но она нужна, чтобы код скомпилировался.
+		// updateFn: будет вызвана хелпером, если diffFn вернет true
 		func(params db.UpdateCatalogPositionDetailsParams) (db.CatalogPosition, error) {
-			return qtx.UpdateCatalogPositionDetails(ctx, params)
+			opLogger.Info("Обновляем Kind для существующей позиции.") //
+			return qtx.UpdateCatalogPositionDetails(ctx, params)      //
 		},
 	)
 }
@@ -556,14 +604,14 @@ func (s *TenderProcessingService) processLot(
 	}
 
 	// Обработка базового предложения
-	if err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true); err != nil {
+	if err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true, lotAPI.LotTitle); err != nil {
 		// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
 		return 0, fmt.Errorf("обработка базового предложения: %w", err)
 	}
 
 	// Обработка предложений подрядчиков
 	for _, proposalDetails := range lotAPI.ProposalData {
-		if err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false); err != nil {
+		if err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false, lotAPI.LotTitle); err != nil {
 			// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
 			return 0, fmt.Errorf("обработка предложения от '%s': %w", proposalDetails.Title, err)
 		}
@@ -574,7 +622,7 @@ func (s *TenderProcessingService) processLot(
 }
 
 // processProposal — унифицированный метод для обработки любого предложения
-func (s *TenderProcessingService) processProposal(ctx context.Context, qtx db.Querier, lotID int64, proposalAPI *api_models.ContractorProposalDetails, isBaseline bool) error {
+func (s *TenderProcessingService) processProposal(ctx context.Context, qtx db.Querier, lotID int64, proposalAPI *api_models.ContractorProposalDetails, isBaseline bool, lotTitle string) error {
 	var inn, title, address, accreditation string
 	if isBaseline {
 		// Для базового предложения используем константы или предопределенные значения
@@ -605,7 +653,7 @@ func (s *TenderProcessingService) processProposal(ctx context.Context, qtx db.Qu
 		return err
 	}
 
-	if err := s.ProcessContractorItems(ctx, qtx, dbProposal.ID, proposalAPI.ContractorItems); err != nil {
+	if err := s.ProcessContractorItems(ctx, qtx, dbProposal.ID, proposalAPI.ContractorItems, lotTitle); err != nil {
 		return err
 	}
 	return nil
@@ -728,4 +776,46 @@ func (s *TenderProcessingService) UpdateLotKeyParametersDirectly(
 		logger.Infof("Ключевые параметры успешно обновлены для лота ID %d", updatedLot.ID)
 		return nil
 	})
+}
+
+func (s *TenderProcessingService) getKindAndStandardTitle(posAPI api_models.PositionItem, lotTitle string) (string, string, error) {
+	
+	// --- Шаг 1: Определяем `kind` ---
+    // Сравниваем "яблоки с яблоками" (RAW c RAW)
+	
+	var kind string
+	if !posAPI.IsChapter {
+		kind = "POSITION"
+	} else {
+		normalizedPosTitle := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(posAPI.JobTitle)), " "))
+		normalizedLotTitle := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(lotTitle)), " "))
+
+		// В нашем JSON это сравнение даст:
+		// "лот №1 - set 1 оч ub2_устройство свайного основания" == "лот №1 - set 1 оч ub2_устройство свайного основания"
+		// Это TRUE.
+		if normalizedPosTitle == normalizedLotTitle {
+			kind = "LOT_HEADER"
+		} else {
+			kind = "HEADER"
+		}
+	}
+
+	// --- Шаг 2: Определяем `standardJobTitle` (Лемму для БД) ---
+    // А вот здесь мы уже берем лемму, если она есть
+
+	var standardJobTitleForDB string
+	if posAPI.JobTitleNormalized != nil && strings.TrimSpace(*posAPI.JobTitleNormalized) != "" {
+		// Берем лемму из JSON: "лот 1 set 1 оч ub2_устройство свайный основание"
+		standardJobTitleForDB = strings.TrimSpace(*posAPI.JobTitleNormalized)
+	} else {
+		// Fallback: используем ту же простую нормализацию, что и на шаге 1
+		trimmedRaw := strings.TrimSpace(posAPI.JobTitle)
+		if trimmedRaw == "" {
+			return "", "", nil
+		}
+		s.logger.Warnf("Поле 'job_title_normalized' отсутствует для '%s'. Используется raw.", trimmedRaw)
+		standardJobTitleForDB = strings.ToLower(strings.Join(strings.Fields(trimmedRaw), " "))
+	}
+
+	return kind, standardJobTitleForDB, nil
 }
