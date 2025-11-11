@@ -126,3 +126,67 @@ LIMIT $1;
 UPDATE position_items
 SET catalog_position_id = $1 -- $1 = main_id (найденный RAG-поиском)
 WHERE id = $2; -- $2 = id "осиротевшей" записи
+
+-- name: GetUnmatchedPositions :many
+-- (Версия 6: Hardened - с TRIM, защитой от циклов и ORDER BY)
+
+-- 1. (CTE) Рекурсивно строим "дерево" разделов
+WITH RECURSIVE Breadcrumbs AS (
+    -- 1a. (Anchor) Находим "корневые" разделы
+    SELECT
+        pi.id,
+        pi.proposal_id,
+        pi.item_number_in_proposal,
+        pi.job_title_in_proposal,
+        pi.chapter_ref_in_proposal,
+        pi.job_title_in_proposal AS parent_path,
+        ARRAY[pi.id] AS path_ids -- (ВКЛЮЧЕНО: Защита от циклов)
+    FROM 
+        position_items AS pi
+    JOIN proposals p ON pi.proposal_id = p.id 
+    JOIN lots l ON p.lot_id = l.id
+    WHERE 
+        pi.is_chapter = true
+        AND (pi.chapter_ref_in_proposal IS NULL OR pi.chapter_ref_in_proposal = '')
+        -- (ВКЛЮЧЕНО: TRIM для надежного сравнения)
+        AND TRIM(pi.job_title_in_proposal) != TRIM(l.lot_title)
+
+    UNION ALL
+
+    -- 1b. (Recursive) Присоединяем дочерние разделы
+    SELECT
+        pi.id,
+        pi.proposal_id,
+        pi.item_number_in_proposal,
+        pi.job_title_in_proposal,
+        pi.chapter_ref_in_proposal,
+        b.parent_path || ' | ' || pi.job_title_in_proposal,
+        b.path_ids || pi.id -- (ВКЛЮЧЕНО: Защита от циклов)
+    FROM 
+        position_items pi
+    JOIN 
+        Breadcrumbs b ON pi.proposal_id = b.proposal_id 
+                    -- (ВКЛЮЧЕНО: TRIM для надежного JOIN)
+                    AND TRIM(pi.chapter_ref_in_proposal) = TRIM(b.item_number_in_proposal)
+    WHERE 
+        pi.is_chapter = true
+        -- (ВКЛЮЧЕНО: Защита от циклов)
+        AND NOT (pi.id = ANY(b.path_ids))
+)
+-- 2. (Final Query) Находим 'NULL'-позиции
+SELECT 
+    pi.id AS position_item_id,
+    pi.job_title_in_proposal,
+    COALESCE(b.parent_path, '') AS full_parent_path
+FROM 
+    position_items AS pi
+LEFT JOIN 
+    Breadcrumbs AS b ON b.proposal_id = pi.proposal_id 
+                     -- (ВКЛЮЧЕНО: TRIM для надежного JOIN)
+                     AND TRIM(b.item_number_in_proposal) = TRIM(pi.chapter_ref_in_proposal)
+WHERE 
+    pi.catalog_position_id IS NULL
+    AND pi.is_chapter = false
+ORDER BY
+    pi.id -- (ВКЛЮЧЕНО: Детерминированный LIMIT)
+LIMIT $1;

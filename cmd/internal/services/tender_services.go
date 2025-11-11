@@ -779,10 +779,10 @@ func (s *TenderProcessingService) UpdateLotKeyParametersDirectly(
 }
 
 func (s *TenderProcessingService) getKindAndStandardTitle(posAPI api_models.PositionItem, lotTitle string) (string, string, error) {
-	
+
 	// --- Шаг 1: Определяем `kind` ---
-    // Сравниваем "яблоки с яблоками" (RAW c RAW)
-	
+	// Сравниваем "яблоки с яблоками" (RAW c RAW)
+
 	var kind string
 	if !posAPI.IsChapter {
 		kind = "POSITION"
@@ -801,7 +801,7 @@ func (s *TenderProcessingService) getKindAndStandardTitle(posAPI api_models.Posi
 	}
 
 	// --- Шаг 2: Определяем `standardJobTitle` (Лемму для БД) ---
-    // А вот здесь мы уже берем лемму, если она есть
+	// А вот здесь мы уже берем лемму, если она есть
 
 	var standardJobTitleForDB string
 	if posAPI.JobTitleNormalized != nil && strings.TrimSpace(*posAPI.JobTitleNormalized) != "" {
@@ -818,4 +818,48 @@ func (s *TenderProcessingService) getKindAndStandardTitle(posAPI api_models.Posi
 	}
 
 	return kind, standardJobTitleForDB, nil
+}
+
+// GetUnmatchedPositions (Версия 3: БЕЗ lot_title)
+func (s *TenderProcessingService) GetUnmatchedPositions(
+	ctx context.Context,
+	limit int32,
+) ([]api_models.UnmatchedPositionResponse, error) {
+
+	// 1. Вызываем наш НОВЫЙ рекурсивный SQLC-запрос
+	// (sqlc сгенерирует row.FullParentPath, но НЕ row.LotTitle)
+	dbRows, err := s.store.GetUnmatchedPositions(ctx, limit)
+	if err != nil {
+		s.logger.Errorf("Ошибка GetUnmatchedPositions: %v", err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	response := make([]api_models.UnmatchedPositionResponse, 0, len(dbRows))
+
+	for _, row := range dbRows {
+		var context string
+
+		// 2. Собираем "богатую" строку (БЕЗ ЛОТА)
+		// (SQL вернет '' (пустую строку), если разделов нет, благодаря COALESCE)
+		if row.FullParentPath != "" {
+			// Если есть "хлебные крошки"
+			context = fmt.Sprintf("Раздел: %s | Позиция: %s",
+				row.FullParentPath,
+				row.JobTitleInProposal,
+			)
+		} else {
+			// Если у позиции нет родительского раздела (лежит в корне)
+			// Используем только ее собственный заголовок.
+			context = fmt.Sprintf("Позиция: %s", row.JobTitleInProposal)
+		}
+
+		response = append(response, api_models.UnmatchedPositionResponse{
+			PositionItemID:     row.PositionItemID,
+			JobTitleInProposal: row.JobTitleInProposal,
+			RichContextString:  context,
+		})
+	}
+
+	s.logger.Infof("Найдено %d не сопоставленных позиций для RAG-воркера", len(response))
+	return response, nil
 }
