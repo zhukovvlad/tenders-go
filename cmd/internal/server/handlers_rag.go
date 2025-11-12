@@ -74,7 +74,12 @@ func (s *Server) MatchPositionHandler(c *gin.Context) {
 	err := s.tenderService.MatchPosition(c.Request.Context(), payload)
 	if err != nil {
 		logger.Errorf("Ошибка MatchPosition: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		var validationErr *services.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
 		return
 	}
 
@@ -98,7 +103,12 @@ func (s *Server) UnindexedCatalogItemsHandler(c *gin.Context) {
 	response, err := s.tenderService.GetUnindexedCatalogItems(c.Request.Context(), int32(limit))
 	if err != nil {
 		logger.Errorf("Ошибка GetUnindexedCatalogItems: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		var validationErr *services.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
 		return
 	}
 

@@ -95,25 +95,22 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 		v1.POST("/tender-categories", server.createTenderCategoryHandler)
 		v1.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
 		v1.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
-	}
-	// ------------------------------------------------
 
-	ragGroup := router.Group("/api/v1")
-	{
+		// RAG-воркфлоу
 		// 1. "Дай мне работу" (для Процесса 2)
-		ragGroup.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
+		v1.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
 
 		// 2. "Прими результат" (для Процесса 2)
-		ragGroup.POST("/positions/match", server.MatchPositionHandler)
+		v1.POST("/positions/match", server.MatchPositionHandler)
 
 		// 3. "Дай каталог на индексацию" (для Процесса 3)
-		ragGroup.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
+		v1.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
 
 		// 4. "Я проиндексировал" (для Процесса 3)
-		ragGroup.POST("/catalog/indexed", server.CatalogIndexedHandler)
+		v1.POST("/catalog/indexed", server.CatalogIndexedHandler)
 
 		// 5. "Предложи слияние" (для Процесса 3)
-		ragGroup.POST("/merges/suggest", server.SuggestMergeHandler)
+		v1.POST("/merges/suggest", server.SuggestMergeHandler)
 	}
 
 	server.router = router
