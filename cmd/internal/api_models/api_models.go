@@ -187,3 +187,38 @@ func (slar *SimpleLotAIResult) Validate() error {
 	}
 	return nil
 }
+
+// MatchPositionRequest - это JSON, который Go-сервер ожидает от Python-воркера
+// при вызове POST /api/v1/positions/match
+//
+type MatchPositionRequest struct {
+	PositionItemID    int64  `json:"position_item_id" binding:"required"`
+	CatalogPositionID int64  `json:"catalog_position_id" binding:"required"`
+	Hash              string `json:"hash" binding:"required"`
+	NormVersion       int    `json:"norm_version"` // Опционально, сервис Go подставит '1' по умолчанию
+}
+
+// CatalogIndexedRequest - это JSON для POST /api/v1/catalog/indexed
+// Сообщает Go-серверу, какие ID каталога были успешно проиндексированы.
+//
+type CatalogIndexedRequest struct {
+	CatalogIDs []int64 `json:"catalog_ids" binding:"required"`
+}
+
+// SuggestMergeRequest - это JSON для POST /api/v1/merges/suggest
+// Создает новую задачу на слияние дубликатов в таблице suggested_merges.
+//
+type SuggestMergeRequest struct {
+	MainPositionID    int64   `json:"main_position_id" binding:"required"`
+	DuplicatePositionID int64   `json:"duplicate_position_id" binding:"required"`
+	SimilarityScore   float64 `json:"similarity_score" binding:"required"`
+}
+
+// UnmatchedPositionResponse - это DTO, которое Go-сервер возвращает
+// в ответ на GET /api/v1/positions/unmatched
+//
+type UnmatchedPositionResponse struct {
+	PositionItemID     int64  `json:"position_item_id"`
+	JobTitleInProposal string `json:"job_title_in_proposal"`
+	RichContextString  string `json:"rich_context_string"`
+}
