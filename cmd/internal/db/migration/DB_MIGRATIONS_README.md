@@ -76,6 +76,40 @@
 
 ---
 
+## `000005_add_catalog_status.up.sql`
+
+* **Назначение:** "Управление жизненным циклом RAG-индексации"
+* **Описание:** Эта миграция добавляет колонку `status` в таблицу `catalog_positions` для отслеживания состояния обработки позиций в RAG-пайплайне. Она дополняет RAG-воркфлоу из миграции `000004`, добавляя возможность различать позиции по их *состоянию* обработки (в дополнение к их *типу* из поля `kind`).
+
+* **Ключевые особенности:**
+  * **Поле `status`:** Имеет 5 возможных значений с CHECK-ограничением:
+    * `na` (по умолчанию) — "Not Applicable", неприменимо для индексации (используется для HEADER, TRASH и т.д.)
+    * `pending_indexing` — позиция ожидает индексации Python-воркером (только для kind = POSITION)
+    * `active` — проиндексирована и используется в RAG-поиске
+    * `deprecated` — устарела, больше не индексируется
+    * `archived` — в архиве, исключена из активной работы
+  
+  * **Индекс `idx_cp_status_pending`:** Частичный индекс для быстрой выборки "очереди" необработанных позиций. Критичен для эндпоинта `GET /api/v1/catalog/unindexed`.
+  
+  * **Индекс `idx_cp_status`:** Общий индекс для фильтрации по статусу в админке и отчетах.
+
+* **Интеграция с существующей архитектурой:**
+  * **Связь с `kind` (миграция 000004):** Поле `kind` определяет *тип* записи (POSITION/HEADER/TRASH), поле `status` определяет *состояние* обработки. 
+    * Записи с `kind = 'POSITION'` должны создаваться с `status = 'pending_indexing'` для попадания в очередь RAG-воркера
+    * Записи с `kind IN ('HEADER', 'TRASH', 'LOT_HEADER')` получают `status = 'na'` и никогда не обрабатываются
+  
+  * **Workflow:** 
+    1. Go-сервер создает новую позицию:
+       - Если `kind = 'POSITION'` → устанавливает `status = 'pending_indexing'`
+       - Если `kind != 'POSITION'` → оставляет `status = 'na'` (по умолчанию)
+    2. Python-воркер запрашивает `GET /api/v1/catalog/unindexed` и получает список позиций с `status = 'pending_indexing'`
+    3. После создания эмбеддингов, воркер вызывает `POST /api/v1/catalog/mark-indexed`, который обновляет `status` на `active`
+    4. Активные позиции участвуют в RAG-поиске через `VIEW catalog_positions_clean`
+
+* **Важное замечание:** Значение по умолчанию `'na'` означает, что существующие записи при применении миграции получат нейтральный статус. Go-сервер должен явно устанавливать `'pending_indexing'` для реальных позиций при их создании.
+
+---
+
 ## Операционное обслуживание (Housekeeping)
 
 Для корректной работы системы в "долгую" необходим фоновый процесс (например, cron job), который будет выполнять регулярную очистку.
@@ -88,3 +122,53 @@
 -- Удаляет все записи кэша, у которых истек срок жизни (TTL)
 DELETE FROM "matching_cache"
 WHERE "expires_at" IS NOT NULL AND "expires_at" < now();
+```
+
+### Мониторинг RAG-индексации (миграция 000005)
+
+Для контроля работы Python-воркера и состояния каталога рекомендуется периодически проверять распределение позиций по статусам:
+
+```sql
+-- Проверка статистики по статусам позиций каталога
+SELECT 
+    status,
+    kind,
+    COUNT(*) as count
+FROM "catalog_positions"
+GROUP BY status, kind
+ORDER BY status, kind;
+
+-- Поиск "застрявших" позиций (pending_indexing дольше 24 часов)
+SELECT 
+    id,
+    job_title,
+    kind,
+    created_at,
+    NOW() - created_at as pending_duration
+FROM "catalog_positions"
+WHERE status = 'pending_indexing' 
+  AND kind = 'POSITION'
+  AND created_at < NOW() - INTERVAL '24 hours'
+ORDER BY created_at
+LIMIT 100;
+
+-- Проверка корректности связки kind/status (не должно быть результатов)
+SELECT 
+    id,
+    job_title,
+    kind,
+    status
+FROM "catalog_positions"
+WHERE 
+    -- Позиции не должны иметь статус 'na'
+    (kind = 'POSITION' AND status = 'na')
+    OR
+    -- Не-позиции не должны иметь статусы индексации
+    (kind != 'POSITION' AND status IN ('pending_indexing', 'active'))
+LIMIT 100;
+```
+
+**Ожидаемая семантика:**
+- `kind = 'POSITION'` + `status IN ('pending_indexing', 'active', 'deprecated', 'archived')` — нормально
+- `kind IN ('HEADER', 'TRASH', 'LOT_HEADER')` + `status = 'na'` — нормально
+- Любые другие комбинации — ошибка в логике приложения
