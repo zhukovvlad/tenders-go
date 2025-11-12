@@ -8,7 +8,7 @@ WHERE
     job_title_hash = $1
     AND norm_version = $2;
 
--- name: UpsertMatchingCache :one
+-- name: UpsertMatchingCache :exec
 -- (Для Python-воркера) Записывает результат RAG-поиска в кэш.
 INSERT INTO matching_cache (
     job_title_hash,
@@ -23,8 +23,8 @@ ON CONFLICT (job_title_hash, norm_version)
 DO UPDATE SET
     catalog_position_id = EXCLUDED.catalog_position_id,
     expires_at = EXCLUDED.expires_at,
-    job_title_text = EXCLUDED.job_title_text
-RETURNING *;
+    job_title_text = EXCLUDED.job_title_text;
+-- (RETURNING * удален)
 
 -- name: RetargetMatchingCache :exec
 -- (Для Go-сервера, при слиянии) Перенаправляет все кэшированные

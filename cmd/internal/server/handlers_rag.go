@@ -12,26 +12,28 @@ import (
 // === 1. GET /api/v1/positions/unmatched ===
 
 // UnmatchedPositionsHandler - хендлер для GET /api/v1/positions/unmatched
-//
 func (s *Server) UnmatchedPositionsHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "UnmatchedPositionsHandler")
 
 	// Получаем limit из query-параметров
 	limitStr := c.DefaultQuery("limit", "100")
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		limit = 100 // Значение по умолчанию
+	if err != nil {
+		logger.Errorf("Некорректное значение limit: %s", limitStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть целым числом")))
+		return
 	}
 
-	// 1. Вызываем логику из tender_services
+	// 1. Вызываем логику из tender_services (там есть валидация limit)
 	//
 	response, err := s.tenderService.GetUnmatchedPositions(c.Request.Context(), int32(limit))
 	if err != nil {
+		// Если это ошибка валидации (limit <= 0), возвращаем 400
 		logger.Errorf("Ошибка GetUnmatchedPositions: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
-	
+
 	// Если ничего не найдено, возвращаем пустой массив, а не nil
 	if response == nil {
 		response = make([]api_models.UnmatchedPositionResponse, 0)
@@ -41,11 +43,9 @@ func (s *Server) UnmatchedPositionsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-
 // === 2. POST /api/v1/positions/match ===
 
 // MatchPositionHandler - хендлер для POST /api/v1/positions/match
-//
 func (s *Server) MatchPositionHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "MatchPositionHandler")
 
@@ -72,18 +72,16 @@ func (s *Server) MatchPositionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-
 // === 3. GET /api/v1/catalog/unindexed ===
 
 // UnindexedCatalogItemsHandler - хендлер для GET /api/v1/catalog/unindexed
-//
 func (s *Server) UnindexedCatalogItemsHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "UnindexedCatalogItemsHandler")
 
 	limitStr := c.DefaultQuery("limit", "1000")
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil || limit < 0 { // 0 - значит "без лимита"
-		limit = 1000 
+		limit = 1000
 	}
 
 	// 1. Вызываем логику (этот метод нам еще нужно создать в tender_services.go)
@@ -93,19 +91,17 @@ func (s *Server) UnindexedCatalogItemsHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
-	
+
 	if response == nil {
 		response = make([]api_models.UnmatchedPositionResponse, 0) // Используем тот же DTO
 	}
-	
+
 	c.JSON(http.StatusOK, response)
 }
-
 
 // === 4. POST /api/v1/catalog/indexed ===
 
 // CatalogIndexedHandler - хендлер для POST /api/v1/catalog/indexed
-//
 func (s *Server) CatalogIndexedHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "CatalogIndexedHandler")
 
@@ -127,11 +123,9 @@ func (s *Server) CatalogIndexedHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "indexed_count": len(payload.CatalogIDs)})
 }
 
-
 // === 5. POST /api/v1/merges/suggest ===
 
 // SuggestMergeHandler - хендлер для POST /api/v1/merges/suggest
-//
 func (s *Server) SuggestMergeHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "SuggestMergeHandler")
 

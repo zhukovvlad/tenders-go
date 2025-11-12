@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sqlc-dev/pqtype"
@@ -14,6 +15,13 @@ import (
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/util"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
+)
+
+const (
+	// MaxUnmatchedPositionsLimit определяет максимальное количество позиций,
+	// которое можно запросить за один вызов GetUnmatchedPositions.
+	// Это ограничение предотвращает чрезмерную нагрузку на БД и память.
+	MaxUnmatchedPositionsLimit = 1000
 )
 
 // TenderProcessingService отвечает за полную обработку тендерных данных,
@@ -821,10 +829,27 @@ func (s *TenderProcessingService) getKindAndStandardTitle(posAPI api_models.Posi
 }
 
 // GetUnmatchedPositions (Версия 3: БЕЗ lot_title)
+// Возвращает список несопоставленных позиций с контекстной информацией.
+//
+// Параметр limit должен быть положительным числом. Если limit <= 0, возвращается ошибка валидации.
+// Если limit превышает MaxUnmatchedPositionsLimit, он автоматически ограничивается этим максимумом.
 func (s *TenderProcessingService) GetUnmatchedPositions(
 	ctx context.Context,
 	limit int32,
 ) ([]api_models.UnmatchedPositionResponse, error) {
+
+	// Валидация параметра limit
+	if limit <= 0 {
+		s.logger.Warnf("Получен некорректный limit: %d (должен быть > 0)", limit)
+		return nil, fmt.Errorf("параметр limit должен быть положительным числом, получено: %d", limit)
+	}
+
+	// Ограничиваем максимальное значение
+	if limit > MaxUnmatchedPositionsLimit {
+		s.logger.Infof("Запрошено limit=%d, ограничиваем до MaxUnmatchedPositionsLimit=%d",
+			limit, MaxUnmatchedPositionsLimit)
+		limit = MaxUnmatchedPositionsLimit
+	}
 
 	// 1. Вызываем наш НОВЫЙ рекурсивный SQLC-запрос
 	// (sqlc сгенерирует row.FullParentPath, но НЕ row.LotTitle)
@@ -862,4 +887,69 @@ func (s *TenderProcessingService) GetUnmatchedPositions(
 
 	s.logger.Infof("Найдено %d не сопоставленных позиций для RAG-воркера", len(response))
 	return response, nil
+}
+
+// MatchPosition обрабатывает POST /api/v1/positions/match
+func (s *TenderProcessingService) MatchPosition(
+	ctx context.Context,
+	req api_models.MatchPositionRequest,
+) error {
+
+	// Устанавливаем версию нормы по умолчанию, если Python ее не прислал
+	normVersion := req.NormVersion
+	if normVersion == 0 {
+		normVersion = 1 // Версия по умолчанию
+	}
+
+	// Выполняем оба обновления в одной транзакции
+	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
+
+		// 1. Обновляем position_items, "закрывая" NULL
+		//
+		err := qtx.SetCatalogPositionID(ctx, db.SetCatalogPositionIDParams{
+			CatalogPositionID: sql.NullInt64{Int64: req.CatalogPositionID, Valid: true},
+			ID:                req.PositionItemID,
+		})
+		if err != nil {
+			s.logger.Errorf("MatchPosition: Ошибка SetCatalogPositionID: %v", err)
+			return fmt.Errorf("ошибка обновления position_items: %w", err)
+		}
+
+		// 2. Обновляем matching_cache для будущих импортов
+		// (Ищем "сырой" job_title, чтобы сохранить в кэш для отладки)
+		posItem, err := qtx.GetPositionItemByID(ctx, req.PositionItemID)
+		if err != nil {
+			s.logger.Warnf("MatchPosition: не удалось найти %d для лога кэша: %v", req.PositionItemID, err)
+			// (Не возвращаем ошибку, т.к. job_title_text не критичен)
+		}
+
+		// Устанавливаем TTL для кэша (например, 30 дней)
+		expiresAt := sql.NullTime{
+			Time:  time.Now().AddDate(0, 0, 30), // 30 дней от сейчас
+			Valid: true,
+		}
+
+		//
+		err = qtx.UpsertMatchingCache(ctx, db.UpsertMatchingCacheParams{
+			JobTitleHash:      req.Hash,
+			NormVersion:       int16(normVersion), // (Убедитесь, что тип int16 в sqlc)
+			JobTitleText:      sql.NullString{String: posItem.JobTitleInProposal, Valid: true},
+			CatalogPositionID: req.CatalogPositionID,
+			ExpiresAt:         expiresAt, // 👈 (ДОБАВЛЕНО ПОЛЕ)
+		})
+		if err != nil {
+			s.logger.Errorf("MatchPosition: Ошибка UpsertMatchingCache: %v", err)
+			return fmt.Errorf("ошибка обновления matching_cache: %w", err)
+		}
+
+		return nil // Commit транзакции
+	})
+
+	if txErr != nil {
+		return txErr // Возвращаем ошибку транзакции
+	}
+
+	s.logger.Infof("Успешно сопоставлена позиция %d -> %d (hash: %s)",
+		req.PositionItemID, req.CatalogPositionID, req.Hash)
+	return nil
 }
