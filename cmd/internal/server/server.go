@@ -111,6 +111,9 @@ func NewServer(store db.Store, logger *logging.Logger, tenderService *services.T
 
 		// 5. "Предложи слияние" (для Процесса 3)
 		v1.POST("/merges/suggest", server.SuggestMergeHandler)
+
+		// 6. "Дай весь активный каталог" (для Процесса 3, Часть Б)
+		v1.GET("/catalog/active", server.ActiveCatalogItemsHandler)
 	}
 
 	server.router = router

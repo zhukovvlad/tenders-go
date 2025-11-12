@@ -1080,3 +1080,44 @@ func (s *TenderProcessingService) SuggestMerge(
 		req.DuplicatePositionID, req.MainPositionID, req.SimilarityScore)
 	return nil
 }
+
+// GetAllActiveCatalogItems реализует GET /api/v1/catalog/active (с пагинацией)
+// Он используется "Процессом 3 (Часть Б)" для поиска дубликатов.
+func (s *TenderProcessingService) GetAllActiveCatalogItems(
+	ctx context.Context,
+	limit int32,
+	offset int32,
+) ([]api_models.UnmatchedPositionResponse, error) {
+
+	// 1. Вызываем наш обновленный SQLC-запрос
+	dbRows, err := s.store.GetActiveCatalogItems(ctx, db.GetActiveCatalogItemsParams{
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		s.logger.Errorf("Ошибка GetActiveCatalogItems: %v", err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	response := make([]api_models.UnmatchedPositionResponse, 0, len(dbRows))
+
+	// 2. "Обогащаем" данные (точно так же, как для индексации)
+	for _, row := range dbRows {
+
+		// 3. Собираем "богатую" строку (context_string)
+		context := fmt.Sprintf("Работа: %s | Описание: %s",
+			row.StandardJobTitle,   // Лемма
+			row.Description.String, // "Сырое" название
+		)
+
+		response = append(response, api_models.UnmatchedPositionResponse{
+			PositionItemID:     row.CatalogID, // 👈 Передаем ID каталога
+			JobTitleInProposal: row.StandardJobTitle,
+			RichContextString:  context,
+		})
+	}
+
+	s.logger.Infof("Найдено %d АКТИВНЫХ записей каталога для поиска дубликатов (Limit: %d, Offset: %d)",
+		len(response), limit, offset)
+	return response, nil
+}
