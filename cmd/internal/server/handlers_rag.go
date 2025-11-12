@@ -1,12 +1,14 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models" // (Нужно создать этот DTO)
+	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services"
 )
 
 // === 1. GET /api/v1/positions/unmatched ===
@@ -28,9 +30,17 @@ func (s *Server) UnmatchedPositionsHandler(c *gin.Context) {
 	//
 	response, err := s.tenderService.GetUnmatchedPositions(c.Request.Context(), int32(limit))
 	if err != nil {
-		// Если это ошибка валидации (limit <= 0), возвращаем 400
 		logger.Errorf("Ошибка GetUnmatchedPositions: %v", err)
-		c.JSON(http.StatusBadRequest, errorResponse(err))
+
+		// Используем проверку типа для определения ошибок валидации
+		var validationErr *services.ValidationError
+		if errors.As(err, &validationErr) {
+			// Ошибка валидации - возвращаем 400 Bad Request
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			// Все остальные ошибки (БД и т.д.) - возвращаем 500 Internal Server Error
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
 		return
 	}
 
@@ -113,9 +123,9 @@ func (s *Server) CatalogIndexedHandler(c *gin.Context) {
 	}
 
 	// 1. Вызываем логику (этот метод нам еще нужно создать в tender_services.go)
-	err := s.tenderService.MarkCatalogItemsAsIndexed(c.Request.Context(), payload.CatalogIDs)
+	err := s.tenderService.MarkCatalogItemsAsActive(c.Request.Context(), payload.CatalogIDs)
 	if err != nil {
-		logger.Errorf("Ошибка MarkCatalogItemsAsIndexed: %v", err)
+		logger.Errorf("Ошибка MarkCatalogItemsAsActive: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}

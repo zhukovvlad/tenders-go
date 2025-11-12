@@ -8,9 +8,10 @@
 INSERT INTO catalog_positions (
     standard_job_title,
     description,
-    kind
+    kind,
+    status
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 )
 RETURNING *;
 
@@ -94,3 +95,21 @@ WHERE kind = 'TO_REVIEW'
 ORDER BY created_at DESC
 LIMIT $1
 OFFSET $2;
+
+-- name: GetUnindexedCatalogItems :many
+SELECT 
+    id AS catalog_id,
+    standard_job_title,
+    description
+FROM 
+    catalog_positions
+WHERE 
+    status = 'pending_indexing'
+    AND kind = 'POSITION'
+LIMIT $1;
+
+-- name: SetCatalogStatusActive :exec
+-- (Для RAG-воркера) Устанавливает статус 'active' после индексации
+UPDATE catalog_positions
+SET status = 'active'
+WHERE id = ANY($1::bigint[]);

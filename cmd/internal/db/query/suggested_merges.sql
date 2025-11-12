@@ -1,8 +1,9 @@
 -- suggested_merges.sql
 -- Запросы для работы с очередью "слияния дубликатов".
 
--- name: CreateMergeSuggestion :one
--- (Для Python-воркера) Создает новую "задачу" для оператора.
+-- name: UpsertSuggestedMerge :exec
+-- (Для RAG-воркера) Создает или обновляет "задачу" для оператора.
+--
 INSERT INTO suggested_merges (
     main_position_id,
     duplicate_position_id,
@@ -16,8 +17,7 @@ SET
     similarity_score = EXCLUDED.similarity_score, -- Всегда обновляем скор
     -- Статус сбрасываем в PENDING, только если он не был окончательно решен
     status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED') THEN suggested_merges.status ELSE 'PENDING' END,
-    updated_at = NOW() -- Обновляем время изменения, но не создания
-RETURNING *;
+    updated_at = NOW(); -- Обновляем время изменения, но не создания
 
 -- name: ListPendingMerges :many
 -- (Для Go-сервера / Админки) Показывает оператору "очередь"

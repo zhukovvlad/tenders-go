@@ -24,6 +24,23 @@ const (
 	MaxUnmatchedPositionsLimit = 1000
 )
 
+// ValidationError представляет ошибку валидации входных данных.
+// Используется для разделения ошибок валидации (HTTP 400) от серверных ошибок (HTTP 500).
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return e.Message
+}
+
+// NewValidationError создает новую ошибку валидации.
+func NewValidationError(format string, args ...interface{}) error {
+	return &ValidationError{
+		Message: fmt.Sprintf(format, args...),
+	}
+}
+
 // TenderProcessingService отвечает за полную обработку тендерных данных,
 // включая импорт тендера, объектов, лотов, предложений, позиций и итоговых строк.
 type TenderProcessingService struct {
@@ -487,10 +504,21 @@ func (s *TenderProcessingService) GetOrCreateCatalogPosition(
 		// createFn
 		func() (db.CatalogPosition, error) {
 			opLogger.Info("Позиция каталога не найдена, создается новая.")
+
+			// Как мы и обсуждали, устанавливаем статус в зависимости от типа
+			var newStatus string
+			if kind == "POSITION" {
+				newStatus = "pending_indexing" // Ставим в очередь на RAG
+			} else {
+				newStatus = "na" // (Header, Trash и т.д. - не индексируем)
+			}
+
+			//
 			return qtx.CreateCatalogPosition(ctx, db.CreateCatalogPositionParams{
 				StandardJobTitle: standardJobTitleForDB,
 				Description:      sql.NullString{String: posAPI.JobTitle, Valid: true},
 				Kind:             kind,
+				Status:           newStatus, // 👈 (ИСПРАВЛЕНИЕ)
 			})
 		},
 		// diffFn: Проверяем, не изменился ли `kind`
@@ -841,7 +869,7 @@ func (s *TenderProcessingService) GetUnmatchedPositions(
 	// Валидация параметра limit
 	if limit <= 0 {
 		s.logger.Warnf("Получен некорректный limit: %d (должен быть > 0)", limit)
-		return nil, fmt.Errorf("параметр limit должен быть положительным числом, получено: %d", limit)
+		return nil, NewValidationError("параметр limit должен быть положительным числом, получено: %d", limit)
 	}
 
 	// Ограничиваем максимальное значение
@@ -920,7 +948,8 @@ func (s *TenderProcessingService) MatchPosition(
 		posItem, err := qtx.GetPositionItemByID(ctx, req.PositionItemID)
 		if err != nil {
 			s.logger.Warnf("MatchPosition: не удалось найти %d для лога кэша: %v", req.PositionItemID, err)
-			// (Не возвращаем ошибку, т.к. job_title_text не критичен)
+			// Инициализируем пустой posItem для безопасного использования ниже
+			posItem = db.PositionItem{}
 		}
 
 		// Устанавливаем TTL для кэша (например, 30 дней)
@@ -929,11 +958,17 @@ func (s *TenderProcessingService) MatchPosition(
 			Valid: true,
 		}
 
+		// Определяем jobTitleText: используем реальное значение, если posItem загружен успешно
+		jobTitleText := sql.NullString{String: "", Valid: false}
+		if posItem.JobTitleInProposal != "" {
+			jobTitleText = sql.NullString{String: posItem.JobTitleInProposal, Valid: true}
+		}
+
 		//
 		err = qtx.UpsertMatchingCache(ctx, db.UpsertMatchingCacheParams{
 			JobTitleHash:      req.Hash,
 			NormVersion:       int16(normVersion), // (Убедитесь, что тип int16 в sqlc)
-			JobTitleText:      sql.NullString{String: posItem.JobTitleInProposal, Valid: true},
+			JobTitleText:      jobTitleText,
 			CatalogPositionID: req.CatalogPositionID,
 			ExpiresAt:         expiresAt, // 👈 (ДОБАВЛЕНО ПОЛЕ)
 		})
@@ -951,5 +986,97 @@ func (s *TenderProcessingService) MatchPosition(
 
 	s.logger.Infof("Успешно сопоставлена позиция %d -> %d (hash: %s)",
 		req.PositionItemID, req.CatalogPositionID, req.Hash)
+	return nil
+}
+
+// GetUnindexedCatalogItems реализует GET /api/v1/catalog/unindexed
+func (s *TenderProcessingService) GetUnindexedCatalogItems(
+	ctx context.Context,
+	limit int32,
+) ([]api_models.UnmatchedPositionResponse, error) {
+	// (Мы переиспользуем DTO UnmatchedPositionResponse)
+
+	// 1. Вызываем наш SQLC-запрос
+	dbRows, err := s.store.GetUnindexedCatalogItems(ctx, limit)
+	if err != nil {
+		s.logger.Errorf("Ошибка GetUnindexedCatalogItems: %v", err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	response := make([]api_models.UnmatchedPositionResponse, 0, len(dbRows))
+
+	// 2. "Обогащаем" данные для RAG-индекса
+	for _, row := range dbRows {
+
+		// 3. Собираем "богатую" строку для ИНДЕКСА
+		// (Индекс НЕ содержит "хлебных крошек",
+		// он содержит только суть самой работы)
+		context := fmt.Sprintf("Работа: %s | Описание: %s",
+			row.StandardJobTitle,   // Лемма
+			row.Description.String, // "Сырое" название
+		)
+
+		response = append(response, api_models.UnmatchedPositionResponse{
+			// Python-воркеру нужен 'catalog_id'
+			PositionItemID:     row.CatalogID, // 👈 Передаем ID каталога
+			JobTitleInProposal: row.StandardJobTitle,
+			RichContextString:  context,
+		})
+	}
+
+	s.logger.Infof("Найдено %d неиндексированных записей каталога для RAG", len(response))
+	return response, nil
+}
+
+// MarkCatalogItemsAsActive реализует POST /api/v1/catalog/indexed
+func (s *TenderProcessingService) MarkCatalogItemsAsActive(
+	ctx context.Context,
+	catalogIDs []int64,
+) error {
+
+	if len(catalogIDs) == 0 {
+		s.logger.Warn("MarkCatalogItemsAsActive: получен пустой список ID, действие не требуется.")
+		return nil
+	}
+
+	// 1. Вызываем наш SQLC-запрос
+	err := s.store.SetCatalogStatusActive(ctx, catalogIDs)
+
+	if err != nil {
+		s.logger.Errorf("Ошибка MarkCatalogItemsAsActive: %v", err)
+		return fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	s.logger.Infof("Установлен статус 'active' для %d записей каталога", len(catalogIDs))
+	return nil
+}
+
+// SuggestMerge реализует POST /api/v1/merges/suggest
+//
+func (s *TenderProcessingService) SuggestMerge(
+	ctx context.Context,
+	req api_models.SuggestMergeRequest,
+) error {
+
+	// Защита: не предлагать слияние позиции с самой собой
+	if req.MainPositionID == req.DuplicatePositionID {
+		s.logger.Warnf("Попытка предложить слияние позиции %d с самой собой. Пропущено.", req.MainPositionID)
+		return nil // Не ошибка, просто пропускаем
+	}
+
+	// 1. Вызываем наш SQLC-запрос
+	err := s.store.UpsertSuggestedMerge(ctx, db.UpsertSuggestedMergeParams{
+		MainPositionID:      req.MainPositionID,
+		DuplicatePositionID: req.DuplicatePositionID,
+		SimilarityScore:     float32(req.SimilarityScore),
+	})
+
+	if err != nil {
+		s.logger.Errorf("Ошибка UpsertSuggestedMerge: %v", err)
+		return fmt.Errorf("ошибка БД при создании предложения о слиянии: %w", err)
+	}
+
+	s.logger.Infof("Успешно предложено/обновлено слияние: %d -> %d (Score: %.2f)",
+		req.DuplicatePositionID, req.MainPositionID, req.SimilarityScore)
 	return nil
 }
