@@ -55,20 +55,19 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 	}
 
 	// --- 4) Сервисный слой: передаём payload + raw ---
-	dbID, lotsMap, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload, raw)
+	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload, raw)
 	if err != nil {
 		// Ошибка уже должна быть залогирована в сервисе
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
 
-	logger.Infof("Импорт завершён. TenderID=%s, DB_ID=%d, lots=%v", payload.TenderID, dbID, lotsMap)
+	logger.Infof("Импорт завершён. TenderID=%s, DB_ID=%d, lots=%v, new_pending=%v", payload.TenderID, dbID, lotsMap, newItemsPending)
 
 	// --- 5) Ответ ---
-	c.JSON(http.StatusCreated, gin.H{
-		"message":   "Тендер успешно импортирован",
-		"tender_id": payload.TenderID,
-		"db_id":     dbID,
-		"lots_id":   lotsMap,
+	c.JSON(http.StatusCreated, api_models.ImportTenderResponse{
+		TenderDBID:             dbID,
+		LotIDsMap:              lotsMap,
+		NewCatalogItemsPending: newItemsPending,
 	})
 }

@@ -205,6 +205,15 @@ type CatalogIndexedRequest struct {
 	CatalogIDs []int64 `json:"catalog_ids" binding:"required"`
 }
 
+// ImportTenderResponse - это DTO ответа для POST /api/v1/import-tender
+// Возвращает информацию о результате импорта тендера.
+//
+type ImportTenderResponse struct {
+	TenderDBID             int64            `json:"tender_db_id"`
+	LotIDsMap              map[string]int64 `json:"lot_ids_map"`
+	NewCatalogItemsPending bool             `json:"new_catalog_items_pending"`
+}
+
 // SuggestMergeRequest - это JSON для POST /api/v1/merges/suggest
 // Создает новую задачу на слияние дубликатов в таблице suggested_merges.
 //

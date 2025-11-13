@@ -19,6 +19,9 @@ type TenderImportService struct {
 
 	// Единственная зависимость - менеджер сущностей
 	Entities *entities.EntityManager
+	
+	// Флаг для отслеживания создания новых pending_indexing позиций
+	newItemsCreatedFlag bool
 }
 
 // NewTenderImportService создает новый экземпляр TenderImportService.
@@ -57,8 +60,11 @@ func (s *TenderImportService) ImportFullTender(
 	ctx context.Context,
 	payload *api_models.FullTenderData,
 	rawJSON []byte,
-) (int64, map[string]int64, error) {
+) (int64, map[string]int64, bool, error) {
 
+	// Сбрасываем флаг в начале импорта
+	s.newItemsCreatedFlag = false
+	
 	var newTenderDBID int64
 	lotIDs := make(map[string]int64)
 
@@ -96,9 +102,12 @@ func (s *TenderImportService) ImportFullTender(
 
 	if txErr != nil {
 		s.logger.Errorf("Не удалось импортировать тендер ETP_ID %s: %v", payload.TenderID, txErr)
-		return 0, nil, fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
+		return 0, nil, false, fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
 	}
 
-	s.logger.Infof("Тендер ETP_ID %s успешно импортирован с ID базы данных: %d", payload.TenderID, newTenderDBID)
-	return newTenderDBID, lotIDs, nil
+	// Читаем флаг после успешной транзакции
+	anyNewPendingItems := s.newItemsCreatedFlag
+	
+	s.logger.Infof("Тендер ETP_ID %s успешно импортирован с ID базы данных: %d, новые pending позиции: %v", payload.TenderID, newTenderDBID, anyNewPendingItems)
+	return newTenderDBID, lotIDs, anyNewPendingItems, nil
 }
