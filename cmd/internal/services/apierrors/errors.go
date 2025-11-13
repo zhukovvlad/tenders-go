@@ -12,7 +12,7 @@ func (e *ValidationError) Error() string {
 	return e.Message
 }
 
-// NewValidationError создает новую ошибку валидации.
+// NewValidationError formats its arguments using format and returns a *ValidationError whose Message field is set to the formatted string.
 func NewValidationError(format string, args ...interface{}) error {
 	return &ValidationError{
 		Message: fmt.Sprintf(format, args...),
@@ -29,7 +29,7 @@ func (e *NotFoundError) Error() string {
 	return e.Message
 }
 
-// NewNotFoundError создает новую ошибку "не найдено".
+// NewNotFoundError creates a NotFoundError whose Message is the result of formatting the given format string with the provided args.
 func NewNotFoundError(format string, args ...interface{}) error {
 	return &NotFoundError{
 		Message: fmt.Sprintf(format, args...),
