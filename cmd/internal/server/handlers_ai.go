@@ -62,9 +62,12 @@ func (s *Server) SimpleLotAIResultsHandler(c *gin.Context) {
 	if err != nil {
 		logger.Errorf("Ошибка обновления ключевых параметров: %v", err)
 
-		// Проверяем, является ли это ValidationError (включая not-found)
+		// Проверяем тип ошибки для правильного HTTP статуса
+		var notFoundErr *apierrors.NotFoundError
 		var validationErr *apierrors.ValidationError
-		if errors.As(err, &validationErr) {
+		if errors.As(err, &notFoundErr) {
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		} else if errors.As(err, &validationErr) {
 			c.JSON(http.StatusBadRequest, errorResponse(err))
 		} else {
 			c.JSON(http.StatusInternalServerError, errorResponse(err))

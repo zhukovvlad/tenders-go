@@ -51,7 +51,7 @@ func (s *LotService) UpdateLotKeyParameters(
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Тендер с ETP ID %s не найден", tenderEtpID)
-				return apierrors.NewValidationError("тендер с ID %s не найден", tenderEtpID)
+				return apierrors.NewNotFoundError("тендер с ID %s не найден", tenderEtpID)
 			}
 			logger.Errorf("Ошибка при поиске тендера %s: %v", tenderEtpID, err)
 			return fmt.Errorf("ошибка при поиске тендера: %w", err)
@@ -65,7 +65,7 @@ func (s *LotService) UpdateLotKeyParameters(
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Лот с ключом %s не найден в тендере %s", lotKey, tenderEtpID)
-				return apierrors.NewValidationError("лот с ключом %s не найден в тендере %s", lotKey, tenderEtpID)
+				return apierrors.NewNotFoundError("лот с ключом %s не найден в тендере %s", lotKey, tenderEtpID)
 			}
 			logger.Errorf("Ошибка при поиске лота %s в тендере %s: %v", lotKey, tenderEtpID, err)
 			return fmt.Errorf("ошибка при поиске лота: %w", err)
@@ -123,7 +123,7 @@ func (s *LotService) UpdateLotKeyParametersDirectly(
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Лот с ID %d не найден", lotID)
-				return apierrors.NewValidationError("лот с ID %s не найден", lotIDStr)
+				return apierrors.NewNotFoundError("лот с ID %s не найден", lotIDStr)
 			}
 			logger.Errorf("Ошибка при поиске лота %d: %v", lotID, err)
 			return fmt.Errorf("ошибка при поиске лота: %w", err)
