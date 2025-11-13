@@ -267,7 +267,7 @@ func (s *TenderImportService) processProposalAdditionalInfo(
 		_, err := qtx.UpsertProposalAdditionalInfo(ctx, db.UpsertProposalAdditionalInfoParams{
 			ProposalID: proposalID,
 			InfoKey:    key,
-			InfoValue:  sql.NullString{String: util.Deref(valuePtr), Valid: true},
+			InfoValue:  util.NullableString(valuePtr),
 		})
 		if err != nil {
 			logger.Errorf("Не удалось сохранить доп. инфо (ключ: %s): %v", key, err)
