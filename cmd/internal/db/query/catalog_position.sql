@@ -113,3 +113,18 @@ LIMIT $1;
 UPDATE catalog_positions
 SET status = 'active'
 WHERE id = ANY($1::bigint[]);
+
+-- name: GetActiveCatalogItems :many
+SELECT 
+    id AS catalog_id,
+    standard_job_title,
+    description
+FROM 
+    catalog_positions
+WHERE 
+    status = 'active'
+    AND kind = 'POSITION'
+ORDER BY 
+    id
+LIMIT $1
+OFFSET $2;

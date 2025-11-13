@@ -166,3 +166,40 @@ func (s *Server) SuggestMergeHandler(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{"status": "suggestion_created"})
 }
+
+// === 6. GET /api/v1/catalog/active ===
+
+// ActiveCatalogItemsHandler - хендлер для GET /api/v1/catalog/active (с пагинацией)
+func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ActiveCatalogItemsHandler")
+
+	// --- Новая логика парсинга пагинации ---
+	limitStr := c.DefaultQuery("limit", "1000") // Батч по 1000 по умолчанию
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		logger.Warnf("Некорректный limit, используется по умолчанию (1000)")
+		limit = 1000
+	}
+
+	offsetStr := c.DefaultQuery("offset", "0")
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil || offset < 0 {
+		logger.Warnf("Некорректный offset, используется по умолчанию (0)")
+		offset = 0
+	}
+	// --- Конец логики пагинации ---
+
+	// 1. Вызываем новый сервисный метод
+	response, err := s.tenderService.GetAllActiveCatalogItems(c.Request.Context(), int32(limit), int32(offset))
+	if err != nil {
+		logger.Errorf("Ошибка GetAllActiveCatalogItems: %v", err)
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	if response == nil {
+		response = make([]api_models.UnmatchedPositionResponse, 0)
+	}
+
+	c.JSON(http.StatusOK, response)
+}
