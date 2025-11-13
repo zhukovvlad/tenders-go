@@ -262,20 +262,20 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 	qtx db.Querier,
 	posAPI api_models.PositionItem,
 	lotTitle string,
-) (db.CatalogPosition, error) {
+) (db.CatalogPosition, bool, error) {
 
 	// Шаг 1: Получаем и kind, и standardJobTitle
 	kind, standardJobTitleForDB, err := em.getKindAndStandardTitle(posAPI, lotTitle)
 	if err != nil {
 		// Эта ошибка теперь не должна возникать, т.к. хелпер обрабатывает пустые строки
-		return db.CatalogPosition{}, err
+		return db.CatalogPosition{}, false, err
 	}
 
 	// Если имя пустое (например, заголовок с пустым job_title),
 	// мы не должны создавать запись в catalog_positions.
 	if standardJobTitleForDB == "" {
 		// Возвращаем пустую структуру, `processSinglePosition` пропустит эту позицию
-		return db.CatalogPosition{}, nil
+		return db.CatalogPosition{}, false, nil
 	}
 
 	opLogger := em.logger.WithFields(logrus.Fields{
@@ -287,7 +287,11 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 
 	// Используем getOrCreateOrUpdate.
 	// P теперь - это существующий тип db.UpdateCatalogPositionDetailsParams
-	return getOrCreateOrUpdate(
+
+	// Флаг для отслеживания создания новой pending_indexing позиции
+	var isNewPendingItem bool
+
+	result, err := getOrCreateOrUpdate(
 		ctx, qtx,
 		// getFn
 		func() (db.CatalogPosition, error) {
@@ -301,6 +305,7 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 			var newStatus string
 			if kind == "POSITION" {
 				newStatus = "pending_indexing" // Ставим в очередь на RAG
+				isNewPendingItem = true        // Взводим флаг
 			} else {
 				newStatus = "na" // (Header, Trash и т.д. - не индексируем)
 			}
@@ -333,6 +338,8 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 			return qtx.UpdateCatalogPositionDetails(ctx, params)      //
 		},
 	)
+
+	return result, isNewPendingItem, err
 }
 
 // GetOrCreateUnitOfMeasurement находит или создает единицу измерения.

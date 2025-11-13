@@ -160,9 +160,14 @@ func (s *TenderImportService) processSinglePosition(
 	lotTitle string,
 ) error {
 	// 1. Получаем зависимости
-	catPos, err := s.Entities.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle)
+	catPos, isNewPendingItem, err := s.Entities.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle)
 	if err != nil {
 		return fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
+	}
+
+	// Взводим флаг на сервисе, если была создана новая pending позиция
+	if isNewPendingItem {
+		s.newItemsCreatedFlag = true
 	}
 
 	if catPos.ID == 0 {
