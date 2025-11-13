@@ -54,7 +54,7 @@ func (s *TenderImportService) processLot(
 	tenderID int64,
 	lotKey string,
 	lotAPI api_models.Lot,
-) (int64, error) { // <-- ИЗМЕНЕНИЕ 1: Сигнатура функции теперь возвращает ID (int64)
+) (int64, bool, error) {
 	// UpsertLot уже возвращает нам полную запись о лоте, включая его ID
 	dbLot, err := qtx.UpsertLot(ctx, db.UpsertLotParams{
 		TenderID: tenderID,
@@ -63,29 +63,38 @@ func (s *TenderImportService) processLot(
 	})
 	if err != nil {
 		// Если лот не удалось сохранить, возвращаем нулевой ID и ошибку
-		return 0, fmt.Errorf("не удалось сохранить лот: %w", err)
+		return 0, false, fmt.Errorf("не удалось сохранить лот: %w", err)
 	}
 
+	hasNewPending := false
+
 	// Обработка базового предложения
-	if err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true, lotAPI.LotTitle); err != nil {
+	baselineHasNew, err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true, lotAPI.LotTitle)
+	if err != nil {
 		// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
-		return 0, fmt.Errorf("обработка базового предложения: %w", err)
+		return 0, false, fmt.Errorf("обработка базового предложения: %w", err)
+	}
+	if baselineHasNew {
+		hasNewPending = true
 	}
 
 	// Обработка предложений подрядчиков
 	for _, proposalDetails := range lotAPI.ProposalData {
-		if err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false, lotAPI.LotTitle); err != nil {
+		proposalHasNew, err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false, lotAPI.LotTitle)
+		if err != nil {
 			// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
-			return 0, fmt.Errorf("обработка предложения от '%s': %w", proposalDetails.Title, err)
+			return 0, false, fmt.Errorf("обработка предложения от '%s': %w", proposalDetails.Title, err)
+		}
+		if proposalHasNew {
+			hasNewPending = true
 		}
 	}
 
-	// <-- ИЗМЕНЕНИЕ 2: Если все прошло успешно, возвращаем ID лота и nil
-	return dbLot.ID, nil
+	return dbLot.ID, hasNewPending, nil
 }
 
 // processProposal — унифицированный метод для обработки любого предложения
-func (s *TenderImportService) processProposal(ctx context.Context, qtx db.Querier, lotID int64, proposalAPI *api_models.ContractorProposalDetails, isBaseline bool, lotTitle string) error {
+func (s *TenderImportService) processProposal(ctx context.Context, qtx db.Querier, lotID int64, proposalAPI *api_models.ContractorProposalDetails, isBaseline bool, lotTitle string) (bool, error) {
 	var inn, title, address, accreditation string
 	if isBaseline {
 		// Для базового предложения используем константы или предопределенные значения
@@ -97,7 +106,7 @@ func (s *TenderImportService) processProposal(ctx context.Context, qtx db.Querie
 
 	dbContractor, err := s.Entities.GetOrCreateContractor(ctx, qtx, inn, title, address, accreditation)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	dbProposal, err := qtx.UpsertProposal(ctx, db.UpsertProposalParams{
@@ -108,31 +117,38 @@ func (s *TenderImportService) processProposal(ctx context.Context, qtx db.Querie
 		// ... другие поля ...
 	})
 	if err != nil {
-		return fmt.Errorf("не удалось сохранить предложение: %w", err)
+		return false, fmt.Errorf("не удалось сохранить предложение: %w", err)
 	}
 
 	// Вызываем уже существующие у вас публичные методы, сделав их приватными
 	if err := s.processProposalAdditionalInfo(ctx, qtx, dbProposal.ID, proposalAPI.AdditionalInfo, isBaseline); err != nil {
-		return err
+		return false, err
 	}
 
-	if err := s.processContractorItems(ctx, qtx, dbProposal.ID, proposalAPI.ContractorItems, lotTitle); err != nil {
-		return err
+	hasNewPending, err := s.processContractorItems(ctx, qtx, dbProposal.ID, proposalAPI.ContractorItems, lotTitle)
+	if err != nil {
+		return false, err
 	}
-	return nil
+	return hasNewPending, nil
 }
 
 // processContractorItems теперь только оркестрирует процесс
-func (s *TenderImportService) processContractorItems(ctx context.Context, qtx db.Querier, proposalID int64, itemsAPI api_models.ContractorItemsContainer, lotTitle string) error {
+func (s *TenderImportService) processContractorItems(ctx context.Context, qtx db.Querier, proposalID int64, itemsAPI api_models.ContractorItemsContainer, lotTitle string) (bool, error) {
 	logger := s.logger.WithField("proposal_id", proposalID)
 	logger.Info("Обработка позиций и итогов")
+
+	hasNewPending := false
 
 	if itemsAPI.Positions != nil {
 		for key, posAPI := range itemsAPI.Positions {
 			// Вызываем хелпер для одной позиции
-			if err := s.processSinglePosition(ctx, qtx, proposalID, key, posAPI, lotTitle); err != nil {
+			posHasNew, err := s.processSinglePosition(ctx, qtx, proposalID, key, posAPI, lotTitle)
+			if err != nil {
 				// Ошибка уже залогирована внутри хелпера
-				return fmt.Errorf("обработка позиции '%s': %w", key, err)
+				return false, fmt.Errorf("обработка позиции '%s': %w", key, err)
+			}
+			if posHasNew {
+				hasNewPending = true
 			}
 		}
 	}
@@ -142,12 +158,12 @@ func (s *TenderImportService) processContractorItems(ctx context.Context, qtx db
 		for key, sumLineAPI := range itemsAPI.Summary {
 			// Вызываем хелпер для одной строки итога
 			if err := s.processSingleSummaryLine(ctx, qtx, proposalID, key, sumLineAPI); err != nil {
-				return fmt.Errorf("обработка строки итога '%s': %w", key, err)
+				return false, fmt.Errorf("обработка строки итога '%s': %w", key, err)
 			}
 		}
 	}
 	logger.Info("Итоги успешно обработаны")
-	return nil
+	return hasNewPending, nil
 }
 
 // processSinglePosition обрабатывает одну позицию
@@ -158,26 +174,21 @@ func (s *TenderImportService) processSinglePosition(
 	positionKey string,
 	posAPI api_models.PositionItem,
 	lotTitle string,
-) error {
+) (bool, error) {
 	// 1. Получаем зависимости
 	catPos, isNewPendingItem, err := s.Entities.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle)
 	if err != nil {
-		return fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
-	}
-
-	// Взводим флаг на сервисе, если была создана новая pending позиция
-	if isNewPendingItem {
-		s.newItemsCreatedFlag = true
+		return false, fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
 	}
 
 	if catPos.ID == 0 {
 		s.logger.Warnf("Позиция каталога не была создана (возможно, пустой заголовок), пропуск: %s", posAPI.JobTitle)
-		return nil
+		return false, nil
 	}
 
 	unitID, err := s.Entities.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
 	if err != nil {
-		return fmt.Errorf("не удалось получить/создать единицу измерения: %w", err)
+		return false, fmt.Errorf("не удалось получить/создать единицу измерения: %w", err)
 	}
 
 	var finalCatalogPositionID sql.NullInt64
@@ -207,7 +218,7 @@ func (s *TenderImportService) processSinglePosition(
 
 		default:
 			// Другая, неожиданная ошибка БД
-			return fmt.Errorf("ошибка чтения matching_cache: %w", err)
+			return false, fmt.Errorf("ошибка чтения matching_cache: %w", err)
 		}
 	}
 
@@ -217,9 +228,9 @@ func (s *TenderImportService) processSinglePosition(
 	// 3. Выполнение запроса
 	if _, err := qtx.UpsertPositionItem(ctx, params); err != nil {
 		s.logger.WithField("position_key", positionKey).Errorf("Не удалось сохранить позицию: %v", err)
-		return err // Возвращаем оригинальную ошибку от БД
+		return false, fmt.Errorf("не удалось сохранить позицию: %w", err)
 	}
-	return nil
+	return isNewPendingItem, nil
 }
 
 // processSingleSummaryLine обрабатывает одну строку итога.

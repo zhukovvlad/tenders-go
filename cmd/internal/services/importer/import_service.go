@@ -19,12 +19,7 @@ type TenderImportService struct {
 
 	// Единственная зависимость - менеджер сущностей
 	Entities *entities.EntityManager
-
-	// Флаг для отслеживания создания новых pending_indexing позиций
-	newItemsCreatedFlag bool
-}
-
-// NewTenderImportService создает новый экземпляр TenderImportService.
+} // NewTenderImportService создает новый экземпляр TenderImportService.
 // Получает все зависимости извне (Dependency Injection).
 func NewTenderImportService(
 	store db.Store,
@@ -62,11 +57,9 @@ func (s *TenderImportService) ImportFullTender(
 	rawJSON []byte,
 ) (int64, map[string]int64, bool, error) {
 
-	// Сбрасываем флаг в начале импорта
-	s.newItemsCreatedFlag = false
-
 	var newTenderDBID int64
 	lotIDs := make(map[string]int64)
+	anyNewPendingItems := false
 
 	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
 		// Шаг 1: Обработка основной информации о тендере
@@ -78,14 +71,15 @@ func (s *TenderImportService) ImportFullTender(
 
 		// Шаг 2: Обработка лотов
 		for lotKey, lotAPI := range payload.LotsData {
-			lotDBID, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
+			lotDBID, lotHasNewPending, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
 			if err != nil {
 				return fmt.Errorf("ошибка при обработке лота '%s': %w", lotKey, err)
 			}
 			lotIDs[lotKey] = lotDBID
-		}
-
-		// Шаг 3: UPSERT "сырого" JSON в tender_raw_data в рамках той же транзакции.
+			if lotHasNewPending {
+				anyNewPendingItems = true
+			}
+		} // Шаг 3: UPSERT "сырого" JSON в tender_raw_data в рамках той же транзакции.
 		// sqlc сгенерировал тип параметра как json.RawMessage — передаём rawJSON как есть.
 		s.logger.Infof("Сохраняем исходный JSON для тендера ID: %d", newTenderDBID)
 		if _, err := qtx.UpsertTenderRawData(ctx, db.UpsertTenderRawDataParams{
@@ -104,9 +98,6 @@ func (s *TenderImportService) ImportFullTender(
 		s.logger.Errorf("Не удалось импортировать тендер ETP_ID %s: %v", payload.TenderID, txErr)
 		return 0, nil, false, fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
 	}
-
-	// Читаем флаг после успешной транзакции
-	anyNewPendingItems := s.newItemsCreatedFlag
 
 	s.logger.Infof("Тендер ETP_ID %s успешно импортирован с ID базы данных: %d, новые pending позиции: %v", payload.TenderID, newTenderDBID, anyNewPendingItems)
 	return newTenderDBID, lotIDs, anyNewPendingItems, nil
