@@ -141,8 +141,22 @@ err := s.Entities.GetOrCreateObject(...)
 **Назначение**: Типизированная обработка ошибок для API слоя
 
 **Типы**:
-- `ValidationError` - для ошибок валидации входных данных
-- Другие доменно-специфичные ошибки
+- `ValidationError` - для ошибок валидации входных данных (HTTP 400 Bad Request)
+- `NotFoundError` - для ошибок "ресурс не найден" (HTTP 404 Not Found)
+
+**Использование в handlers**:
+```go
+var notFoundErr *apierrors.NotFoundError
+var validationErr *apierrors.ValidationError
+
+if errors.As(err, &notFoundErr) {
+    c.JSON(http.StatusNotFound, errorResponse(err))
+} else if errors.As(err, &validationErr) {
+    c.JSON(http.StatusBadRequest, errorResponse(err))
+} else {
+    c.JSON(http.StatusInternalServerError, errorResponse(err))
+}
+```
 
 ## Преимущества этой структуры
 
