@@ -52,7 +52,7 @@ func (s *Server) SimpleLotAIResultsHandler(c *gin.Context) {
 	}
 
 	// --- 4) Сервисный слой: упрощенное обновление ключевых параметров ---
-	err := s.tenderService.UpdateLotKeyParametersDirectly(
+	err := s.lotService.UpdateLotKeyParametersDirectly(
 		c.Request.Context(),
 		lotID,
 		payload.LotKeyParameters,

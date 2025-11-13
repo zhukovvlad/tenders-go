@@ -8,7 +8,11 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/server"
-	"github.com/zhukovvlad/tenders-go/cmd/internal/services"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/catalog"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/entities"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/importer"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/lot"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/matching"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 
 	_ "github.com/lib/pq"
@@ -42,10 +46,16 @@ func main() {
 
 	logger.Info("Database connection established")
 
-
 	store := db.NewStore(conn)
-	tenderService := services.NewTenderProcessingService(store, logger)
-	server := server.NewServer(store, logger, tenderService, cfg)
+
+	// Создаем все сервисы с внедрением зависимостей
+	entityManager := entities.NewEntityManager(logger)
+	tenderService := importer.NewTenderImportService(store, logger, entityManager)
+	catalogService := catalog.NewCatalogService(store, logger)
+	lotService := lot.NewLotService(store, logger)
+	matchingService := matching.NewMatchingService(store, logger)
+
+	server := server.NewServer(store, logger, tenderService, catalogService, lotService, matchingService, cfg)
 
 	serverAddress := fmt.Sprintf("%s:%s", cfg.Listen.BindIP, cfg.Listen.Port)
 	logger.Infof("Starting server on %s", serverAddress)

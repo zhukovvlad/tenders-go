@@ -1,0 +1,336 @@
+package importer
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
+	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/util"
+)
+
+// processCoreTenderData сохраняет основные данные тендера: объект, исполнитель, дата подготовки.
+func (s *TenderImportService) processCoreTenderData(
+	ctx context.Context,
+	qtx db.Querier,
+	payload *api_models.FullTenderData,
+) (*db.Tender, error) {
+	dbObject, err := s.Entities.GetOrCreateObject(ctx, qtx, payload.TenderObject, payload.TenderAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	dbExecutor, err := s.Entities.GetOrCreateExecutor(ctx, qtx, payload.ExecutorData.ExecutorName, payload.ExecutorData.ExecutorPhone)
+	if err != nil {
+		return nil, err
+	}
+
+	preparedDate := util.ParseDate(payload.ExecutorData.ExecutorDate)
+
+	tenderParams := db.UpsertTenderParams{
+		EtpID:              payload.TenderID,
+		Title:              payload.TenderTitle,
+		ObjectID:           dbObject.ID,
+		ExecutorID:         dbExecutor.ID,
+		DataPreparedOnDate: preparedDate,
+	}
+
+	dbTender, err := qtx.UpsertTender(ctx, tenderParams)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось сохранить тендер: %w", err)
+	}
+
+	s.logger.Infof("Успешно сохранен тендер: ID=%d, ETP_ID=%s", dbTender.ID, dbTender.EtpID)
+	return &dbTender, nil
+}
+
+// processLot обрабатывает один лот и все его предложения.
+// В случае успеха возвращает ID созданного/обновленного лота и nil.
+// В случае ошибки возвращает 0 и саму ошибку.
+func (s *TenderImportService) processLot(
+	ctx context.Context,
+	qtx db.Querier,
+	tenderID int64,
+	lotKey string,
+	lotAPI api_models.Lot,
+) (int64, error) { // <-- ИЗМЕНЕНИЕ 1: Сигнатура функции теперь возвращает ID (int64)
+	// UpsertLot уже возвращает нам полную запись о лоте, включая его ID
+	dbLot, err := qtx.UpsertLot(ctx, db.UpsertLotParams{
+		TenderID: tenderID,
+		LotKey:   lotKey,
+		LotTitle: lotAPI.LotTitle,
+	})
+	if err != nil {
+		// Если лот не удалось сохранить, возвращаем нулевой ID и ошибку
+		return 0, fmt.Errorf("не удалось сохранить лот: %w", err)
+	}
+
+	// Обработка базового предложения
+	if err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true, lotAPI.LotTitle); err != nil {
+		// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
+		return 0, fmt.Errorf("обработка базового предложения: %w", err)
+	}
+
+	// Обработка предложений подрядчиков
+	for _, proposalDetails := range lotAPI.ProposalData {
+		if err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false, lotAPI.LotTitle); err != nil {
+			// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
+			return 0, fmt.Errorf("обработка предложения от '%s': %w", proposalDetails.Title, err)
+		}
+	}
+
+	// <-- ИЗМЕНЕНИЕ 2: Если все прошло успешно, возвращаем ID лота и nil
+	return dbLot.ID, nil
+}
+
+// processProposal — унифицированный метод для обработки любого предложения
+func (s *TenderImportService) processProposal(ctx context.Context, qtx db.Querier, lotID int64, proposalAPI *api_models.ContractorProposalDetails, isBaseline bool, lotTitle string) error {
+	var inn, title, address, accreditation string
+	if isBaseline {
+		// Для базового предложения используем константы или предопределенные значения
+		inn, title = "0000000000", "Initiator"
+		address, accreditation = "N/A", "N/A"
+	} else {
+		inn, title, address, accreditation = proposalAPI.Inn, proposalAPI.Title, proposalAPI.Address, proposalAPI.Accreditation
+	}
+
+	dbContractor, err := s.Entities.GetOrCreateContractor(ctx, qtx, inn, title, address, accreditation)
+	if err != nil {
+		return err
+	}
+
+	dbProposal, err := qtx.UpsertProposal(ctx, db.UpsertProposalParams{
+		LotID:                lotID,
+		ContractorID:         dbContractor.ID,
+		IsBaseline:           isBaseline,
+		ContractorCoordinate: util.NullableString(&proposalAPI.ContractorCoordinate),
+		// ... другие поля ...
+	})
+	if err != nil {
+		return fmt.Errorf("не удалось сохранить предложение: %w", err)
+	}
+
+	// Вызываем уже существующие у вас публичные методы, сделав их приватными
+	if err := s.processProposalAdditionalInfo(ctx, qtx, dbProposal.ID, proposalAPI.AdditionalInfo, isBaseline); err != nil {
+		return err
+	}
+
+	if err := s.processContractorItems(ctx, qtx, dbProposal.ID, proposalAPI.ContractorItems, lotTitle); err != nil {
+		return err
+	}
+	return nil
+}
+
+// processContractorItems теперь только оркестрирует процесс
+func (s *TenderImportService) processContractorItems(ctx context.Context, qtx db.Querier, proposalID int64, itemsAPI api_models.ContractorItemsContainer, lotTitle string) error {
+	logger := s.logger.WithField("proposal_id", proposalID)
+	logger.Info("Обработка позиций и итогов")
+
+	if itemsAPI.Positions != nil {
+		for key, posAPI := range itemsAPI.Positions {
+			// Вызываем хелпер для одной позиции
+			if err := s.processSinglePosition(ctx, qtx, proposalID, key, posAPI, lotTitle); err != nil {
+				// Ошибка уже залогирована внутри хелпера
+				return fmt.Errorf("обработка позиции '%s': %w", key, err)
+			}
+		}
+	}
+	logger.Info("Позиции успешно обработаны")
+
+	if itemsAPI.Summary != nil {
+		for key, sumLineAPI := range itemsAPI.Summary {
+			// Вызываем хелпер для одной строки итога
+			if err := s.processSingleSummaryLine(ctx, qtx, proposalID, key, sumLineAPI); err != nil {
+				return fmt.Errorf("обработка строки итога '%s': %w", key, err)
+			}
+		}
+	}
+	logger.Info("Итоги успешно обработаны")
+	return nil
+}
+
+// processSinglePosition обрабатывает одну позицию
+func (s *TenderImportService) processSinglePosition(
+	ctx context.Context,
+	qtx db.Querier,
+	proposalID int64,
+	positionKey string,
+	posAPI api_models.PositionItem,
+	lotTitle string,
+) error {
+	// 1. Получаем зависимости
+	catPos, err := s.Entities.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle)
+	if err != nil {
+		return fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
+	}
+
+	if catPos.ID == 0 {
+		s.logger.Warnf("Позиция каталога не была создана (возможно, пустой заголовок), пропуск: %s", posAPI.JobTitle)
+		return nil
+	}
+
+	unitID, err := s.Entities.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
+	if err != nil {
+		return fmt.Errorf("не удалось получить/создать единицу измерения: %w", err)
+	}
+
+	var finalCatalogPositionID sql.NullInt64
+
+	if catPos.Kind != "POSITION" {
+		finalCatalogPositionID = sql.NullInt64{Int64: catPos.ID, Valid: true}
+	} else {
+		hashKey := util.GetSHA256Hash(catPos.StandardJobTitle)
+		const currentNormVersion = 1
+
+		cachedMatch, err := qtx.GetMatchingCache(ctx, db.GetMatchingCacheParams{
+			JobTitleHash: hashKey,
+			NormVersion:  currentNormVersion,
+		})
+
+		switch err {
+		case nil:
+			// === CACHE HIT ===
+			// Отлично, Python-воркер уже сделал работу.
+			finalCatalogPositionID = sql.NullInt64{Int64: cachedMatch.CatalogPositionID, Valid: true}
+
+		case sql.ErrNoRows:
+			// === CACHE MISS ===
+			// Python-воркер еще не работал.
+			// МЫ СТАВИМ NULL. ЭТО КЛЮЧЕВОЕ ИЗМЕНЕНИЕ.
+			finalCatalogPositionID = sql.NullInt64{Valid: false}
+
+		default:
+			// Другая, неожиданная ошибка БД
+			return fmt.Errorf("ошибка чтения matching_cache: %w", err)
+		}
+	}
+
+	// 2. Маппинг данных
+	params := mapApiPositionToDbParams(proposalID, positionKey, finalCatalogPositionID, unitID, posAPI)
+
+	// 3. Выполнение запроса
+	if _, err := qtx.UpsertPositionItem(ctx, params); err != nil {
+		s.logger.WithField("position_key", positionKey).Errorf("Не удалось сохранить позицию: %v", err)
+		return err // Возвращаем оригинальную ошибку от БД
+	}
+	return nil
+}
+
+// processSingleSummaryLine обрабатывает одну строку итога.
+// Он вызывает маппер для преобразования данных и выполняет запрос к БД.
+func (s *TenderImportService) processSingleSummaryLine(
+	ctx context.Context,
+	qtx db.Querier,
+	proposalID int64,
+	summaryKey string,
+	sumLineAPI api_models.SummaryLine,
+) error {
+	// Шаг 1: Преобразование API модели в параметры для БД с помощью "чистой" функции-маппера.
+	params := mapApiSummaryToDbParams(proposalID, summaryKey, sumLineAPI)
+
+	// Шаг 2: Выполнение запроса к БД.
+	if _, err := qtx.UpsertProposalSummaryLine(ctx, params); err != nil {
+		s.logger.WithField("summary_key", summaryKey).Errorf("Не удалось сохранить строку итога: %v", err)
+		// Возвращаем оригинальную ошибку, чтобы транзакция откатилась.
+		return err
+	}
+
+	return nil
+}
+
+func (s *TenderImportService) processProposalAdditionalInfo(
+	ctx context.Context,
+	qtx db.Querier,
+	proposalID int64,
+	additionalInfoAPI map[string]*string,
+	isBaseline bool, // ← добавь новый аргумент сюда
+) error {
+	if isBaseline {
+		s.logger.WithField("proposal_id", proposalID).Info("Baseline-предложение, пропускаем доп. информацию")
+		return nil
+	}
+
+	logger := s.logger.WithField("proposal_id", proposalID).WithField("section", "additional_info")
+	logger.Info("Обработка дополнительной информации")
+
+	if additionalInfoAPI == nil {
+		logger.Warn("Дополнительная информация (additionalInfoAPI) не предоставлена, пропуск обработки")
+		return nil
+	}
+
+	if err := qtx.DeleteAllAdditionalInfoForProposal(ctx, proposalID); err != nil {
+		logger.Errorf("Ошибка удаления старой дополнительной информации для предложения ID %d: %v", proposalID, err)
+		return fmt.Errorf("ошибка удаления старой дополнительной информации для предложения ID %d: %w", proposalID, err)
+	}
+	for key, valuePtr := range additionalInfoAPI {
+		_, err := qtx.UpsertProposalAdditionalInfo(ctx, db.UpsertProposalAdditionalInfoParams{
+			ProposalID: proposalID,
+			InfoKey:    key,
+			InfoValue:  sql.NullString{String: util.Deref(valuePtr), Valid: true},
+		})
+		if err != nil {
+			logger.Errorf("Не удалось сохранить доп. инфо (ключ: %s): %v", key, err)
+			return fmt.Errorf("не удалось сохранить доп. инфо (ключ: %s): %w", key, err)
+		}
+	}
+	logger.Info("Дополнительная информация успешно обработана")
+	return nil
+}
+
+func mapApiPositionToDbParams(
+	proposalID int64,
+	positionKey string,
+	catalogPositionID sql.NullInt64,
+	unitID sql.NullInt64,
+	posAPI api_models.PositionItem,
+) db.UpsertPositionItemParams {
+	return db.UpsertPositionItemParams{
+		ProposalID:                    proposalID,
+		CatalogPositionID:             catalogPositionID,
+		PositionKeyInProposal:         positionKey,
+		CommentOrganazier:             util.NullableString(posAPI.CommentOrganizer),
+		CommentContractor:             util.NullableString(posAPI.CommentContractor),
+		ItemNumberInProposal:          util.NullableString(&posAPI.Number), // Number - string, not *string в api_models
+		ChapterNumberInProposal:       util.NullableString(posAPI.ChapterNumber),
+		JobTitleInProposal:            posAPI.JobTitle,
+		UnitID:                        unitID, // sql.NullInt64
+		Quantity:                      util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.Quantity)),
+		SuggestedQuantity:             util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.SuggestedQuantity)),
+		TotalCostForOrganizerQuantity: util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCostForOrganizerQuantity)),
+		UnitCostMaterials:             util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Materials)),
+		UnitCostWorks:                 util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Works)),
+		UnitCostIndirectCosts:         util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.IndirectCosts)),
+		UnitCostTotal:                 util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.UnitCost.Total)),
+		TotalCostMaterials:            util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Materials)),
+		TotalCostWorks:                util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Works)),
+		TotalCostIndirectCosts:        util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.IndirectCosts)),
+		TotalCostTotal:                util.ConvertNullFloat64ToNullString(util.NullableFloat64(posAPI.TotalCost.Total)), // Убедитесь, что это поле nullable в таблице
+		DeviationFromBaselineCost:     util.ConvertNullFloat64ToNullString(util.NullableFloat64(nil)),                    // Заполните из posAPI, если есть
+		IsChapter:                     posAPI.IsChapter,
+		ChapterRefInProposal:          util.NullableString(posAPI.ChapterRef),
+	}
+}
+
+// mapApiSummaryToDbParams преобразует API-модель строки итога в параметры для sqlc.
+// Это чистая функция без побочных эффектов.
+func mapApiSummaryToDbParams(
+	proposalID int64,
+	summaryKey string,
+	sumLineAPI api_models.SummaryLine,
+) db.UpsertProposalSummaryLineParams {
+	return db.UpsertProposalSummaryLineParams{
+		// Основные идентификаторы
+		ProposalID: proposalID,
+		SummaryKey: summaryKey,
+
+		// Основные данные
+		JobTitle: sumLineAPI.JobTitle,
+
+		// Данные из TotalCost (для summary обычно используется TotalCost, а не UnitCost)
+		MaterialsCost:     util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.Materials)),
+		WorksCost:         util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.Works)),
+		IndirectCostsCost: util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.IndirectCosts)),
+		TotalCost:         util.ConvertNullFloat64ToNullString(util.NullableFloat64(sumLineAPI.TotalCost.Total)),
+	}
+}
