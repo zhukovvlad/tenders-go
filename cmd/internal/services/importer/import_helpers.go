@@ -164,7 +164,7 @@ func (s *TenderImportService) processSinglePosition(
 	if err != nil {
 		return fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
 	}
-	
+
 	// Взводим флаг на сервисе, если была создана новая pending позиция
 	if isNewPendingItem {
 		s.newItemsCreatedFlag = true

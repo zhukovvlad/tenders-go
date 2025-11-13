@@ -287,10 +287,10 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 
 	// Используем getOrCreateOrUpdate.
 	// P теперь - это существующий тип db.UpdateCatalogPositionDetailsParams
-	
+
 	// Флаг для отслеживания создания новой pending_indexing позиции
 	var isNewPendingItem bool
-	
+
 	result, err := getOrCreateOrUpdate(
 		ctx, qtx,
 		// getFn
@@ -338,7 +338,7 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 			return qtx.UpdateCatalogPositionDetails(ctx, params)      //
 		},
 	)
-	
+
 	return result, isNewPendingItem, err
 }
 
