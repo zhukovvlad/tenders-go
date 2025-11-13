@@ -142,7 +142,12 @@ func (s *Server) CatalogIndexedHandler(c *gin.Context) {
 	err := s.catalogService.MarkCatalogItemsAsActive(c.Request.Context(), payload.CatalogIDs)
 	if err != nil {
 		logger.Errorf("Ошибка MarkCatalogItemsAsActive: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		var validationErr *apierrors.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
 		return
 	}
 
@@ -166,7 +171,12 @@ func (s *Server) SuggestMergeHandler(c *gin.Context) {
 	err := s.catalogService.SuggestMerge(c.Request.Context(), payload)
 	if err != nil {
 		logger.Errorf("Ошибка SuggestMerge: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		var validationErr *apierrors.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
 		return
 	}
 

@@ -1,12 +1,14 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
 )
 
 // SimpleLotAIResultsHandler — упрощенный обработчик AI результатов только по lot_id.
@@ -58,16 +60,15 @@ func (s *Server) SimpleLotAIResultsHandler(c *gin.Context) {
 		payload.LotKeyParameters,
 	)
 	if err != nil {
-		// Проверяем, является ли это ошибкой "не найдено"
-		if strings.Contains(err.Error(), "не найден") {
-			logger.Warnf("Лот не найден: %v", err)
-			c.JSON(http.StatusNotFound, errorResponse(err))
-			return
-		}
-
-		// Все остальные ошибки считаем внутренними
 		logger.Errorf("Ошибка обновления ключевых параметров: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+
+		// Проверяем, является ли это ValidationError (включая not-found)
+		var validationErr *apierrors.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
 		return
 	}
 

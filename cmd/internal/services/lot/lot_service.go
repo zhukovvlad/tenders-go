@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sqlc-dev/pqtype"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
@@ -50,7 +51,7 @@ func (s *LotService) UpdateLotKeyParameters(
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Тендер с ETP ID %s не найден", tenderEtpID)
-				return fmt.Errorf("тендер с ID %s не найден", tenderEtpID)
+				return apierrors.NewValidationError("тендер с ID %s не найден", tenderEtpID)
 			}
 			logger.Errorf("Ошибка при поиске тендера %s: %v", tenderEtpID, err)
 			return fmt.Errorf("ошибка при поиске тендера: %w", err)
@@ -64,7 +65,7 @@ func (s *LotService) UpdateLotKeyParameters(
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Лот с ключом %s не найден в тендере %s", lotKey, tenderEtpID)
-				return fmt.Errorf("лот с ключом %s не найден в тендере %s", lotKey, tenderEtpID)
+				return apierrors.NewValidationError("лот с ключом %s не найден в тендере %s", lotKey, tenderEtpID)
 			}
 			logger.Errorf("Ошибка при поиске лота %s в тендере %s: %v", lotKey, tenderEtpID, err)
 			return fmt.Errorf("ошибка при поиске лота: %w", err)
@@ -106,7 +107,7 @@ func (s *LotService) UpdateLotKeyParametersDirectly(
 	lotID, err := strconv.ParseInt(lotIDStr, 10, 64)
 	if err != nil {
 		logger.Errorf("Неверный формат lot_id: %s", lotIDStr)
-		return fmt.Errorf("неверный формат lot_id: %s", lotIDStr)
+		return apierrors.NewValidationError("неверный формат lot_id: %s", lotIDStr)
 	}
 
 	// Сериализуем keyParameters в JSON
@@ -122,7 +123,7 @@ func (s *LotService) UpdateLotKeyParametersDirectly(
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Лот с ID %d не найден", lotID)
-				return fmt.Errorf("лот с ID %s не найден", lotIDStr)
+				return apierrors.NewValidationError("лот с ID %s не найден", lotIDStr)
 			}
 			logger.Errorf("Ошибка при поиске лота %d: %v", lotID, err)
 			return fmt.Errorf("ошибка при поиске лота: %w", err)
