@@ -8,30 +8,47 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
-	"github.com/zhukovvlad/tenders-go/cmd/internal/services"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/catalog"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/importer"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/lot"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/matching"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
 type Server struct {
-	store         db.Store
-	router        *gin.Engine
-	logger        *logging.Logger
-	tenderService *services.TenderProcessingService
-	httpClient    *http.Client
-	config        *config.Config
+	store           db.Store
+	router          *gin.Engine
+	logger          *logging.Logger
+	tenderService   *importer.TenderImportService
+	catalogService  *catalog.CatalogService
+	lotService      *lot.LotService
+	matchingService *matching.MatchingService
+	httpClient      *http.Client
+	config          *config.Config
 }
 
-func NewServer(store db.Store, logger *logging.Logger, tenderService *services.TenderProcessingService, cfg *config.Config) *Server {
+func NewServer(
+	store db.Store,
+	logger *logging.Logger,
+	tenderService *importer.TenderImportService,
+	catalogService *catalog.CatalogService,
+	lotService *lot.LotService,
+	matchingService *matching.MatchingService,
+	cfg *config.Config,
+) *Server {
 	httpClient := &http.Client{
 		Timeout: time.Minute * 5,
 	}
 
 	server := &Server{
-		store:         store,
-		logger:        logger,
-		tenderService: tenderService,
-		httpClient:    httpClient,
-		config:        cfg,
+		store:           store,
+		logger:          logger,
+		tenderService:   tenderService,
+		catalogService:  catalogService,
+		lotService:      lotService,
+		matchingService: matchingService,
+		httpClient:      httpClient,
+		config:          cfg,
 	}
 	router := gin.Default()
 

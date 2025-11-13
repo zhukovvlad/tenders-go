@@ -8,7 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
-	"github.com/zhukovvlad/tenders-go/cmd/internal/services"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/matching"
 )
 
 // === 1. GET /api/v1/positions/unmatched ===
@@ -27,13 +28,12 @@ func (s *Server) UnmatchedPositionsHandler(c *gin.Context) {
 	}
 
 	// 1. Вызываем логику из tender_services (там есть валидация limit)
-	//
-	response, err := s.tenderService.GetUnmatchedPositions(c.Request.Context(), int32(limit))
+	response, err := s.matchingService.GetUnmatchedPositions(c.Request.Context(), int32(limit))
 	if err != nil {
 		logger.Errorf("Ошибка GetUnmatchedPositions: %v", err)
 
 		// Используем проверку типа для определения ошибок валидации
-		var validationErr *services.ValidationError
+		var validationErr *apierrors.ValidationError
 		if errors.As(err, &validationErr) {
 			// Ошибка валидации - возвращаем 400 Bad Request
 			c.JSON(http.StatusBadRequest, errorResponse(err))
@@ -70,11 +70,10 @@ func (s *Server) MatchPositionHandler(c *gin.Context) {
 	// (Можно добавить Валидацию DTO, если нужно)
 
 	// 2. Вызываем логику из tender_services
-	//
-	err := s.tenderService.MatchPosition(c.Request.Context(), payload)
+	err := s.matchingService.MatchPosition(c.Request.Context(), payload)
 	if err != nil {
 		logger.Errorf("Ошибка MatchPosition: %v", err)
-		var validationErr *services.ValidationError
+		var validationErr *apierrors.ValidationError
 		if errors.As(err, &validationErr) {
 			c.JSON(http.StatusBadRequest, errorResponse(err))
 		} else {
@@ -107,10 +106,10 @@ func (s *Server) UnindexedCatalogItemsHandler(c *gin.Context) {
 	}
 
 	// 1. Вызываем логику (этот метод нам еще нужно создать в tender_services.go)
-	response, err := s.tenderService.GetUnindexedCatalogItems(c.Request.Context(), int32(limit))
+	response, err := s.catalogService.GetUnindexedCatalogItems(c.Request.Context(), int32(limit))
 	if err != nil {
 		logger.Errorf("Ошибка GetUnindexedCatalogItems: %v", err)
-		var validationErr *services.ValidationError
+		var validationErr *apierrors.ValidationError
 		if errors.As(err, &validationErr) {
 			c.JSON(http.StatusBadRequest, errorResponse(err))
 		} else {
@@ -140,7 +139,7 @@ func (s *Server) CatalogIndexedHandler(c *gin.Context) {
 	}
 
 	// 1. Вызываем логику (этот метод нам еще нужно создать в tender_services.go)
-	err := s.tenderService.MarkCatalogItemsAsActive(c.Request.Context(), payload.CatalogIDs)
+	err := s.catalogService.MarkCatalogItemsAsActive(c.Request.Context(), payload.CatalogIDs)
 	if err != nil {
 		logger.Errorf("Ошибка MarkCatalogItemsAsActive: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
@@ -164,7 +163,7 @@ func (s *Server) SuggestMergeHandler(c *gin.Context) {
 	}
 
 	// 1. Вызываем логику (этот метод нам еще нужно создать в tender_services.go)
-	err := s.tenderService.SuggestMerge(c.Request.Context(), payload)
+	err := s.catalogService.SuggestMerge(c.Request.Context(), payload)
 	if err != nil {
 		logger.Errorf("Ошибка SuggestMerge: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
@@ -195,10 +194,10 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 	}
 
 	// Ограничиваем limit максимальным значением
-	if limit > services.MaxUnmatchedPositionsLimit {
+	if limit > matching.MaxUnmatchedPositionsLimit {
 		logger.Warnf("Запрошено limit=%d, ограничиваем до MaxUnmatchedPositionsLimit=%d",
-			limit, services.MaxUnmatchedPositionsLimit)
-		limit = services.MaxUnmatchedPositionsLimit
+			limit, matching.MaxUnmatchedPositionsLimit)
+		limit = matching.MaxUnmatchedPositionsLimit
 	}
 
 	offsetStr := c.DefaultQuery("offset", "0")
@@ -216,7 +215,7 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 	// --- Конец логики пагинации ---
 
 	// 1. Вызываем новый сервисный метод
-	response, err := s.tenderService.GetAllActiveCatalogItems(c.Request.Context(), int32(limit), int32(offset))
+	response, err := s.catalogService.GetAllActiveCatalogItems(c.Request.Context(), int32(limit), int32(offset))
 	if err != nil {
 		logger.Errorf("Ошибка GetAllActiveCatalogItems: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
