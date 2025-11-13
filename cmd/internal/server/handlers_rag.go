@@ -95,8 +95,15 @@ func (s *Server) UnindexedCatalogItemsHandler(c *gin.Context) {
 
 	limitStr := c.DefaultQuery("limit", "1000")
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit < 0 { // 0 - значит "без лимита"
-		limit = 1000
+	if err != nil {
+		logger.Errorf("Некорректное значение limit: %s", limitStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть целым числом")))
+		return
+	}
+	if limit < 0 {
+		logger.Errorf("Некорректное значение limit: %d (должно быть >= 0)", limit)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть >= 0")))
+		return
 	}
 
 	// 1. Вызываем логику (этот метод нам еще нужно создать в tender_services.go)
@@ -176,16 +183,35 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 	// --- Новая логика парсинга пагинации ---
 	limitStr := c.DefaultQuery("limit", "1000") // Батч по 1000 по умолчанию
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		logger.Warnf("Некорректный limit, используется по умолчанию (1000)")
-		limit = 1000
+	if err != nil {
+		logger.Errorf("Некорректное значение limit: %s", limitStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть целым числом")))
+		return
+	}
+	if limit <= 0 {
+		logger.Errorf("Некорректное значение limit: %d (должно быть > 0)", limit)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть > 0")))
+		return
+	}
+
+	// Ограничиваем limit максимальным значением
+	if limit > services.MaxUnmatchedPositionsLimit {
+		logger.Warnf("Запрошено limit=%d, ограничиваем до MaxUnmatchedPositionsLimit=%d",
+			limit, services.MaxUnmatchedPositionsLimit)
+		limit = services.MaxUnmatchedPositionsLimit
 	}
 
 	offsetStr := c.DefaultQuery("offset", "0")
 	offset, err := strconv.Atoi(offsetStr)
-	if err != nil || offset < 0 {
-		logger.Warnf("Некорректный offset, используется по умолчанию (0)")
-		offset = 0
+	if err != nil {
+		logger.Errorf("Некорректное значение offset: %s", offsetStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр offset должен быть целым числом")))
+		return
+	}
+	if offset < 0 {
+		logger.Errorf("Некорректное значение offset: %d (должно быть >= 0)", offset)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр offset должен быть >= 0")))
+		return
 	}
 	// --- Конец логики пагинации ---
 

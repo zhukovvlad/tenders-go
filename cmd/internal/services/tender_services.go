@@ -1011,9 +1011,13 @@ func (s *TenderProcessingService) GetUnindexedCatalogItems(
 		// 3. Собираем "богатую" строку для ИНДЕКСА
 		// (Индекс НЕ содержит "хлебных крошек",
 		// он содержит только суть самой работы)
+		description := ""
+		if row.Description.Valid {
+			description = row.Description.String
+		}
 		context := fmt.Sprintf("Работа: %s | Описание: %s",
-			row.StandardJobTitle,   // Лемма
-			row.Description.String, // "Сырое" название
+			row.StandardJobTitle, // Лемма
+			description,          // "Сырое" название
 		)
 
 		response = append(response, api_models.UnmatchedPositionResponse{
@@ -1052,7 +1056,6 @@ func (s *TenderProcessingService) MarkCatalogItemsAsActive(
 }
 
 // SuggestMerge реализует POST /api/v1/merges/suggest
-//
 func (s *TenderProcessingService) SuggestMerge(
 	ctx context.Context,
 	req api_models.SuggestMergeRequest,
@@ -1089,6 +1092,16 @@ func (s *TenderProcessingService) GetAllActiveCatalogItems(
 	offset int32,
 ) ([]api_models.UnmatchedPositionResponse, error) {
 
+	// Validate parameters
+	if limit <= 0 {
+		s.logger.Warnf("Получен некорректный limit: %d (должен быть > 0)", limit)
+		return nil, NewValidationError("параметр limit должен быть положительным числом, получено: %d", limit)
+	}
+	if offset < 0 {
+		s.logger.Warnf("Получен некорректный offset: %d (должен быть >= 0)", offset)
+		return nil, NewValidationError("параметр offset не может быть отрицательным, получено: %d", offset)
+	}
+
 	// 1. Вызываем наш обновленный SQLC-запрос
 	dbRows, err := s.store.GetActiveCatalogItems(ctx, db.GetActiveCatalogItemsParams{
 		Limit:  limit,
@@ -1105,9 +1118,13 @@ func (s *TenderProcessingService) GetAllActiveCatalogItems(
 	for _, row := range dbRows {
 
 		// 3. Собираем "богатую" строку (context_string)
+		description := ""
+		if row.Description.Valid {
+			description = row.Description.String
+		}
 		context := fmt.Sprintf("Работа: %s | Описание: %s",
-			row.StandardJobTitle,   // Лемма
-			row.Description.String, // "Сырое" название
+			row.StandardJobTitle, // Лемма
+			description,          // "Сырое" название
 		)
 
 		response = append(response, api_models.UnmatchedPositionResponse{
