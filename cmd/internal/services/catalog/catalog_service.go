@@ -39,6 +39,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -69,6 +70,23 @@ func NewCatalogService(store db.Store, logger *logging.Logger) *CatalogService {
 		store:  store,
 		logger: logger,
 	}
+}
+
+// buildContextString формирует строку контекста для RAG-индекса.
+//
+// Использует приоритет оригинального описания (с естественными формами слов)
+// над лемматизированной версией для лучшей работы с Google эмбеддингами.
+//
+// Параметры:
+//   - description: nullable поле с оригинальным описанием работы
+//   - standardJobTitle: лемматизированное название (fallback)
+//
+// Возвращает очищенную от лишних пробелов строку контекста.
+func (s *CatalogService) buildContextString(description sql.NullString, standardJobTitle string) string {
+	if description.Valid && strings.TrimSpace(description.String) != "" {
+		return strings.TrimSpace(description.String)
+	}
+	return standardJobTitle
 }
 
 // GetUnindexedCatalogItems реализует GET /api/v1/catalog/unindexed.
@@ -117,6 +135,12 @@ func (s *CatalogService) GetUnindexedCatalogItems(
 	limit int32,
 ) ([]api_models.UnmatchedPositionResponse, error) {
 
+	// Validate parameters
+	if limit <= 0 {
+		s.logger.Warnf("Получен некорректный limit: %d (должен быть > 0)", limit)
+		return nil, apierrors.NewValidationError("параметр limit должен быть положительным числом, получено: %d", limit)
+	}
+
 	// 1. Вызываем наш SQLC-запрос
 	dbRows, err := s.store.GetUnindexedCatalogItems(ctx, limit)
 	if err != nil {
@@ -130,21 +154,11 @@ func (s *CatalogService) GetUnindexedCatalogItems(
 	// Принцип: Отправляем ПРОСТОЕ описание, без метаданных
 	// (Google эмбеддинги лучше работают с естественным языком)
 	for _, row := range dbRows {
-
-		// Предпочитаем оригинальное описание (с падежами и склонениями)
-		// Fallback на лемматизированную версию, если описания нет
-		var contextString string
-		if row.Description.Valid && strings.TrimSpace(row.Description.String) != "" {
-			contextString = strings.TrimSpace(row.Description.String)
-		} else {
-			contextString = row.StandardJobTitle
-		}
-
 		response = append(response, api_models.UnmatchedPositionResponse{
 			// Python-воркеру нужен 'catalog_id'
 			PositionItemID:     row.CatalogID,
 			JobTitleInProposal: row.StandardJobTitle,
-			RichContextString:  contextString,
+			RichContextString:  s.buildContextString(row.Description, row.StandardJobTitle),
 		})
 	}
 
@@ -342,19 +356,10 @@ func (s *CatalogService) GetAllActiveCatalogItems(
 
 	// 2. Формируем контекст (используем ту же логику, что и в GetUnindexedCatalogItems)
 	for _, row := range dbRows {
-
-		var contextString string
-		// Используем ту же логику приоритета "Описания", что и в GetUnindexedCatalogItems
-		if row.Description.Valid && strings.TrimSpace(row.Description.String) != "" {
-			contextString = strings.TrimSpace(row.Description.String)
-		} else {
-			contextString = row.StandardJobTitle
-		}
-
 		response = append(response, api_models.UnmatchedPositionResponse{
 			PositionItemID:     row.CatalogID, // 👈 Передаем ID каталога
 			JobTitleInProposal: row.StandardJobTitle,
-			RichContextString:  contextString, // <-- Чистая строка для чистого поиска
+			RichContextString:  s.buildContextString(row.Description, row.StandardJobTitle), // <-- Чистая строка для чистого поиска
 		})
 	}
 
