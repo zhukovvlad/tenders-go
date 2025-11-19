@@ -9,3 +9,6 @@
 /cmd/internal/db/sqlc
 
 prompt.md
+
+# Compiled binaries
+/main

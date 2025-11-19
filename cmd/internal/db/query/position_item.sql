@@ -174,18 +174,23 @@ WITH RECURSIVE Breadcrumbs AS (
         AND NOT (pi.id = ANY(b.path_ids))
 )
 -- 2. (Final Query) Находим 'NULL'-позиции
+-- Добавлен JOIN с catalog_positions для получения draft_catalog_id и standard_job_title
 SELECT 
     pi.id AS position_item_id,
     pi.job_title_in_proposal,
-    COALESCE(b.parent_path, '') AS full_parent_path
+    COALESCE(b.parent_path, '') AS full_parent_path,
+    cp.id AS draft_catalog_id,
+    cp.standard_job_title
 FROM 
     position_items AS pi
 LEFT JOIN 
     Breadcrumbs AS b ON b.proposal_id = pi.proposal_id 
                      -- (ВКЛЮЧЕНО: TRIM для надежного JOIN)
                      AND TRIM(b.item_number_in_proposal) = TRIM(pi.chapter_ref_in_proposal)
+LEFT JOIN
+    catalog_positions AS cp ON pi.catalog_position_id = cp.id
 WHERE 
-    pi.catalog_position_id IS NULL
+    (pi.catalog_position_id IS NULL OR cp.status = 'pending_indexing')
     AND pi.is_chapter = false
 ORDER BY
     pi.id -- (ВКЛЮЧЕНО: Детерминированный LIMIT)

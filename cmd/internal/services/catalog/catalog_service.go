@@ -82,7 +82,7 @@ func NewCatalogService(store db.Store, logger *logging.Logger) *CatalogService {
 //   - standardJobTitle: лемматизированное название (fallback)
 //
 // Возвращает очищенную от лишних пробелов строку контекста.
-func (s *CatalogService) buildContextString(description sql.NullString, standardJobTitle string) string {
+func buildContextString(description sql.NullString, standardJobTitle string) string {
 	if description.Valid && strings.TrimSpace(description.String) != "" {
 		return strings.TrimSpace(description.String)
 	}
@@ -158,7 +158,7 @@ func (s *CatalogService) GetUnindexedCatalogItems(
 			// Python-воркеру нужен 'catalog_id'
 			PositionItemID:     row.CatalogID,
 			JobTitleInProposal: row.StandardJobTitle,
-			RichContextString:  s.buildContextString(row.Description, row.StandardJobTitle),
+			RichContextString:  buildContextString(row.Description, row.StandardJobTitle),
 		})
 	}
 
@@ -359,7 +359,7 @@ func (s *CatalogService) GetAllActiveCatalogItems(
 		response = append(response, api_models.UnmatchedPositionResponse{
 			PositionItemID:     row.CatalogID, // 👈 Передаем ID каталога
 			JobTitleInProposal: row.StandardJobTitle,
-			RichContextString:  s.buildContextString(row.Description, row.StandardJobTitle), // <-- Чистая строка для чистого поиска
+			RichContextString:  buildContextString(row.Description, row.StandardJobTitle), // <-- Чистая строка для чистого поиска
 		})
 	}
 

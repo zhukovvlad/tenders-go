@@ -87,10 +87,24 @@ func (s *MatchingService) GetUnmatchedPositions(
 			context = fmt.Sprintf("Позиция: %s", row.JobTitleInProposal)
 		}
 
+		// Преобразуем sql.NullInt64 в *int64 для JSON
+		var draftCatalogID *int64
+		if row.DraftCatalogID.Valid {
+			draftCatalogID = &row.DraftCatalogID.Int64
+		}
+
+		// Преобразуем sql.NullString в string (по умолчанию пустая строка)
+		standardJobTitle := ""
+		if row.StandardJobTitle.Valid {
+			standardJobTitle = row.StandardJobTitle.String
+		}
+
 		response = append(response, api_models.UnmatchedPositionResponse{
 			PositionItemID:     row.PositionItemID,
 			JobTitleInProposal: row.JobTitleInProposal,
 			RichContextString:  context,
+			DraftCatalogID:     draftCatalogID,
+			StandardJobTitle:   standardJobTitle,
 		})
 	}
 
