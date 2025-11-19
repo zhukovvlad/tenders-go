@@ -194,8 +194,10 @@ func (s *TenderImportService) processSinglePosition(
 	var finalCatalogPositionID sql.NullInt64
 
 	if catPos.Kind != "POSITION" {
+		// Заголовки (HEADER, LOT_HEADER) сразу привязываем
 		finalCatalogPositionID = sql.NullInt64{Int64: catPos.ID, Valid: true}
 	} else {
+		// Для POSITION проверяем кэш
 		hashKey := util.GetSHA256Hash(catPos.StandardJobTitle)
 		const currentNormVersion = 1
 
@@ -212,9 +214,9 @@ func (s *TenderImportService) processSinglePosition(
 
 		case sql.ErrNoRows:
 			// === CACHE MISS ===
-			// Python-воркер еще не работал.
-			// МЫ СТАВИМ NULL. ЭТО КЛЮЧЕВОЕ ИЗМЕНЕНИЕ.
-			finalCatalogPositionID = sql.NullInt64{Valid: false}
+			// НОВАЯ СТРАТЕГИЯ: Сохраняем ID новой позиции (draft_catalog_id)
+			// Это позволяет Python использовать его как Fallback, если RAG не найдет лучшего варианта
+			finalCatalogPositionID = sql.NullInt64{Int64: catPos.ID, Valid: true}
 
 		default:
 			// Другая, неожиданная ошибка БД

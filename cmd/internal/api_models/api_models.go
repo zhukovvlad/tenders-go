@@ -225,4 +225,6 @@ type UnmatchedPositionResponse struct {
 	PositionItemID     int64  `json:"position_item_id"`
 	JobTitleInProposal string `json:"job_title_in_proposal"`
 	RichContextString  string `json:"rich_context_string"`
+	DraftCatalogID     *int64 `json:"draft_catalog_id,omitempty"` // ID записи catalog_positions со статусом pending (fallback для RAG)
+	StandardJobTitle   string `json:"standard_job_title"`         // Лемматизированная версия для поиска в catalog_positions
 }
