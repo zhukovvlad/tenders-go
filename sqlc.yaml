@@ -21,3 +21,11 @@ sql:
               # Ключевое добавление: использовать указатель (*Vector),
               # чтобы поддержать NULL значения из базы данных.
               pointer: true
+          - db_type: "inet"
+            nullable: true
+            go_type:
+              # Маппим PostgreSQL inet на стандартный net.IP
+              import: "net"
+              type: "IP"
+              # ip_address у нас nullable, поэтому используем указатель
+              pointer: true
