@@ -9,9 +9,9 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	github.com/sirupsen/logrus v1.9.3
+	github.com/golang-jwt/jwt/v5 v5.3.0
+	golang.org/x/crypto v0.46.0
 )
-
-require github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 
 require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
@@ -32,12 +32,11 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
-	github.com/pgvector/pgvector-go v0.3.0 // indirect
-	github.com/sqlc-dev/pqtype v0.3.0 // indirect
+	github.com/pgvector/pgvector-go v0.3.0
+	github.com/sqlc-dev/pqtype v0.3.0
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.15.0 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.39.0 // indirect

@@ -74,8 +74,10 @@ func NewServer(
 		if len(cfg.CORS.AllowedOrigins) > 0 {
 			corsConfig.AllowOrigins = cfg.CORS.AllowedOrigins
 		} else {
-			// Fallback на безопасные дефолтные значения
-			corsConfig.AllowOrigins = []string{"https://your-production-domain.com"}
+			// В production CORS origins должны быть явно настроены
+			logger := logging.GetLogger()
+			logger.Warn("CORS allowed_origins not configured in production - using restrictive default")
+			corsConfig.AllowOrigins = []string{} // No origins allowed
 		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
 		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
