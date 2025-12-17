@@ -38,6 +38,15 @@ func init() {
 	}
 }
 
+// validateUserAgent обрезает User-Agent до безопасной длины
+func validateUserAgent(ua string) string {
+	const maxUserAgentLen = 255
+	if len(ua) > maxUserAgentLen {
+		return ua[:maxUserAgentLen]
+	}
+	return ua
+}
+
 // JWTClaims представляет payload JWT токена
 type JWTClaims struct {
 	UserID int64  `json:"user_id"`
@@ -98,6 +107,9 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
+
+	// Валидация и обрезка User-Agent
+	userAgent = validateUserAgent(userAgent)
 
 	// Создание сессии
 	sessionParams := db.CreateUserSessionParams{
@@ -175,6 +187,9 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 		if err != nil {
 			return fmt.Errorf("failed to generate refresh token: %w", err)
 		}
+
+		// Валидация и обрезка User-Agent
+		userAgent = validateUserAgent(userAgent)
 
 		// Создаем новую сессию
 		sessionParams := db.CreateUserSessionParams{
