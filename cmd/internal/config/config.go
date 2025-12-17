@@ -87,6 +87,10 @@ func (c *AuthConfig) Validate(isDebug bool) error {
 	return nil
 }
 
+type CORSConfig struct {
+	AllowedOrigins []string `yaml:"allowed_origins" env:"CORS_ALLOWED_ORIGINS" env-separator:","`
+}
+
 type Config struct {
 	IsDebug *bool `yaml:"is_debug" env-required:"true"`
 	Listen  struct {
@@ -94,6 +98,7 @@ type Config struct {
 		BindIP string `yaml:"bind_ip" env-default:"127.0.0.1"`
 		Port   string `yaml:"port" env-default:"8080"`
 	} `yaml:"listen"`
+	CORS     CORSConfig     `yaml:"cors"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`
 }

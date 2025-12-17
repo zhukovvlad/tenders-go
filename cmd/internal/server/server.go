@@ -71,7 +71,12 @@ func NewServer(
 		corsConfig.AllowCredentials = true
 	} else {
 		// В production режиме - строгие настройки
-		corsConfig.AllowOrigins = []string{"http://localhost:5173", "http://local-api.dev:5173"}
+		if len(cfg.CORS.AllowedOrigins) > 0 {
+			corsConfig.AllowOrigins = cfg.CORS.AllowedOrigins
+		} else {
+			// Fallback на безопасные дефолтные значения
+			corsConfig.AllowOrigins = []string{"https://your-production-domain.com"}
+		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
 		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 		corsConfig.AllowCredentials = true

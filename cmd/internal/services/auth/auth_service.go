@@ -26,8 +26,17 @@ var (
 )
 
 // dummyPasswordHash используется для защиты от timing attacks
-// Предварительно вычисленный bcrypt хеш для несуществующих пользователей
-var dummyPasswordHash = []byte("$2a$10$dummyhashfortimingatackprotectionxxxxxxxxxxxxxxxxxxxxxxxxx")
+// Генерируется при инициализации пакета
+var dummyPasswordHash []byte
+
+func init() {
+	// Генерируем реальный bcrypt хеш для обеспечения полной вычислительной нагрузки
+	var err error
+	dummyPasswordHash, err = bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-protection"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate dummy hash: %v", err))
+	}
+}
 
 // JWTClaims представляет payload JWT токена
 type JWTClaims struct {

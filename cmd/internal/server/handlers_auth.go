@@ -121,8 +121,15 @@ func (s *Server) meHandler(c *gin.Context) {
 		return
 	}
 
+	// Проверяем тип
+	userIDVal, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user_id type"})
+		return
+	}
+
 	// Получаем полную информацию о пользователе
-	user, err := s.store.GetUserByID(c.Request.Context(), userID.(int64))
+	user, err := s.store.GetUserByID(c.Request.Context(), userIDVal)
 	if err != nil {
 		s.logger.WithError(err).Error("failed to get user")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -138,9 +145,8 @@ func (s *Server) meHandler(c *gin.Context) {
 	})
 }
 
-// setAuthCookies устанавливает access и refresh токены в httpOnly cookies
-func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string) {
-	// Устанавливаем SameSite перед вызовом SetCookie
+// setSameSiteMode устанавливает SameSite атрибут на основе конфигурации
+func (s *Server) setSameSiteMode(c *gin.Context) {
 	switch s.config.Auth.CookieSameSite {
 	case "strict":
 		c.SetSameSite(http.SameSiteStrictMode)
@@ -148,7 +154,16 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 		c.SetSameSite(http.SameSiteLaxMode)
 	case "none":
 		c.SetSameSite(http.SameSiteNoneMode)
+	default:
+		// Fallback на Lax режим для любых неожиданных значений
+		c.SetSameSite(http.SameSiteLaxMode)
 	}
+}
+
+// setAuthCookies устанавливает access и refresh токены в httpOnly cookies
+func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string) {
+	// Устанавливаем SameSite перед вызовом SetCookie
+	s.setSameSiteMode(c)
 
 	// Access token cookie
 	c.SetCookie(
@@ -176,14 +191,7 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 // clearAuthCookies очищает auth cookies
 func (s *Server) clearAuthCookies(c *gin.Context) {
 	// Устанавливаем тот же SameSite что и при создании
-	switch s.config.Auth.CookieSameSite {
-	case "strict":
-		c.SetSameSite(http.SameSiteStrictMode)
-	case "lax":
-		c.SetSameSite(http.SameSiteLaxMode)
-	case "none":
-		c.SetSameSite(http.SameSiteNoneMode)
-	}
+	s.setSameSiteMode(c)
 
 	c.SetCookie(
 		s.config.Auth.CookieAccessName,
