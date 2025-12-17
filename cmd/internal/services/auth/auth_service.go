@@ -38,11 +38,13 @@ func init() {
 	}
 }
 
-// validateUserAgent обрезает User-Agent до безопасной длины
+// validateUserAgent обрезает User-Agent до безопасной длины (UTF-8 safe)
 func validateUserAgent(ua string) string {
 	const maxUserAgentLen = 255
-	if len(ua) > maxUserAgentLen {
-		return ua[:maxUserAgentLen]
+	// Считаем руны (символы) а не байты для корректной работы с UTF-8
+	runes := []rune(ua)
+	if len(runes) > maxUserAgentLen {
+		return string(runes[:maxUserAgentLen])
 	}
 	return ua
 }
@@ -91,14 +93,13 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Проверка что пользователь активен
-	if !userAuth.IsActive {
-		// Не раскрываем статус пользователя для защиты от user enumeration
+	// Проверка пароля (всегда первой, для защиты от timing attacks)
+	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	// Проверка пароля
-	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
+	// Проверка что пользователь активен (после проверки пароля для одинакового времени выполнения)
+	if !userAuth.IsActive {
 		return nil, ErrInvalidCredentials
 	}
 
