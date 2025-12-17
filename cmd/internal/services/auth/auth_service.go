@@ -38,6 +38,17 @@ func init() {
 	}
 }
 
+// validateUserAgent обрезает User-Agent до безопасной длины (UTF-8 safe)
+func validateUserAgent(ua string) string {
+	const maxUserAgentLen = 255
+	// Считаем руны (символы) а не байты для корректной работы с UTF-8
+	runes := []rune(ua)
+	if len(runes) > maxUserAgentLen {
+		return string(runes[:maxUserAgentLen])
+	}
+	return ua
+}
+
 // JWTClaims представляет payload JWT токена
 type JWTClaims struct {
 	UserID int64  `json:"user_id"`
@@ -67,7 +78,7 @@ type LoginResult struct {
 }
 
 // Login аутентифицирует пользователя по email и паролю
-func (s *Service) Login(ctx context.Context, email, password string, ipAddress *net.IP) (*LoginResult, error) {
+func (s *Service) Login(ctx context.Context, email, password string, ipAddress *net.IP, userAgent string) (*LoginResult, error) {
 	// Нормализация email
 	email = strings.ToLower(strings.TrimSpace(email))
 
@@ -82,8 +93,13 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Проверка пароля
+	// Проверка пароля (всегда первой, для защиты от timing attacks)
 	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	// Проверка что пользователь активен (после проверки пароля для одинакового времени выполнения)
+	if !userAuth.IsActive {
 		return nil, ErrInvalidCredentials
 	}
 
@@ -93,12 +109,19 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
+	// Валидация и обрезка User-Agent
+	userAgent = validateUserAgent(userAgent)
+
 	// Создание сессии
 	sessionParams := db.CreateUserSessionParams{
 		UserID:           userAuth.ID,
 		RefreshTokenHash: refreshHash,
-		IpAddress:        ipAddress,
-		ExpiresAt:        time.Now().Add(s.config.Auth.RefreshTokenTTL),
+		UserAgent: sql.NullString{
+			String: userAgent,
+			Valid:  userAgent != "",
+		},
+		IpAddress: ipAddress,
+		ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 	}
 
 	_, err = s.store.CreateUserSession(ctx, sessionParams)
@@ -134,7 +157,7 @@ type RefreshResult struct {
 }
 
 // Refresh обновляет access token используя refresh token (в транзакции)
-func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *net.IP) (*RefreshResult, error) {
+func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *net.IP, userAgent string) (*RefreshResult, error) {
 	refreshHash := hashRefreshToken(refreshToken)
 
 	var result RefreshResult
@@ -166,12 +189,19 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 			return fmt.Errorf("failed to generate refresh token: %w", err)
 		}
 
+		// Валидация и обрезка User-Agent
+		userAgent = validateUserAgent(userAgent)
+
 		// Создаем новую сессию
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           session.UserID,
 			RefreshTokenHash: newRefreshHash,
-			IpAddress:        ipAddress,
-			ExpiresAt:        time.Now().Add(s.config.Auth.RefreshTokenTTL),
+			UserAgent: sql.NullString{
+				String: userAgent,
+				Valid:  userAgent != "",
+			},
+			IpAddress: ipAddress,
+			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
 		_, err = q.CreateUserSession(ctx, sessionParams)
@@ -214,13 +244,11 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 
 	err := s.store.RevokeSessionByRefreshHash(ctx, refreshHash)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// Сессия уже не существует или отозвана - не ошибка
-			return nil
-		}
 		return fmt.Errorf("failed to revoke session: %w", err)
 	}
 
+	// :exec не возвращает sql.ErrNoRows, поэтому nil означает успех
+	// (даже если не было обновлено ни одной строки)
 	return nil
 }
 
