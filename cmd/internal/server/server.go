@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/auth"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/catalog"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/importer"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/lot"
@@ -19,6 +20,7 @@ type Server struct {
 	store           db.Store
 	router          *gin.Engine
 	logger          *logging.Logger
+	authService     *auth.Service
 	tenderService   *importer.TenderImportService
 	catalogService  *catalog.CatalogService
 	lotService      *lot.LotService
@@ -40,9 +42,12 @@ func NewServer(
 		Timeout: time.Minute * 5,
 	}
 
+	authService := auth.NewService(store, cfg)
+
 	server := &Server{
 		store:           store,
 		logger:          logger,
+		authService:     authService,
 		tenderService:   tenderService,
 		catalogService:  catalogService,
 		lotService:      lotService,
@@ -55,10 +60,15 @@ func NewServer(
 	// Настройка CORS
 	corsConfig := cors.DefaultConfig()
 	if cfg.IsDebug != nil && *cfg.IsDebug {
-		// В режиме отладки разрешаем все origins
-		corsConfig.AllowAllOrigins = true
+		// В режиме отладки - локальные origins + credentials для cookie-based auth
+		corsConfig.AllowOrigins = []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://local-api.dev:5173",
+		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
 		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"}
+		corsConfig.AllowCredentials = true
 	} else {
 		// В production режиме - строгие настройки
 		corsConfig.AllowOrigins = []string{"http://localhost:5173", "http://local-api.dev:5173"}
@@ -73,64 +83,83 @@ func NewServer(
 	router.GET("/api/stats", server.getStatsHandler)
 	router.POST("/api/v1/import-tender", server.ImportTenderHandler)
 
-	// --- ДОБАВЛЯЕМ НОВЫЙ РОУТ ДЛЯ СПИСКА ТЕНДЕРОВ ---
+	// --- API V1 ---
 	v1 := router.Group("/api/v1")
 	{
-		v1.POST("/upload-tender", server.ProxyUploadHandler)
-		v1.GET("/tasks/:task_id/status", server.GetTaskStatusHandler)
+		// Публичные auth-роуты
+		v1.POST("/auth/login", server.loginHandler)
+		v1.POST("/auth/refresh", server.refreshHandler)
+		v1.POST("/auth/logout", server.logoutHandler)
+		v1.GET("/auth/me", server.meHandler)
 
-		v1.GET("/tenders", server.listTendersHandler)
-		v1.GET("/tenders/:id", server.getTenderDetailsHandler)
-		v1.GET("/tenders/:id/proposals", server.listProposalsHandler)
+		// Приватные роуты (требуют аутентификацию)
+		auth := v1.Group("/")
+		auth.Use(AuthMiddleware(server.config, server.store))
+		{
+			auth.POST("/upload-tender", server.ProxyUploadHandler)
+			auth.GET("/tasks/:task_id/status", server.GetTaskStatusHandler)
 
-		// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
-		v1.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
+			auth.GET("/tenders", server.listTendersHandler)
+			auth.GET("/tenders/:id", server.getTenderDetailsHandler)
+			auth.GET("/tenders/:id/proposals", server.listProposalsHandler)
 
-		// Используем PATCH для частичного обновления всего ресурса 'tenders'
-		v1.PATCH("/tenders/:id", server.patchTenderHandler)
+			// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
+			auth.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
 
-		v1.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
-		v1.PATCH("/lots/:id/key-parameters", server.patchLotKeyParametersHandler)
+			// Используем PATCH для частичного обновления всего ресурса 'tenders'
+			auth.PATCH("/tenders/:id", server.patchTenderHandler)
 
-		v1.GET("/tender-types", server.listTenderTypesHandler)
-		v1.POST("/tender-types", server.createTenderTypeHandler)
+			auth.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
+			auth.PATCH("/lots/:id/key-parameters", server.patchLotKeyParametersHandler)
 
-		v1.PUT("/tender-types/:id", server.updateTenderTypeHandler)
-		v1.DELETE("/tender-types/:id", server.deleteTenderTypeHandler)
-		v1.GET("/tender-types/:type_id/chapters", server.listChaptersByTypeHandler)
+			auth.GET("/tender-types", server.listTenderTypesHandler)
+			auth.POST("/tender-types", server.createTenderTypeHandler)
 
-		v1.GET("/tender-chapters", server.listTenderChaptersHandler)
-		v1.POST("/tender-chapters", server.createTenderChapterHandler)
-		v1.GET("/tender-chapters/:chapter_id/categories", server.listCategoriesByChapterHandler)
+			auth.PUT("/tender-types/:id", server.updateTenderTypeHandler)
+			auth.DELETE("/tender-types/:id", server.deleteTenderTypeHandler)
+			auth.GET("/tender-types/:type_id/chapters", server.listChaptersByTypeHandler)
 
-		// --- ДОБАВЛЯЕМ НОВЫЕ РОУТЫ ДЛЯ UPDATE И DELETE ---
-		v1.PUT("/tender-chapters/:id", server.updateTenderChapterHandler)
-		v1.DELETE("/tender-chapters/:id", server.deleteTenderChapterHandler)
+			auth.GET("/tender-chapters", server.listTenderChaptersHandler)
+			auth.POST("/tender-chapters", server.createTenderChapterHandler)
+			auth.GET("/tender-chapters/:chapter_id/categories", server.listCategoriesByChapterHandler)
 
-		// --- НОВЫЕ РОУТЫ ДЛЯ КАТЕГОРИЙ ---
-		v1.GET("/tender-categories", server.listTenderCategoriesHandler)
-		v1.POST("/tender-categories", server.createTenderCategoryHandler)
-		v1.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
-		v1.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
+			// --- ДОБАВЛЯЕМ НОВЫЕ РОУТЫ ДЛЯ UPDATE И DELETE ---
+			auth.PUT("/tender-chapters/:id", server.updateTenderChapterHandler)
+			auth.DELETE("/tender-chapters/:id", server.deleteTenderChapterHandler)
 
-		// RAG-воркфлоу
-		// 1. "Дай мне работу" (для Процесса 2)
-		v1.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
+			// --- НОВЫЕ РОУТЫ ДЛЯ КАТЕГОРИЙ ---
+			auth.GET("/tender-categories", server.listTenderCategoriesHandler)
+			auth.POST("/tender-categories", server.createTenderCategoryHandler)
+			auth.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
+			auth.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
 
-		// 2. "Прими результат" (для Процесса 2)
-		v1.POST("/positions/match", server.MatchPositionHandler)
+			// RAG-воркфлоу
+			// 1. "Дай мне работу" (для Процесса 2)
+			auth.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
 
-		// 3. "Дай каталог на индексацию" (для Процесса 3)
-		v1.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
+			// 2. "Прими результат" (для Процесса 2)
+			auth.POST("/positions/match", server.MatchPositionHandler)
 
-		// 4. "Я проиндексировал" (для Процесса 3)
-		v1.POST("/catalog/indexed", server.CatalogIndexedHandler)
+			// 3. "Дай каталог на индексацию" (для Процесса 3)
+			auth.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
 
-		// 5. "Предложи слияние" (для Процесса 3)
-		v1.POST("/merges/suggest", server.SuggestMergeHandler)
+			// 4. "Я проиндексировал" (для Процесса 3)
+			auth.POST("/catalog/indexed", server.CatalogIndexedHandler)
 
-		// 6. "Дай весь активный каталог" (для Процесса 3, Часть Б)
-		v1.GET("/catalog/active", server.ActiveCatalogItemsHandler)
+			// 5. "Предложи слияние" (для Процесса 3)
+			auth.POST("/merges/suggest", server.SuggestMergeHandler)
+
+			// 6. "Дай весь активный каталог" (для Процесса 3, Часть Б)
+			auth.GET("/catalog/active", server.ActiveCatalogItemsHandler)
+		}
+
+		// Админские роуты (требуют роль admin)
+		admin := auth.Group("/admin")
+		admin.Use(RequireRole("admin"))
+		{
+			admin.GET("/users", server.listUsersHandler)
+			admin.PATCH("/users/:id/role", server.updateUserRoleHandler)
+		}
 	}
 
 	server.router = router
