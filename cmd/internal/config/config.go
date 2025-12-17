@@ -9,6 +9,17 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
+// validCookieSameSiteValues определяет допустимые значения для атрибута SameSite cookie.
+// SameSite защищает от CSRF атак, контролируя когда браузер отправляет cookies:
+//   - "strict": cookie отправляется только при запросах с того же сайта (максимальная защита)
+//   - "lax": cookie отправляется при переходах по ссылкам, но не при POST запросах с других сайтов (баланс)
+//   - "none": cookie отправляется всегда, даже с других сайтов (требует Secure=true, только HTTPS)
+var validCookieSameSiteValues = map[string]bool{
+	"strict": true,
+	"lax":    true,
+	"none":   true,
+}
+
 type ParserServiceConfig struct {
 	URL string `yaml:"url" env-required:"true"`
 }
@@ -48,8 +59,7 @@ func (c *AuthConfig) Validate(isDebug bool) error {
 	}
 
 	// Проверка CookieSameSite
-	validSameSite := map[string]bool{"strict": true, "lax": true, "none": true}
-	if !validSameSite[c.CookieSameSite] {
+	if !validCookieSameSiteValues[c.CookieSameSite] {
 		return fmt.Errorf("cookie_same_site must be one of: strict, lax, none (got: %s)", c.CookieSameSite)
 	}
 
