@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/auth"
@@ -21,7 +20,7 @@ type LoginRequest struct {
 func (s *Server) loginHandler(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request format"})
 		return
 	}
 
@@ -115,22 +114,15 @@ func (s *Server) logoutHandler(c *gin.Context) {
 // meHandler обрабатывает GET /api/v1/auth/me
 // Возврат информации о текущем аутентифицированном пользователе
 func (s *Server) meHandler(c *gin.Context) {
-	// Извлекаем access token из cookie
-	accessToken, err := c.Cookie(s.config.Auth.CookieAccessName)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "access token not found"})
-		return
-	}
-
-	// Валидируем токен
-	claims, err := s.authService.ValidateAccessToken(accessToken)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired access token"})
+	// Извлекаем user_id из context (установлен AuthMiddleware)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
 
 	// Получаем полную информацию о пользователе
-	user, err := s.store.GetUserByID(c.Request.Context(), claims.UserID)
+	user, err := s.store.GetUserByID(c.Request.Context(), userID.(int64))
 	if err != nil {
 		s.logger.WithError(err).Error("failed to get user")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -148,6 +140,16 @@ func (s *Server) meHandler(c *gin.Context) {
 
 // setAuthCookies устанавливает access и refresh токены в httpOnly cookies
 func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string) {
+	// Устанавливаем SameSite перед вызовом SetCookie
+	switch s.config.Auth.CookieSameSite {
+	case "strict":
+		c.SetSameSite(http.SameSiteStrictMode)
+	case "lax":
+		c.SetSameSite(http.SameSiteLaxMode)
+	case "none":
+		c.SetSameSite(http.SameSiteNoneMode)
+	}
+
 	// Access token cookie
 	c.SetCookie(
 		s.config.Auth.CookieAccessName,
@@ -169,13 +171,20 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 		s.config.Auth.CookieSecure,
 		true, // httpOnly
 	)
-
-	// SameSite устанавливается через SetSameSite
-	// Gin не поддерживает его в SetCookie напрямую, но можно установить через заголовок
 }
 
 // clearAuthCookies очищает auth cookies
 func (s *Server) clearAuthCookies(c *gin.Context) {
+	// Устанавливаем тот же SameSite что и при создании
+	switch s.config.Auth.CookieSameSite {
+	case "strict":
+		c.SetSameSite(http.SameSiteStrictMode)
+	case "lax":
+		c.SetSameSite(http.SameSiteLaxMode)
+	case "none":
+		c.SetSameSite(http.SameSiteNoneMode)
+	}
+
 	c.SetCookie(
 		s.config.Auth.CookieAccessName,
 		"",
@@ -199,10 +208,12 @@ func (s *Server) clearAuthCookies(c *gin.Context) {
 
 // parseIPAddress парсит IP адрес из строки
 func parseIPAddress(ipStr string) *net.IP {
-	// Убираем порт если есть
-	if idx := strings.LastIndex(ipStr, ":"); idx != -1 {
-		ipStr = ipStr[:idx]
+	// Пробуем разделить хост и порт (работает для IPv4 и IPv6)
+	host, _, err := net.SplitHostPort(ipStr)
+	if err == nil {
+		ipStr = host
 	}
+	// Если SplitHostPort вернул ошибку, ipStr уже без порта
 
 	ip := net.ParseIP(ipStr)
 	if ip == nil {

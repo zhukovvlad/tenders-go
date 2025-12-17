@@ -25,6 +25,10 @@ var (
 	ErrSessionNotFound    = errors.New("session not found or expired")
 )
 
+// dummyPasswordHash используется для защиты от timing attacks
+// Предварительно вычисленный bcrypt хеш для несуществующих пользователей
+var dummyPasswordHash = []byte("$2a$10$dummyhashfortimingatackprotectionxxxxxxxxxxxxxxxxxxxxxxxxx")
+
 // JWTClaims представляет payload JWT токена
 type JWTClaims struct {
 	UserID int64  `json:"user_id"`
@@ -62,6 +66,8 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 	userAuth, err := s.store.GetUserAuthByEmail(ctx, email)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			// Выполняем dummy сравнение для защиты от timing attacks
+			bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -241,6 +247,8 @@ func (s *Service) generateAccessToken(userID int64, role string) (string, error)
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.config.Auth.AccessTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "tenders-go",
+			Subject:   fmt.Sprintf("%d", userID),
 		},
 	}
 

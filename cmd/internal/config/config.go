@@ -68,6 +68,11 @@ func (c *AuthConfig) Validate(isDebug bool) error {
 	}
 	c.RefreshTokenTTL = refreshTTL
 
+	// Проверка что refresh TTL больше access TTL
+	if c.RefreshTokenTTL <= c.AccessTokenTTL {
+		return fmt.Errorf("refresh_ttl must be greater than access_ttl")
+	}
+
 	// Проверка CookieSameSite
 	if !validCookieSameSiteValues[c.CookieSameSite] {
 		return fmt.Errorf("cookie_same_site must be one of: strict, lax, none (got: %s)", c.CookieSameSite)
