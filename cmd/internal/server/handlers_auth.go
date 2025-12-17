@@ -24,11 +24,12 @@ func (s *Server) loginHandler(c *gin.Context) {
 		return
 	}
 
-	// Получаем IP адрес клиента
+	// Получаем IP адрес клиента и User-Agent
 	ipAddress := parseIPAddress(c.ClientIP())
+	userAgent := c.Request.UserAgent()
 
 	// Выполняем аутентификацию
-	result, err := s.authService.Login(c.Request.Context(), req.Email, req.Password, ipAddress)
+	result, err := s.authService.Login(c.Request.Context(), req.Email, req.Password, ipAddress, userAgent)
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidCredentials) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
@@ -62,11 +63,12 @@ func (s *Server) refreshHandler(c *gin.Context) {
 		return
 	}
 
-	// Получаем IP адрес
+	// Получаем IP адрес и User-Agent
 	ipAddress := parseIPAddress(c.ClientIP())
+	userAgent := c.Request.UserAgent()
 
 	// Обновляем токены
-	result, err := s.authService.Refresh(c.Request.Context(), refreshToken, ipAddress)
+	result, err := s.authService.Refresh(c.Request.Context(), refreshToken, ipAddress, userAgent)
 	if err != nil {
 		if errors.Is(err, auth.ErrSessionNotFound) || errors.Is(err, auth.ErrInvalidToken) {
 			// Очищаем cookies при невалидном refresh token
@@ -173,7 +175,7 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 		"/",
 		s.config.Auth.CookieDomain,
 		s.config.Auth.CookieSecure,
-		true, // httpOnly
+		s.config.Auth.CookieHttpOnly,
 	)
 
 	// Refresh token cookie
@@ -184,7 +186,7 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 		"/",
 		s.config.Auth.CookieDomain,
 		s.config.Auth.CookieSecure,
-		true, // httpOnly
+		s.config.Auth.CookieHttpOnly,
 	)
 }
 
@@ -200,7 +202,7 @@ func (s *Server) clearAuthCookies(c *gin.Context) {
 		"/",
 		s.config.Auth.CookieDomain,
 		s.config.Auth.CookieSecure,
-		true,
+		s.config.Auth.CookieHttpOnly,
 	)
 
 	c.SetCookie(
@@ -210,7 +212,7 @@ func (s *Server) clearAuthCookies(c *gin.Context) {
 		"/",
 		s.config.Auth.CookieDomain,
 		s.config.Auth.CookieSecure,
-		true,
+		s.config.Auth.CookieHttpOnly,
 	)
 }
 

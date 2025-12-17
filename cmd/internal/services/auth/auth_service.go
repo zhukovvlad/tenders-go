@@ -67,7 +67,7 @@ type LoginResult struct {
 }
 
 // Login аутентифицирует пользователя по email и паролю
-func (s *Service) Login(ctx context.Context, email, password string, ipAddress *net.IP) (*LoginResult, error) {
+func (s *Service) Login(ctx context.Context, email, password string, ipAddress *net.IP, userAgent string) (*LoginResult, error) {
 	// Нормализация email
 	email = strings.ToLower(strings.TrimSpace(email))
 
@@ -80,6 +80,12 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Проверка что пользователь активен
+	if !userAuth.IsActive {
+		// Не раскрываем статус пользователя для защиты от user enumeration
+		return nil, ErrInvalidCredentials
 	}
 
 	// Проверка пароля
@@ -97,8 +103,12 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 	sessionParams := db.CreateUserSessionParams{
 		UserID:           userAuth.ID,
 		RefreshTokenHash: refreshHash,
-		IpAddress:        ipAddress,
-		ExpiresAt:        time.Now().Add(s.config.Auth.RefreshTokenTTL),
+		UserAgent: sql.NullString{
+			String: userAgent,
+			Valid:  userAgent != "",
+		},
+		IpAddress: ipAddress,
+		ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 	}
 
 	_, err = s.store.CreateUserSession(ctx, sessionParams)
@@ -134,7 +144,7 @@ type RefreshResult struct {
 }
 
 // Refresh обновляет access token используя refresh token (в транзакции)
-func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *net.IP) (*RefreshResult, error) {
+func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *net.IP, userAgent string) (*RefreshResult, error) {
 	refreshHash := hashRefreshToken(refreshToken)
 
 	var result RefreshResult
@@ -170,8 +180,12 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           session.UserID,
 			RefreshTokenHash: newRefreshHash,
-			IpAddress:        ipAddress,
-			ExpiresAt:        time.Now().Add(s.config.Auth.RefreshTokenTTL),
+			UserAgent: sql.NullString{
+				String: userAgent,
+				Valid:  userAgent != "",
+			},
+			IpAddress: ipAddress,
+			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
 		_, err = q.CreateUserSession(ctx, sessionParams)
@@ -214,13 +228,11 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 
 	err := s.store.RevokeSessionByRefreshHash(ctx, refreshHash)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// Сессия уже не существует или отозвана - не ошибка
-			return nil
-		}
 		return fmt.Errorf("failed to revoke session: %w", err)
 	}
 
+	// :exec не возвращает sql.ErrNoRows, поэтому nil означает успех
+	// (даже если не было обновлено ни одной строки)
 	return nil
 }
 
