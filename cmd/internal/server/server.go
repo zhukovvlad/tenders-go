@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/auth"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/catalog"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/importer"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/lot"
@@ -19,6 +20,7 @@ type Server struct {
 	store           db.Store
 	router          *gin.Engine
 	logger          *logging.Logger
+	authService     *auth.Service
 	tenderService   *importer.TenderImportService
 	catalogService  *catalog.CatalogService
 	lotService      *lot.LotService
@@ -40,9 +42,12 @@ func NewServer(
 		Timeout: time.Minute * 5,
 	}
 
+	authService := auth.NewService(store, cfg)
+
 	server := &Server{
 		store:           store,
 		logger:          logger,
+		authService:     authService,
 		tenderService:   tenderService,
 		catalogService:  catalogService,
 		lotService:      lotService,
@@ -55,13 +60,25 @@ func NewServer(
 	// Настройка CORS
 	corsConfig := cors.DefaultConfig()
 	if cfg.IsDebug != nil && *cfg.IsDebug {
-		// В режиме отладки разрешаем все origins
-		corsConfig.AllowAllOrigins = true
+		// В режиме отладки - локальные origins + credentials для cookie-based auth
+		corsConfig.AllowOrigins = []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://local-api.dev:5173",
+		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
 		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"}
+		corsConfig.AllowCredentials = true
 	} else {
 		// В production режиме - строгие настройки
-		corsConfig.AllowOrigins = []string{"http://localhost:5173", "http://local-api.dev:5173"}
+		if len(cfg.CORS.AllowedOrigins) > 0 {
+			corsConfig.AllowOrigins = cfg.CORS.AllowedOrigins
+		} else {
+			// В production CORS origins должны быть явно настроены
+			logger := logging.GetLogger()
+			logger.Warn("CORS allowed_origins not configured in production - using restrictive default")
+			corsConfig.AllowOrigins = []string{} // No origins allowed
+		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
 		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 		corsConfig.AllowCredentials = true
@@ -73,64 +90,85 @@ func NewServer(
 	router.GET("/api/stats", server.getStatsHandler)
 	router.POST("/api/v1/import-tender", server.ImportTenderHandler)
 
-	// --- ДОБАВЛЯЕМ НОВЫЙ РОУТ ДЛЯ СПИСКА ТЕНДЕРОВ ---
+	// --- API V1 ---
 	v1 := router.Group("/api/v1")
 	{
-		v1.POST("/upload-tender", server.ProxyUploadHandler)
-		v1.GET("/tasks/:task_id/status", server.GetTaskStatusHandler)
+		// Публичные auth-роуты
+		v1.POST("/auth/login", server.loginHandler)
+		v1.POST("/auth/refresh", server.refreshHandler)
+		v1.POST("/auth/logout", server.logoutHandler)
 
-		v1.GET("/tenders", server.listTendersHandler)
-		v1.GET("/tenders/:id", server.getTenderDetailsHandler)
-		v1.GET("/tenders/:id/proposals", server.listProposalsHandler)
+		// Приватные роуты (требуют аутентификацию)
+		protected := v1.Group("/")
+		protected.Use(AuthMiddleware(server.config, server.store))
+		{
+			// Информация о текущем пользователе
+			protected.GET("/auth/me", server.meHandler)
 
-		// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
-		v1.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
+			protected.POST("/upload-tender", server.ProxyUploadHandler)
+			protected.GET("/tasks/:task_id/status", server.GetTaskStatusHandler)
 
-		// Используем PATCH для частичного обновления всего ресурса 'tenders'
-		v1.PATCH("/tenders/:id", server.patchTenderHandler)
+			protected.GET("/tenders", server.listTendersHandler)
+			protected.GET("/tenders/:id", server.getTenderDetailsHandler)
+			protected.GET("/tenders/:id/proposals", server.listProposalsHandler)
 
-		v1.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
-		v1.PATCH("/lots/:id/key-parameters", server.patchLotKeyParametersHandler)
+			// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
+			protected.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
 
-		v1.GET("/tender-types", server.listTenderTypesHandler)
-		v1.POST("/tender-types", server.createTenderTypeHandler)
+			// Используем PATCH для частичного обновления всего ресурса 'tenders'
+			protected.PATCH("/tenders/:id", server.patchTenderHandler)
 
-		v1.PUT("/tender-types/:id", server.updateTenderTypeHandler)
-		v1.DELETE("/tender-types/:id", server.deleteTenderTypeHandler)
-		v1.GET("/tender-types/:type_id/chapters", server.listChaptersByTypeHandler)
+			protected.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
+			protected.PATCH("/lots/:id/key-parameters", server.patchLotKeyParametersHandler)
 
-		v1.GET("/tender-chapters", server.listTenderChaptersHandler)
-		v1.POST("/tender-chapters", server.createTenderChapterHandler)
-		v1.GET("/tender-chapters/:chapter_id/categories", server.listCategoriesByChapterHandler)
+			protected.GET("/tender-types", server.listTenderTypesHandler)
+			protected.POST("/tender-types", server.createTenderTypeHandler)
 
-		// --- ДОБАВЛЯЕМ НОВЫЕ РОУТЫ ДЛЯ UPDATE И DELETE ---
-		v1.PUT("/tender-chapters/:id", server.updateTenderChapterHandler)
-		v1.DELETE("/tender-chapters/:id", server.deleteTenderChapterHandler)
+			protected.PUT("/tender-types/:id", server.updateTenderTypeHandler)
+			protected.DELETE("/tender-types/:id", server.deleteTenderTypeHandler)
+			protected.GET("/tender-types/:type_id/chapters", server.listChaptersByTypeHandler)
 
-		// --- НОВЫЕ РОУТЫ ДЛЯ КАТЕГОРИЙ ---
-		v1.GET("/tender-categories", server.listTenderCategoriesHandler)
-		v1.POST("/tender-categories", server.createTenderCategoryHandler)
-		v1.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
-		v1.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
+			protected.GET("/tender-chapters", server.listTenderChaptersHandler)
+			protected.POST("/tender-chapters", server.createTenderChapterHandler)
+			protected.GET("/tender-chapters/:chapter_id/categories", server.listCategoriesByChapterHandler)
 
-		// RAG-воркфлоу
-		// 1. "Дай мне работу" (для Процесса 2)
-		v1.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
+			// --- ДОБАВЛЯЕМ НОВЫЕ РОУТЫ ДЛЯ UPDATE И DELETE ---
+			protected.PUT("/tender-chapters/:id", server.updateTenderChapterHandler)
+			protected.DELETE("/tender-chapters/:id", server.deleteTenderChapterHandler)
 
-		// 2. "Прими результат" (для Процесса 2)
-		v1.POST("/positions/match", server.MatchPositionHandler)
+			// --- НОВЫЕ РОУТЫ ДЛЯ КАТЕГОРИЙ ---
+			protected.GET("/tender-categories", server.listTenderCategoriesHandler)
+			protected.POST("/tender-categories", server.createTenderCategoryHandler)
+			protected.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
+			protected.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
 
-		// 3. "Дай каталог на индексацию" (для Процесса 3)
-		v1.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
+			// RAG-воркфлоу
+			// 1. "Дай мне работу" (для Процесса 2)
+			protected.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
 
-		// 4. "Я проиндексировал" (для Процесса 3)
-		v1.POST("/catalog/indexed", server.CatalogIndexedHandler)
+			// 2. "Прими результат" (для Процесса 2)
+			protected.POST("/positions/match", server.MatchPositionHandler)
 
-		// 5. "Предложи слияние" (для Процесса 3)
-		v1.POST("/merges/suggest", server.SuggestMergeHandler)
+			// 3. "Дай каталог на индексацию" (для Процесса 3)
+			protected.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
 
-		// 6. "Дай весь активный каталог" (для Процесса 3, Часть Б)
-		v1.GET("/catalog/active", server.ActiveCatalogItemsHandler)
+			// 4. "Я проиндексировал" (для Процесса 3)
+			protected.POST("/catalog/indexed", server.CatalogIndexedHandler)
+
+			// 5. "Предложи слияние" (для Процесса 3)
+			protected.POST("/merges/suggest", server.SuggestMergeHandler)
+
+			// 6. "Дай весь активный каталог" (для Процесса 3, Часть Б)
+			protected.GET("/catalog/active", server.ActiveCatalogItemsHandler)
+		}
+
+		// Админские роуты (требуют роль admin)
+		admin := protected.Group("/admin")
+		admin.Use(RequireRole("admin"))
+		{
+			admin.GET("/users", server.listUsersHandler)
+			admin.PATCH("/users/:id/role", server.updateUserRoleHandler)
+		}
 	}
 
 	server.router = router

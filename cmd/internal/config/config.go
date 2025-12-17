@@ -29,13 +29,19 @@ type ServicesConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret      string `yaml:"jwt_secret" env:"JWT_SECRET" env-required:"true"`
-	AccessTTL      string `yaml:"access_ttl" env-default:"15m"`
-	RefreshTTL     string `yaml:"refresh_ttl" env-default:"720h"` // 30 days
-	CookieDomain   string `yaml:"cookie_domain" env-default:""`
-	CookieSecure   bool   `yaml:"cookie_secure" env-default:"false"`
-	CookieHttpOnly bool   `yaml:"cookie_http_only" env-default:"true"`
-	CookieSameSite string `yaml:"cookie_same_site" env-default:"lax"` // strict, lax, none
+	JWTSecret         string `yaml:"jwt_secret" env:"JWT_SECRET" env-required:"true"`
+	AccessTTL         string `yaml:"access_ttl" env-default:"15m"`
+	RefreshTTL        string `yaml:"refresh_ttl" env-default:"720h"` // 30 days
+	CookieAccessName  string `yaml:"cookie_access_name" env-default:"access_token"`
+	CookieRefreshName string `yaml:"cookie_refresh_name" env-default:"refresh_token"`
+	CookieDomain      string `yaml:"cookie_domain" env-default:""`
+	CookieSecure      bool   `yaml:"cookie_secure" env-default:"false"`
+	CookieHttpOnly    bool   `yaml:"cookie_http_only" env-default:"true"`
+	CookieSameSite    string `yaml:"cookie_same_site" env-default:"lax"` // strict, lax, none
+
+	// Парсированные значения (заполняются после Validate)
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
 }
 
 // Validate проверяет корректность настроек auth конфигурации
@@ -48,14 +54,23 @@ func (c *AuthConfig) Validate(isDebug bool) error {
 		return fmt.Errorf("jwt_secret must be at least 32 characters (current: %d)", len(c.JWTSecret))
 	}
 
-	// Проверка Access TTL
-	if _, err := time.ParseDuration(c.AccessTTL); err != nil {
+	// Проверка и парсинг Access TTL
+	accessTTL, err := time.ParseDuration(c.AccessTTL)
+	if err != nil {
 		return fmt.Errorf("invalid access_ttl: %w", err)
 	}
+	c.AccessTokenTTL = accessTTL
 
-	// Проверка Refresh TTL
-	if _, err := time.ParseDuration(c.RefreshTTL); err != nil {
+	// Проверка и парсинг Refresh TTL
+	refreshTTL, err := time.ParseDuration(c.RefreshTTL)
+	if err != nil {
 		return fmt.Errorf("invalid refresh_ttl: %w", err)
+	}
+	c.RefreshTokenTTL = refreshTTL
+
+	// Проверка что refresh TTL больше access TTL
+	if c.RefreshTokenTTL <= c.AccessTokenTTL {
+		return fmt.Errorf("refresh_ttl must be greater than access_ttl")
 	}
 
 	// Проверка CookieSameSite
@@ -72,6 +87,10 @@ func (c *AuthConfig) Validate(isDebug bool) error {
 	return nil
 }
 
+type CORSConfig struct {
+	AllowedOrigins []string `yaml:"allowed_origins" env:"CORS_ALLOWED_ORIGINS" env-separator:","`
+}
+
 type Config struct {
 	IsDebug *bool `yaml:"is_debug" env-required:"true"`
 	Listen  struct {
@@ -79,6 +98,7 @@ type Config struct {
 		BindIP string `yaml:"bind_ip" env-default:"127.0.0.1"`
 		Port   string `yaml:"port" env-default:"8080"`
 	} `yaml:"listen"`
+	CORS     CORSConfig     `yaml:"cors"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`
 }

@@ -1,6 +1,7 @@
 .env
 
 /logs
+/postgres_data
 
 /cmd/config
 
@@ -12,3 +13,4 @@ prompt.md
 
 # Compiled binaries
 /main
+app
