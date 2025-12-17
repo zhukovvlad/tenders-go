@@ -80,9 +80,3 @@ CREATE INDEX IF NOT EXISTS "idx_user_sessions_expires_at" ON "user_sessions" ("e
 CREATE INDEX IF NOT EXISTS "idx_user_sessions_user_active" 
   ON "user_sessions" ("user_id", "expires_at") 
   WHERE "revoked_at" IS NULL;
-
-
--- === 3) (Опционально) триггер на updated_at ===
--- Если у тебя уже есть единый паттерн через приложение — можно не добавлять.
--- Если хочешь, чтобы updated_at обновлялся автоматически в БД, скажи — дам отдельной миграцией
--- функцию + триггеры на нужные таблицы.
