@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net"
 	"net/http"
@@ -188,6 +190,34 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 		s.config.Auth.CookieSecure,
 		s.config.Auth.CookieHttpOnly,
 	)
+
+	// CSRF cookie (НЕ httpOnly, чтобы фронт мог прочитать и положить в header)
+	s.setCsrfCookie(c)
+}
+
+func (s *Server) setCsrfCookie(c *gin.Context) {
+	// Устанавливаем тот же SameSite что и при auth cookies
+	s.setSameSiteMode(c)
+
+	// 32 байта => 64 hex символа
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// Если не смогли сгенерить — лучше не падать, но и не открывать дыру:
+		// просто не ставим cookie (запросы с изменениями будут 403 до появления csrf)
+		return
+	}
+	token := hex.EncodeToString(b)
+
+	// httpOnly=false
+	c.SetCookie(
+		csrfCookieName,
+		token,
+		int(s.config.Auth.RefreshTokenTTL.Seconds()),
+		"/",
+		s.config.Auth.CookieDomain,
+		s.config.Auth.CookieSecure,
+		false,
+	)
 }
 
 // clearAuthCookies очищает auth cookies
@@ -213,6 +243,17 @@ func (s *Server) clearAuthCookies(c *gin.Context) {
 		s.config.Auth.CookieDomain,
 		s.config.Auth.CookieSecure,
 		s.config.Auth.CookieHttpOnly,
+	)
+
+	// CSRF cookie
+	c.SetCookie(
+		csrfCookieName,
+		"",
+		-1,
+		"/",
+		s.config.Auth.CookieDomain,
+		s.config.Auth.CookieSecure,
+		false,
 	)
 }
 
