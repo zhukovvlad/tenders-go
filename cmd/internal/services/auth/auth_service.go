@@ -113,7 +113,6 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 	userAgent = validateUserAgent(userAgent)
 
 	// Создание сессии + обновление last_login_at в одной транзакции
-	var newSessionID int64
 	err = s.store.ExecTx(ctx, func(q *db.Queries) error {
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           userAuth.ID,
@@ -126,11 +125,10 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
-		session, err := q.CreateUserSession(ctx, sessionParams)
+		_, err := q.CreateUserSession(ctx, sessionParams)
 		if err != nil {
 			return fmt.Errorf("failed to create session: %w", err)
 		}
-		newSessionID = session.ID
 
 		// Обновляем last_login_at (в проекте уже есть sqlc-запрос UpdateUserLastLogin)
 		if err := q.UpdateUserLastLogin(ctx, userAuth.ID); err != nil {
@@ -142,8 +140,6 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 	if err != nil {
 		return nil, err
 	}
-
-	_ = newSessionID // на будущее (аудит/логирование)
 
 	// Генерация access token
 	accessToken, err := s.generateAccessToken(userAuth.ID, userAuth.Role)

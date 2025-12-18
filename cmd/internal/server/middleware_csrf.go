@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/subtle"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
@@ -24,13 +23,14 @@ func CsrfMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Разрешаем login без CSRF (иначе будет сложно стартовать сессию)
-		// Используем FullPath() для точного сопоставления с роутом
-		p := c.FullPath()
-		if p == "" {
-			p = c.Request.URL.Path
+		// Пропускаем CSRF для эндпоинтов без токена (login - первый вход, refresh - восстановление)
+		// Используем FullPath() для точного сопоставления с зарегистрированным роутом Gin
+		path := c.FullPath()
+		if path == "" {
+			// Fallback для случаев когда роут не найден
+			path = c.Request.URL.Path
 		}
-		if p == "/api/v1/auth/login" || strings.TrimRight(p, "/") == "/api/v1/auth/login" {
+		if path == "/api/v1/auth/login" || path == "/api/v1/auth/refresh" {
 			c.Next()
 			return
 		}

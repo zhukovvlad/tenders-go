@@ -202,8 +202,11 @@ func (s *Server) setCsrfCookie(c *gin.Context) {
 	// 32 байта => 64 hex символа
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// Если не смогли сгенерить — лучше не падать, но и не открывать дыру:
-		// просто не ставим cookie (запросы с изменениями будут 403 до появления csrf)
+		// Критическая ошибка: без CSRF cookie пользователь не сможет делать state-changing запросы
+		// В production это может указывать на проблемы с entropy pool системы
+		s.logger.WithError(err).Error("failed to generate CSRF token - user may be unable to perform state-changing operations")
+		// Не устанавливаем cookie - клиент получит 403 на изменяющих запросах
+		// Альтернатива: можно прервать весь login/refresh, но тогда пользователь вообще не сможет войти
 		return
 	}
 	token := hex.EncodeToString(b)
