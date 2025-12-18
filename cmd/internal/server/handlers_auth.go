@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net"
 	"net/http"
@@ -188,6 +190,37 @@ func (s *Server) setAuthCookies(c *gin.Context, accessToken, refreshToken string
 		s.config.Auth.CookieSecure,
 		s.config.Auth.CookieHttpOnly,
 	)
+
+	// CSRF cookie (НЕ httpOnly, чтобы фронт мог прочитать и положить в header)
+	s.setCsrfCookie(c)
+}
+
+func (s *Server) setCsrfCookie(c *gin.Context) {
+	// Устанавливаем тот же SameSite что и при auth cookies
+	s.setSameSiteMode(c)
+
+	// 32 байта => 64 hex символа
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// Критическая ошибка: без CSRF cookie пользователь не сможет делать state-changing запросы
+		// В production это может указывать на проблемы с entropy pool системы
+		s.logger.WithError(err).Error("failed to generate CSRF token - user may be unable to perform state-changing operations")
+		// Не устанавливаем cookie - клиент получит 403 на изменяющих запросах
+		// Альтернатива: можно прервать весь login/refresh, но тогда пользователь вообще не сможет войти
+		return
+	}
+	token := hex.EncodeToString(b)
+
+	// httpOnly=false
+	c.SetCookie(
+		csrfCookieName,
+		token,
+		int(s.config.Auth.RefreshTokenTTL.Seconds()),
+		"/",
+		s.config.Auth.CookieDomain,
+		s.config.Auth.CookieSecure,
+		false,
+	)
 }
 
 // clearAuthCookies очищает auth cookies
@@ -213,6 +246,17 @@ func (s *Server) clearAuthCookies(c *gin.Context) {
 		s.config.Auth.CookieDomain,
 		s.config.Auth.CookieSecure,
 		s.config.Auth.CookieHttpOnly,
+	)
+
+	// CSRF cookie
+	c.SetCookie(
+		csrfCookieName,
+		"",
+		-1,
+		"/",
+		s.config.Auth.CookieDomain,
+		s.config.Auth.CookieSecure,
+		false,
 	)
 }
 

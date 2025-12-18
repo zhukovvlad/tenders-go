@@ -112,24 +112,36 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 	// Валидация и обрезка User-Agent
 	userAgent = validateUserAgent(userAgent)
 
-	// Создание сессии
-	sessionParams := db.CreateUserSessionParams{
-		UserID:           userAuth.ID,
-		RefreshTokenHash: refreshHash,
-		UserAgent: sql.NullString{
-			String: userAgent,
-			Valid:  userAgent != "",
-		},
-		IpAddress: ipAddress,
-		ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
-	}
+	// Создание сессии + обновление last_login_at в одной транзакции
+	err = s.store.ExecTx(ctx, func(q *db.Queries) error {
+		sessionParams := db.CreateUserSessionParams{
+			UserID:           userAuth.ID,
+			RefreshTokenHash: refreshHash,
+			UserAgent: sql.NullString{
+				String: userAgent,
+				Valid:  userAgent != "",
+			},
+			IpAddress: ipAddress,
+			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
+		}
 
-	_, err = s.store.CreateUserSession(ctx, sessionParams)
+		_, err := q.CreateUserSession(ctx, sessionParams)
+		if err != nil {
+			return fmt.Errorf("failed to create session: %w", err)
+		}
+
+		// Обновляем last_login_at (в проекте уже есть sqlc-запрос UpdateUserLastLogin)
+		if err := q.UpdateUserLastLogin(ctx, userAuth.ID); err != nil {
+			return fmt.Errorf("failed to update last_login_at: %w", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
+		return nil, err
 	}
 
-	// Генерация access JWT
+	// Генерация access token
 	accessToken, err := s.generateAccessToken(userAuth.ID, userAuth.Role)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
@@ -158,6 +170,10 @@ type RefreshResult struct {
 
 // Refresh обновляет access token используя refresh token (в транзакции)
 func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *net.IP, userAgent string) (*RefreshResult, error) {
+	if err := validateRefreshTokenFormat(refreshToken); err != nil {
+		return nil, ErrInvalidToken
+	}
+
 	refreshHash := hashRefreshToken(refreshToken)
 
 	var result RefreshResult
@@ -240,6 +256,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 
 // Logout отзывает refresh token (завершает сессию)
 func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+	if err := validateRefreshTokenFormat(refreshToken); err != nil {
+		return ErrInvalidToken
+	}
+
 	refreshHash := hashRefreshToken(refreshToken)
 
 	err := s.store.RevokeSessionByRefreshHash(ctx, refreshHash)
@@ -255,8 +275,8 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 // ValidateAccessToken валидирует JWT access token и возвращает claims
 func (s *Service) ValidateAccessToken(tokenString string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-		// Проверяем алгоритм подписи
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		// Проверяем алгоритм подписи (строго HS256)
+		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(s.config.Auth.JWTSecret), nil
@@ -314,4 +334,18 @@ func generateRefreshToken() (token string, hash string, err error) {
 func hashRefreshToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])
+}
+
+// validateRefreshTokenFormat проверяет формат refresh token (hex 32 bytes -> 64 символа).
+// Это позволяет быстро отсеивать мусорные/битые cookie и корректно возвращать ErrInvalidToken.
+func validateRefreshTokenFormat(token string) error {
+	// Ожидаем 32 байта в hex => 64 символа
+	if len(token) != 64 {
+		return ErrInvalidToken
+	}
+	// Должен быть валидный hex
+	if _, err := hex.DecodeString(token); err != nil {
+		return ErrInvalidToken
+	}
+	return nil
 }

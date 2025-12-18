@@ -67,7 +67,7 @@ func NewServer(
 			"http://local-api.dev:5173",
 		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
-		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"}
+		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With", "X-CSRF-Token"}
 		corsConfig.AllowCredentials = true
 	} else {
 		// В production режиме - строгие настройки
@@ -80,10 +80,10 @@ func NewServer(
 			corsConfig.AllowOrigins = []string{} // No origins allowed
 		}
 		corsConfig.AllowMethods = []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"}
-		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
+		corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-CSRF-Token"}
 		corsConfig.AllowCredentials = true
 	}
-	corsConfig.ExposeHeaders = []string{"Content-Length"}
+	corsConfig.ExposeHeaders = []string{"Content-Length", "X-Auth-Error"}
 	router.Use(cors.New(corsConfig))
 
 	router.GET("/home", server.HomeHandler)
@@ -95,12 +95,15 @@ func NewServer(
 	{
 		// Публичные auth-роуты
 		v1.POST("/auth/login", server.loginHandler)
+		// Refresh без CSRF: защищен через DB-валидацию refresh token + переустанавливает CSRF cookie
 		v1.POST("/auth/refresh", server.refreshHandler)
-		v1.POST("/auth/logout", server.logoutHandler)
+		// Logout с CSRF: state-changing операция без восстановления
+		v1.POST("/auth/logout", CsrfMiddleware(), server.logoutHandler)
 
 		// Приватные роуты (требуют аутентификацию)
 		protected := v1.Group("/")
 		protected.Use(AuthMiddleware(server.config, server.store))
+		protected.Use(CsrfMiddleware())
 		{
 			// Информация о текущем пользователе
 			protected.GET("/auth/me", server.meHandler)
