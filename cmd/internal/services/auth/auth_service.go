@@ -276,7 +276,7 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 func (s *Service) ValidateAccessToken(tokenString string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// Проверяем алгоритм подписи (строго HS256)
-		if token.Method == nil || token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(s.config.Auth.JWTSecret), nil

@@ -98,12 +98,12 @@ func NewServer(
 		// Refresh без CSRF: защищен через DB-валидацию refresh token + переустанавливает CSRF cookie
 		v1.POST("/auth/refresh", server.refreshHandler)
 		// Logout с CSRF: state-changing операция без восстановления
-		v1.POST("/auth/logout", CsrfMiddleware(server.config), server.logoutHandler)
+		v1.POST("/auth/logout", CsrfMiddleware(), server.logoutHandler)
 
 		// Приватные роуты (требуют аутентификацию)
 		protected := v1.Group("/")
 		protected.Use(AuthMiddleware(server.config, server.store))
-		protected.Use(CsrfMiddleware(server.config))
+		protected.Use(CsrfMiddleware())
 		{
 			// Информация о текущем пользователе
 			protected.GET("/auth/me", server.meHandler)

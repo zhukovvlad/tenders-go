@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 )
 
 const (
@@ -15,7 +14,7 @@ const (
 
 // CsrfMiddleware проверяет CSRF только для "опасных" методов.
 // Логика: cookie(csrf_token) должна совпадать с header(X-CSRF-Token).
-func CsrfMiddleware(cfg *config.Config) gin.HandlerFunc {
+func CsrfMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
 		if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
