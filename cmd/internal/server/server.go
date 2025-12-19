@@ -92,8 +92,10 @@ func NewServer(
 	// --- INTERNAL (Python workers) ---
 	// Отдельная группа для server-to-server взаимодействия.
 	// Здесь НЕ используется cookie/JWT/CSRF. Только service-auth.
+	// Rate limiting добавлен для defense-in-depth защиты на случай компрометации API ключа.
 	internal := router.Group("/internal/worker")
 	internal.Use(ServiceBearerAuthMiddleware("python-worker"))
+	internal.Use(ServiceRateLimitMiddleware(100, 200)) // 100 req/s, burst 200
 	{
 		// Импорт тендера (используется парсером/воркерами)
 		internal.POST("/import-tender", server.ImportTenderHandler)
