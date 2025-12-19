@@ -17,11 +17,13 @@ GOPATH = $(shell go env GOPATH)
 all: run # Команда по умолчанию
 
 run:
-	@if [ -f .env ]; then export $$(cat .env | grep -v '^#' | xargs); fi && go run cmd/main/app.go
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && go run cmd/main/app.go
 
 sqlc:
 	$(GOPATH)/bin/sqlc generate
 
+# Генерирует безопасный API ключ в формате GO_SERVER_API_KEY=<key>
+# Скопируйте вывод в ваш .env файл
 generate-env:
 	@./scripts/generate-env.sh
 

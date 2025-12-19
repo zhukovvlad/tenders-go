@@ -4,21 +4,25 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func ServiceBearerAuthMiddleware() gin.HandlerFunc {
+// ServiceBearerAuthMiddleware создает middleware для аутентификации внутренних сервисов
+// используя Bearer токен из заголовка Authorization.
+// serviceName используется для идентификации сервиса в контексте запроса.
+func ServiceBearerAuthMiddleware(serviceName string) gin.HandlerFunc {
 	secret := os.Getenv("GO_SERVER_API_KEY")
 	if secret == "" {
-		panic("GO_SERVER_API_KEY not set")
+		panic("GO_SERVER_API_KEY environment variable is not set - run 'make generate-env' to create one")
 	}
 
 	secretBytes := []byte(secret)
 
 	return func(c *gin.Context) {
 		h := c.GetHeader("Authorization")
-		if len(h) < 8 || h[:7] != "Bearer " {
+		if !strings.HasPrefix(h, "Bearer ") {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "service auth required"})
 			return
 		}
@@ -29,7 +33,7 @@ func ServiceBearerAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("service", "python-worker")
+		c.Set("service", serviceName)
 		c.Next()
 	}
 }

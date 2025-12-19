@@ -93,12 +93,15 @@ func NewServer(
 	// Отдельная группа для server-to-server взаимодействия.
 	// Здесь НЕ используется cookie/JWT/CSRF. Только service-auth.
 	internal := router.Group("/internal/worker")
-	internal.Use(ServiceBearerAuthMiddleware())
+	internal.Use(ServiceBearerAuthMiddleware("python-worker"))
 	{
 		// Импорт тендера (используется парсером/воркерами)
 		internal.POST("/import-tender", server.ImportTenderHandler)
 
-		// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
+		// AI Results endpoint для Python сервиса
+		// Принимает результаты AI анализа для лота
+		// Request: JSON body с полями analysis результата
+		// Response: 200 OK при успехе, 400/500 при ошибке
 		internal.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
 
 		// RAG-воркфлоу (процессы matching/cleaning/indexing)
