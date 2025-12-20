@@ -98,6 +98,10 @@ type Config struct {
 		BindIP string `yaml:"bind_ip" env-default:"127.0.0.1"`
 		Port   string `yaml:"port" env-default:"8080"`
 	} `yaml:"listen"`
+	Database struct {
+		Driver string `yaml:"driver" env:"DB_DRIVER" env-default:"postgres"`
+		Source string `yaml:"source" env:"DB_SOURCE" env-required:"true"`
+	} `yaml:"database"`
 	CORS     CORSConfig     `yaml:"cors"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`

@@ -18,11 +18,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const (
-	dbDriver = "postgres"
-	dbSource = "postgres://root:secret@localhost:5435/tendersdb?sslmode=disable"
-)
-
 func main() {
 	logger := logging.GetLogger()
 	logger.Info("Starting Tenders API...")
@@ -34,7 +29,7 @@ func main() {
 
 	cfg := config.GetConfig()
 
-	conn, err := sql.Open(dbDriver, dbSource)
+	conn, err := sql.Open(cfg.Database.Driver, cfg.Database.Source)
 	if err != nil {
 		logger.Fatalf("error connecting to database: %v", err)
 	}
