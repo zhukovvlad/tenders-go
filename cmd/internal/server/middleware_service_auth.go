@@ -33,6 +33,7 @@ func ServiceBearerAuthMiddleware(serviceName string) gin.HandlerFunc {
 			return
 		}
 
+		// Сохраняем имя сервиса в контексте для логирования и мониторинга
 		c.Set("service", serviceName)
 		c.Next()
 	}
