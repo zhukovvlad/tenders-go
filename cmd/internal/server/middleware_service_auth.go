@@ -39,10 +39,10 @@ func ServiceBearerAuthMiddleware(serviceName string) gin.HandlerFunc {
 
 		// Сохраняем имя сервиса в контексте для использования в хендлерах
 		c.Set("service", serviceName)
-		
+
 		// Логируем успешную аутентификацию сервиса
 		logger.Infof("Service authenticated: %s from %s -> %s %s", serviceName, c.ClientIP(), c.Request.Method, c.Request.URL.Path)
-		
+
 		c.Next()
 	}
 }
