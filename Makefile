@@ -1,4 +1,4 @@
-.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db
+.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env
 
 # --- Переменные ---
 CONTAINER_NAME = postgres-tender
@@ -17,10 +17,15 @@ GOPATH = $(shell go env GOPATH)
 all: run # Команда по умолчанию
 
 run:
-	go run cmd/main/app.go
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && go run cmd/main/app.go
 
 sqlc:
 	$(GOPATH)/bin/sqlc generate
+
+# Генерирует безопасный API ключ в формате GO_SERVER_API_KEY=<key>
+# Скопируйте вывод в ваш .env файл
+generate-env:
+	@./scripts/generate-env.sh
 
 # --- Команды для БД ---
 

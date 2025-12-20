@@ -88,7 +88,34 @@ func NewServer(
 
 	router.GET("/home", server.HomeHandler)
 	router.GET("/api/stats", server.getStatsHandler)
-	router.POST("/api/v1/import-tender", server.ImportTenderHandler)
+
+	// --- INTERNAL (Python workers) ---
+	// Отдельная группа для server-to-server взаимодействия.
+	// Здесь НЕ используется cookie/JWT/CSRF. Только service-auth.
+	// Rate limiting добавлен для defense-in-depth защиты на случай компрометации API ключа.
+	internal := router.Group("/internal/worker")
+	internal.Use(ServiceBearerAuthMiddleware("python-worker"))
+	internal.Use(ServiceRateLimitMiddleware(100, 200)) // 100 req/s, burst 200
+	{
+		// Импорт тендера (используется парсером/воркерами)
+		internal.POST("/import-tender", server.ImportTenderHandler)
+
+		// AI Results endpoint для Python сервиса
+		// Принимает результаты AI анализа для лота
+		// Request: JSON body с полями analysis результата
+		// Response: 200 OK при успехе, 400/500 при ошибке
+		internal.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
+
+		// RAG-воркфлоу (процессы matching/cleaning/indexing)
+		internal.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
+		internal.POST("/positions/match", server.MatchPositionHandler)
+
+		internal.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
+		internal.POST("/catalog/indexed", server.CatalogIndexedHandler)
+
+		internal.POST("/merges/suggest", server.SuggestMergeHandler)
+		internal.GET("/catalog/active", server.ActiveCatalogItemsHandler)
+	}
 
 	// --- API V1 ---
 	v1 := router.Group("/api/v1")
@@ -114,9 +141,6 @@ func NewServer(
 			protected.GET("/tenders", server.listTendersHandler)
 			protected.GET("/tenders/:id", server.getTenderDetailsHandler)
 			protected.GET("/tenders/:id/proposals", server.listProposalsHandler)
-
-			// AI Results endpoint для Python сервиса (упрощенный, только lot_id)
-			protected.POST("/lots/:lot_id/ai-results", server.SimpleLotAIResultsHandler)
 
 			// Используем PATCH для частичного обновления всего ресурса 'tenders'
 			protected.PATCH("/tenders/:id", server.patchTenderHandler)
@@ -144,25 +168,6 @@ func NewServer(
 			protected.POST("/tender-categories", server.createTenderCategoryHandler)
 			protected.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
 			protected.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
-
-			// RAG-воркфлоу
-			// 1. "Дай мне работу" (для Процесса 2)
-			protected.GET("/positions/unmatched", server.UnmatchedPositionsHandler)
-
-			// 2. "Прими результат" (для Процесса 2)
-			protected.POST("/positions/match", server.MatchPositionHandler)
-
-			// 3. "Дай каталог на индексацию" (для Процесса 3)
-			protected.GET("/catalog/unindexed", server.UnindexedCatalogItemsHandler)
-
-			// 4. "Я проиндексировал" (для Процесса 3)
-			protected.POST("/catalog/indexed", server.CatalogIndexedHandler)
-
-			// 5. "Предложи слияние" (для Процесса 3)
-			protected.POST("/merges/suggest", server.SuggestMergeHandler)
-
-			// 6. "Дай весь активный каталог" (для Процесса 3, Часть Б)
-			protected.GET("/catalog/active", server.ActiveCatalogItemsHandler)
 		}
 
 		// Админские роуты (требуют роль admin)
