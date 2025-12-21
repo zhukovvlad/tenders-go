@@ -55,11 +55,16 @@ func ipToInet(ip *net.IP) pqtype.Inet {
 	if ip == nil {
 		return pqtype.Inet{}
 	}
-	mask := net.CIDRMask(len(*ip)*8, len(*ip)*8)
+	var bits int
+	if ip.To4() != nil {
+		bits = 32
+	} else {
+		bits = 128
+	}
 	return pqtype.Inet{
 		IPNet: net.IPNet{
 			IP:   *ip,
-			Mask: mask,
+			Mask: net.CIDRMask(bits, bits),
 		},
 		Valid: true,
 	}
@@ -114,6 +119,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		if err == sql.ErrNoRows {
 			// Выполняем dummy сравнение для защиты от timing attacks
 			bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+			s.logger.Warnf("login attempt with non-existent email: %s", email)
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -121,11 +127,13 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 
 	// Проверка пароля (всегда первой, для защиты от timing attacks)
 	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
+		s.logger.Warnf("failed login attempt for user %s (id: %d): invalid password", email, userAuth.ID)
 		return nil, ErrInvalidCredentials
 	}
 
 	// Проверка что пользователь активен (после проверки пароля для одинакового времени выполнения)
 	if !userAuth.IsActive {
+		s.logger.Warnf("login attempt for inactive user %s (id: %d)", email, userAuth.ID)
 		return nil, ErrInvalidCredentials
 	}
 
@@ -164,8 +172,11 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil
 	})
 	if err != nil {
+		s.logger.Errorf("failed to create session for user %s (id: %d): %v", email, userAuth.ID, err)
 		return nil, err
 	}
+
+	s.logger.Infof("successful login for user %s (id: %d)", email, userAuth.ID)
 
 	// Генерация access token
 	accessToken, err := s.generateAccessToken(userAuth.ID, userAuth.Role)
