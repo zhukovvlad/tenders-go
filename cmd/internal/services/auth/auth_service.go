@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/sqlc-dev/pqtype"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
@@ -49,6 +50,32 @@ func validateUserAgent(ua string) string {
 	return ua
 }
 
+// hashIdentifier creates a SHA256 hash of the identifier for privacy-safe logging.
+func hashIdentifier(value string) string {
+	hash := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(hash[:8]) // First 8 bytes for brevity
+}
+
+// ipToInet converts a net.IP pointer to pqtype.Inet for database storage.
+func ipToInet(ip *net.IP) pqtype.Inet {
+	if ip == nil {
+		return pqtype.Inet{}
+	}
+	var bits int
+	if ip.To4() != nil {
+		bits = 32
+	} else {
+		bits = 128
+	}
+	return pqtype.Inet{
+		IPNet: net.IPNet{
+			IP:   *ip,
+			Mask: net.CIDRMask(bits, bits),
+		},
+		Valid: true,
+	}
+}
+
 // JWTClaims представляет payload JWT токена
 type JWTClaims struct {
 	UserID int64  `json:"user_id"`
@@ -56,17 +83,27 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
+// Logger defines the logging interface used by the auth service.
+// This interface is compatible with *logging.Logger (based on logrus.Entry).
+type Logger interface {
+	Infof(format string, args ...any)
+	Warnf(format string, args ...any)
+	Errorf(format string, args ...any)
+}
+
 // Service предоставляет методы для аутентификации
 type Service struct {
 	store  db.Store
 	config *config.Config
+	logger Logger
 }
 
 // NewService создает новый auth service
-func NewService(store db.Store, cfg *config.Config) *Service {
+func NewService(store db.Store, cfg *config.Config, logger Logger) *Service {
 	return &Service{
 		store:  store,
 		config: cfg,
+		logger: logger,
 	}
 }
 
@@ -88,6 +125,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		if err == sql.ErrNoRows {
 			// Выполняем dummy сравнение для защиты от timing attacks
 			bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+			s.logger.Warnf("login attempt with non-existent email (hash: %s)", hashIdentifier(email))
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -95,11 +133,13 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 
 	// Проверка пароля (всегда первой, для защиты от timing attacks)
 	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
+		s.logger.Warnf("failed login attempt for user (id_hash: %s): invalid password", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
 		return nil, ErrInvalidCredentials
 	}
 
 	// Проверка что пользователь активен (после проверки пароля для одинакового времени выполнения)
 	if !userAuth.IsActive {
+		s.logger.Warnf("login attempt for inactive user (id_hash: %s)", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
 		return nil, ErrInvalidCredentials
 	}
 
@@ -121,7 +161,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 				String: userAgent,
 				Valid:  userAgent != "",
 			},
-			IpAddress: ipAddress,
+			IpAddress: ipToInet(ipAddress),
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
@@ -138,8 +178,11 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil
 	})
 	if err != nil {
+		s.logger.Errorf("failed to create session for user (id_hash: %s): %v", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)), err)
 		return nil, err
 	}
+
+	s.logger.Infof("successful login for user (id_hash: %s)", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
 
 	// Генерация access token
 	accessToken, err := s.generateAccessToken(userAuth.ID, userAuth.Role)
@@ -216,7 +259,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 				String: userAgent,
 				Valid:  userAgent != "",
 			},
-			IpAddress: ipAddress,
+			IpAddress: ipToInet(ipAddress),
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 

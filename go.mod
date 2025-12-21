@@ -13,7 +13,10 @@ require (
 	golang.org/x/crypto v0.46.0
 )
 
-require golang.org/x/time v0.14.0
+require (
+	golang.org/x/term v0.38.0
+	golang.org/x/time v0.14.0
+)
 
 require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
