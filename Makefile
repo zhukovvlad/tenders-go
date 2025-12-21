@@ -1,4 +1,4 @@
-.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env
+.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env createadmin
 
 # --- Переменные ---
 CONTAINER_NAME = postgres-tender
@@ -62,3 +62,8 @@ migrateup:
 
 migratedown:
 	$(GOPATH)/bin/migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down
+# --- CLI команды ---
+
+createadmin:
+	@echo "Creating admin user..."
+	@go run cmd/createadmin/main.go
