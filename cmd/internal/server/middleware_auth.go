@@ -41,11 +41,7 @@ func clearAccessCookie(c *gin.Context, cfg *config.Config) {
 
 // AuthMiddleware проверяет наличие и валидность JWT access токена из httpOnly cookie
 // При успешной валидации помещает user_id и role в gin.Context
-func AuthMiddleware(cfg *config.Config, store db.Store, logger interface {
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-}) gin.HandlerFunc {
+func AuthMiddleware(cfg *config.Config, store db.Store, logger auth.Logger) gin.HandlerFunc {
 	// Создаем auth service для валидации токенов
 	authService := auth.NewService(store, cfg, logger)
 

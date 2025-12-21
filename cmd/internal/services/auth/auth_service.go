@@ -83,23 +83,23 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
+// Logger defines the logging interface used by the auth service.
+// This interface is compatible with *logging.Logger (based on logrus.Entry).
+type Logger interface {
+	Infof(format string, args ...interface{})
+	Warnf(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+}
+
 // Service предоставляет методы для аутентификации
 type Service struct {
 	store  db.Store
 	config *config.Config
-	logger interface {
-		Infof(format string, args ...interface{})
-		Warnf(format string, args ...interface{})
-		Errorf(format string, args ...interface{})
-	}
+	logger Logger
 }
 
 // NewService создает новый auth service
-func NewService(store db.Store, cfg *config.Config, logger interface {
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-}) *Service {
+func NewService(store db.Store, cfg *config.Config, logger Logger) *Service {
 	return &Service{
 		store:  store,
 		config: cfg,
