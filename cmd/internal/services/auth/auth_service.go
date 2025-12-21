@@ -50,6 +50,12 @@ func validateUserAgent(ua string) string {
 	return ua
 }
 
+// hashIdentifier creates a SHA256 hash of the identifier for privacy-safe logging.
+func hashIdentifier(value string) string {
+	hash := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(hash[:8]) // First 8 bytes for brevity
+}
+
 // ipToInet converts a net.IP pointer to pqtype.Inet for database storage.
 func ipToInet(ip *net.IP) pqtype.Inet {
 	if ip == nil {
@@ -119,7 +125,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		if err == sql.ErrNoRows {
 			// Выполняем dummy сравнение для защиты от timing attacks
 			bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
-			s.logger.Warnf("login attempt with non-existent email: %s", email)
+			s.logger.Warnf("login attempt with non-existent email (hash: %s)", hashIdentifier(email))
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -127,13 +133,13 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 
 	// Проверка пароля (всегда первой, для защиты от timing attacks)
 	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
-		s.logger.Warnf("failed login attempt for user %s (id: %d): invalid password", email, userAuth.ID)
+		s.logger.Warnf("failed login attempt for user (id_hash: %s): invalid password", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
 		return nil, ErrInvalidCredentials
 	}
 
 	// Проверка что пользователь активен (после проверки пароля для одинакового времени выполнения)
 	if !userAuth.IsActive {
-		s.logger.Warnf("login attempt for inactive user %s (id: %d)", email, userAuth.ID)
+		s.logger.Warnf("login attempt for inactive user (id_hash: %s)", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
 		return nil, ErrInvalidCredentials
 	}
 
@@ -172,11 +178,11 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil
 	})
 	if err != nil {
-		s.logger.Errorf("failed to create session for user %s (id: %d): %v", email, userAuth.ID, err)
+		s.logger.Errorf("failed to create session for user (id_hash: %s): %v", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)), err)
 		return nil, err
 	}
 
-	s.logger.Infof("successful login for user %s (id: %d)", email, userAuth.ID)
+	s.logger.Infof("successful login for user (id_hash: %s)", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
 
 	// Генерация access token
 	accessToken, err := s.generateAccessToken(userAuth.ID, userAuth.Role)
