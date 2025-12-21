@@ -56,6 +56,11 @@ func hashIdentifier(value string) string {
 	return hex.EncodeToString(hash[:8]) // First 8 bytes for brevity
 }
 
+// hashUserID creates a privacy-safe hash of a user ID for logging.
+func hashUserID(userID int64) string {
+	return hashIdentifier(fmt.Sprintf("%d", userID))
+}
+
 // ipToInet converts a net.IP pointer to pqtype.Inet for database storage.
 func ipToInet(ip *net.IP) pqtype.Inet {
 	if ip == nil {
@@ -133,13 +138,13 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 
 	// Проверка пароля (всегда первой, для защиты от timing attacks)
 	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
-		s.logger.Warnf("failed login attempt for user (id_hash: %s): invalid password", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
+		s.logger.Warnf("failed login attempt for user (id_hash: %s): invalid password", hashUserID(userAuth.ID))
 		return nil, ErrInvalidCredentials
 	}
 
 	// Проверка что пользователь активен (после проверки пароля для одинакового времени выполнения)
 	if !userAuth.IsActive {
-		s.logger.Warnf("login attempt for inactive user (id_hash: %s)", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
+		s.logger.Warnf("login attempt for inactive user (id_hash: %s)", hashUserID(userAuth.ID))
 		return nil, ErrInvalidCredentials
 	}
 
@@ -178,11 +183,11 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 		return nil
 	})
 	if err != nil {
-		s.logger.Errorf("failed to create session for user (id_hash: %s): %v", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)), err)
+		s.logger.Errorf("failed to create session for user (id_hash: %s): %v", hashUserID(userAuth.ID), err)
 		return nil, err
 	}
 
-	s.logger.Infof("successful login for user (id_hash: %s)", hashIdentifier(fmt.Sprintf("%d", userAuth.ID)))
+	s.logger.Infof("successful login for user (id_hash: %s)", hashUserID(userAuth.ID))
 
 	// Генерация access token
 	accessToken, err := s.generateAccessToken(userAuth.ID, userAuth.Role)
