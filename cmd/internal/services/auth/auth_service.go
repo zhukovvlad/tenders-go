@@ -86,9 +86,9 @@ type JWTClaims struct {
 // Logger defines the logging interface used by the auth service.
 // This interface is compatible with *logging.Logger (based on logrus.Entry).
 type Logger interface {
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
+	Infof(format string, args ...any)
+	Warnf(format string, args ...any)
+	Errorf(format string, args ...any)
 }
 
 // Service предоставляет методы для аутентификации
