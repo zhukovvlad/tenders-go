@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/sqlc-dev/pqtype"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
@@ -60,13 +61,23 @@ type JWTClaims struct {
 type Service struct {
 	store  db.Store
 	config *config.Config
+	logger interface {
+		Infof(format string, args ...interface{})
+		Warnf(format string, args ...interface{})
+		Errorf(format string, args ...interface{})
+	}
 }
 
 // NewService создает новый auth service
-func NewService(store db.Store, cfg *config.Config) *Service {
+func NewService(store db.Store, cfg *config.Config, logger interface {
+	Infof(format string, args ...interface{})
+	Warnf(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+}) *Service {
 	return &Service{
 		store:  store,
 		config: cfg,
+		logger: logger,
 	}
 }
 
@@ -114,6 +125,20 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 
 	// Создание сессии + обновление last_login_at в одной транзакции
 	err = s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// Конвертируем IP в pqtype.Inet
+		var ipInet pqtype.Inet
+		if ipAddress != nil {
+			// Создаем IPNet из IP (с максимальной маской)
+			mask := net.CIDRMask(len(*ipAddress)*8, len(*ipAddress)*8)
+			ipInet = pqtype.Inet{
+				IPNet: net.IPNet{
+					IP:   *ipAddress,
+					Mask: mask,
+				},
+				Valid: true,
+			}
+		}
+
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           userAuth.ID,
 			RefreshTokenHash: refreshHash,
@@ -121,7 +146,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 				String: userAgent,
 				Valid:  userAgent != "",
 			},
-			IpAddress: ipAddress,
+			Column4:   ipInet,
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
@@ -208,6 +233,19 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 		// Валидация и обрезка User-Agent
 		userAgent = validateUserAgent(userAgent)
 
+		// Конвертируем IP в pqtype.Inet
+		var ipInet pqtype.Inet
+		if ipAddress != nil {
+			mask := net.CIDRMask(len(*ipAddress)*8, len(*ipAddress)*8)
+			ipInet = pqtype.Inet{
+				IPNet: net.IPNet{
+					IP:   *ipAddress,
+					Mask: mask,
+				},
+				Valid: true,
+			}
+		}
+
 		// Создаем новую сессию
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           session.UserID,
@@ -216,7 +254,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 				String: userAgent,
 				Valid:  userAgent != "",
 			},
-			IpAddress: ipAddress,
+			Column4:   ipInet,
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 

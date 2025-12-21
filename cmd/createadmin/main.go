@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -58,8 +59,11 @@ func main() {
 	email = strings.ToLower(strings.TrimSpace(email))
 
 	// Проверяем валидность email
-	if email == "" || !strings.Contains(email, "@") {
-		logger.Fatal("invalid email address")
+	// Basic email pattern: localpart@domain.tld
+	emailPattern := `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`
+	matched, err := regexp.MatchString(emailPattern, email)
+	if err != nil || !matched {
+		logger.Fatal("invalid email address format")
 	}
 
 	// Проверяем, не существует ли уже такой пользователь
@@ -107,7 +111,7 @@ func main() {
 		Email:        email,
 		PasswordHash: string(passwordHash),
 		Role:         "admin",
-		Column4:      true, // is_active = true
+		IsActive:     true,
 	})
 	if err != nil {
 		logger.Fatalf("failed to create admin user: %v", err)

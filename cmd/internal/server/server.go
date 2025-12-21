@@ -42,7 +42,7 @@ func NewServer(
 		Timeout: time.Minute * 5,
 	}
 
-	authService := auth.NewService(store, cfg)
+	authService := auth.NewService(store, cfg, logger)
 
 	server := &Server{
 		store:           store,
@@ -129,7 +129,7 @@ func NewServer(
 
 		// Приватные роуты (требуют аутентификацию)
 		protected := v1.Group("/")
-		protected.Use(AuthMiddleware(server.config, server.store))
+		protected.Use(AuthMiddleware(server.config, server.store, server.logger))
 		protected.Use(CsrfMiddleware())
 		{
 			// Информация о текущем пользователе

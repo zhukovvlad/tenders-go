@@ -6,7 +6,7 @@ LIMIT 1;
 
 -- name: CreateUser :one
 INSERT INTO users (email, password_hash, role, is_active)
-VALUES ($1, $2, $3, COALESCE($4, true))
+VALUES ($1, $2, $3, $4)
 RETURNING id, email, role, is_active, created_at, updated_at;
 
 -- name: UpdateUserLastLogin :exec
@@ -16,7 +16,7 @@ WHERE id = $1;
 
 -- name: CreateUserSession :one
 INSERT INTO user_sessions (user_id, refresh_token_hash, user_agent, ip_address, expires_at)
-VALUES ($1, $2, $3, $4, $5)
+VALUES ($1, $2, $3, $4::inet, $5)
 RETURNING id, user_id, refresh_token_hash, created_at, expires_at, revoked_at;
 
 -- name: GetActiveSessionByRefreshHash :one
