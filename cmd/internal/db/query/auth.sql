@@ -16,7 +16,7 @@ WHERE id = $1;
 
 -- name: CreateUserSession :one
 INSERT INTO user_sessions (user_id, refresh_token_hash, user_agent, ip_address, expires_at)
-VALUES ($1, $2, $3, $4::inet, $5)
+VALUES ($1, $2, $3, sqlc.arg(ip_address)::inet, $4)
 RETURNING id, user_id, refresh_token_hash, created_at, expires_at, revoked_at;
 
 -- name: GetActiveSessionByRefreshHash :one

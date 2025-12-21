@@ -67,13 +67,15 @@ func main() {
 	}
 
 	// Проверяем, не существует ли уже такой пользователь
-	existingUser, err := store.GetUserAuthByEmail(ctx, email)
-	if err != nil && err != sql.ErrNoRows {
+	_, err = store.GetUserAuthByEmail(ctx, email)
+	if err == nil {
+		// User found
+		logger.Fatalf("user with email %s already exists", email)
+	} else if err != sql.ErrNoRows {
+		// Database error (not "no rows")
 		logger.Fatalf("failed to check existing user: %v", err)
 	}
-	if existingUser.ID != 0 {
-		logger.Fatalf("user with email %s already exists", email)
-	}
+	// err == sql.ErrNoRows: no user exists, continue
 
 	// Запрашиваем пароль (без отображения на экране)
 	fmt.Print("Enter admin password: ")

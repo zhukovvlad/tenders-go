@@ -50,6 +50,21 @@ func validateUserAgent(ua string) string {
 	return ua
 }
 
+// ipToInet converts a net.IP pointer to pqtype.Inet for database storage.
+func ipToInet(ip *net.IP) pqtype.Inet {
+	if ip == nil {
+		return pqtype.Inet{}
+	}
+	mask := net.CIDRMask(len(*ip)*8, len(*ip)*8)
+	return pqtype.Inet{
+		IPNet: net.IPNet{
+			IP:   *ip,
+			Mask: mask,
+		},
+		Valid: true,
+	}
+}
+
 // JWTClaims представляет payload JWT токена
 type JWTClaims struct {
 	UserID int64  `json:"user_id"`
@@ -125,20 +140,6 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 
 	// Создание сессии + обновление last_login_at в одной транзакции
 	err = s.store.ExecTx(ctx, func(q *db.Queries) error {
-		// Конвертируем IP в pqtype.Inet
-		var ipInet pqtype.Inet
-		if ipAddress != nil {
-			// Создаем IPNet из IP (с максимальной маской)
-			mask := net.CIDRMask(len(*ipAddress)*8, len(*ipAddress)*8)
-			ipInet = pqtype.Inet{
-				IPNet: net.IPNet{
-					IP:   *ipAddress,
-					Mask: mask,
-				},
-				Valid: true,
-			}
-		}
-
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           userAuth.ID,
 			RefreshTokenHash: refreshHash,
@@ -146,7 +147,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress *
 				String: userAgent,
 				Valid:  userAgent != "",
 			},
-			Column4:   ipInet,
+			IpAddress: ipToInet(ipAddress),
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
@@ -233,19 +234,6 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 		// Валидация и обрезка User-Agent
 		userAgent = validateUserAgent(userAgent)
 
-		// Конвертируем IP в pqtype.Inet
-		var ipInet pqtype.Inet
-		if ipAddress != nil {
-			mask := net.CIDRMask(len(*ipAddress)*8, len(*ipAddress)*8)
-			ipInet = pqtype.Inet{
-				IPNet: net.IPNet{
-					IP:   *ipAddress,
-					Mask: mask,
-				},
-				Valid: true,
-			}
-		}
-
 		// Создаем новую сессию
 		sessionParams := db.CreateUserSessionParams{
 			UserID:           session.UserID,
@@ -254,7 +242,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, ipAddress *n
 				String: userAgent,
 				Valid:  userAgent != "",
 			},
-			Column4:   ipInet,
+			IpAddress: ipToInet(ipAddress),
 			ExpiresAt: time.Now().Add(s.config.Auth.RefreshTokenTTL),
 		}
 
