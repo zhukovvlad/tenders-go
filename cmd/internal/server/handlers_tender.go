@@ -127,7 +127,15 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	if queryParams.Limit == 0 {
 		queryParams.Limit = 100
 	}
-	// Offset по умолчанию 0, это уже zero value для int
+	// Валидация границ параметров
+	if queryParams.Limit < 1 || queryParams.Limit > 100 {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть от 1 до 100")))
+		return
+	}
+	if queryParams.Offset < 0 {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр offset должен быть >= 0")))
+		return
+	}
 
 	var (
 		tenderDetails db.GetTenderDetailsRow
