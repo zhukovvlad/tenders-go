@@ -115,13 +115,19 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	}
 
 	var queryParams struct {
-		Limit  int `form:"limit,default=100"`
-		Offset int `form:"offset,default=0"`
+		Limit  int `form:"limit"`
+		Offset int `form:"offset"`
 	}
 	if err := c.ShouldBindQuery(&queryParams); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
+
+	// Применяем значения по умолчанию, если параметры не переданы
+	if queryParams.Limit == 0 {
+		queryParams.Limit = 100
+	}
+	// Offset по умолчанию 0, это уже zero value для int
 
 	var (
 		tenderDetails db.GetTenderDetailsRow
@@ -286,12 +292,12 @@ func (s *Server) patchTenderHandler(c *gin.Context) {
 type createWinnerRequest struct {
 	ProposalID int64  `json:"proposal_id" binding:"required"`
 	Rank       int32  `json:"rank" binding:"required,gte=1"`
-	Notes      string `json:"notes"`
+	Notes      string `json:"notes" binding:"omitempty,max=2000"`
 }
 
 type updateWinnerRequest struct {
 	Rank  *int32  `json:"rank"`
-	Notes *string `json:"notes"`
+	Notes *string `json:"notes" binding:"omitempty,max=2000"`
 }
 
 // POST /api/v1/lots/:lotId/winners
