@@ -143,6 +143,12 @@ OFFSET $3;
 --   - Автоматически обновляет updated_at
 --   - Если запись не найдена, возвращает sql.ErrNoRows
 -- 
+-- ВАЖНОЕ ОГРАНИЧЕНИЕ:
+--   ⚠️  COALESCE паттерн не позволяет явно очистить поля (установить в NULL).
+--   Если передать NULL для awarded_share или notes, старое значение сохранится.
+--   Для очистки полей используйте явное значение (например, пустую строку для notes)
+--   или создайте отдельный запрос для сброса полей.
+-- 
 -- Возвращает: Полную обновленную запись победителя
 -- 
 -- Использование: API PATCH /api/v1/winners/:id
@@ -207,6 +213,8 @@ WHERE id = $1;
 -- 
 -- Параметры:
 --   $1 (tender_id) - ID тендера
+--   sqlc.narg(limit)  - Максимальное количество записей (опционально, для пагинации)
+--   sqlc.narg(offset) - Смещение для пагинации (опционально, сколько записей пропустить)
 -- 
 -- Возвращает: Список записей с полной информацией о победителях:
 --   - winner_id         - ID записи в таблице winners (для редактирования/удаления)
@@ -221,13 +229,17 @@ WHERE id = $1;
 --   - LEFT JOIN с proposal_summary_lines для получения цены
 --   - Фильтр по summary_key = 'total_cost_with_vat' (итоговая цена с НДС)
 --   - Сортировка: сначала по lot_id, затем по рангу победителя
+--   - Пагинация опциональна: если limit/offset не указаны, возвращаются все записи
 -- 
 -- Использование:
---   - API GET /api/v1/tenders/:id/winners
+--   - API GET /api/v1/tenders/:id/winners (без пагинации - все результаты)
+--   - API GET /api/v1/tenders/:id/winners?limit=10&offset=0 (с пагинацией)
 --   - Страница результатов тендера
 --   - Экспорт данных о победителях
 -- 
--- Примечание: winner_id необходим для операций UPDATE/DELETE через API
+-- Примечание: 
+--   - winner_id необходим для операций UPDATE/DELETE через API
+--   - Для больших тендеров рекомендуется использовать пагинацию
 SELECT
     w.id                          AS winner_id,
     p.lot_id                      AS lot_id,
@@ -246,7 +258,9 @@ LEFT JOIN proposal_summary_lines psl
   ON psl.proposal_id = p.id
  AND psl.summary_key = 'total_cost_with_vat'
 WHERE l.tender_id = $1
-ORDER BY p.lot_id, w.rank ASC;
+ORDER BY p.lot_id, w.rank ASC
+LIMIT CASE WHEN sqlc.narg(limit) IS NULL THEN NULL ELSE sqlc.narg(limit) END
+OFFSET COALESCE(sqlc.narg(offset), 0);
 
 -- ============================================================================
 -- ВСПОМОГАТЕЛЬНЫЕ ЗАПРОСЫ (ВАЛИДАЦИЯ)
