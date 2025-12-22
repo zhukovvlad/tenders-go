@@ -148,6 +148,11 @@ func NewServer(
 			protected.GET("/lots/:id/proposals", server.listProposalsForLotHandler)
 			protected.PATCH("/lots/:id/key-parameters", server.patchLotKeyParametersHandler)
 
+			// Роуты для победителей
+			protected.POST("/lots/:lotId/winners", server.createWinnerHandler)
+			protected.PATCH("/winners/:winnerId", server.updateWinnerHandler)
+			protected.DELETE("/winners/:winnerId", server.deleteWinnerHandler)
+
 			protected.GET("/tender-types", server.listTenderTypesHandler)
 			protected.POST("/tender-types", server.createTenderTypeHandler)
 
