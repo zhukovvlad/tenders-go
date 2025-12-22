@@ -160,13 +160,14 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		return nil
 	})
 
-	// 3. НОВАЯ ГОРУТИНА: Победители
+	// 3. Победители (опциональные данные - их может не быть для нового тендера)
 	g.Go(func() error {
 		var err error
 		winnersRaw, err = s.store.GetWinnersByTenderID(ctx, id)
 		if err != nil {
-			// Логируем ошибку, но не валим весь запрос, если с победителями что-то не так
-			s.logger.Errorf("ошибка получения победителей для тендера %d: %v", id, err)
+			// Логируем ошибку БД, но не валим весь запрос - победители опциональны
+			// При первой загрузке тендера победителей еще нет, это нормально
+			s.logger.Warnf("не удалось получить победителей для тендера %d: %v", id, err)
 			return nil
 		}
 		return nil
