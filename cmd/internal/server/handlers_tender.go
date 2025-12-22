@@ -326,7 +326,7 @@ func (s *Server) createWinnerHandler(c *gin.Context) {
 	createParams := db.CreateWinnerParams{
 		ProposalID: req.ProposalID,
 		Rank:       sql.NullInt32{Int32: req.Rank, Valid: true},
-		Notes:      sql.NullString{String: req.Notes, Valid: true},
+		Notes:      sql.NullString{String: req.Notes, Valid: req.Notes != ""},
 	}
 
 	winner, err := s.store.CreateWinner(c.Request.Context(), createParams)
@@ -392,7 +392,7 @@ func (s *Server) deleteWinnerHandler(c *gin.Context) {
 	}
 
 	// Используем метод DeleteWinnerByID из winner.sql, который возвращает удаленную запись
-	_, err = s.store.DeleteWinnerByID(c.Request.Context(), winnerID)
+	deletedWinner, err := s.store.DeleteWinnerByID(c.Request.Context(), winnerID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, errorResponse(fmt.Errorf("победитель не найден")))
@@ -402,5 +402,5 @@ func (s *Server) deleteWinnerHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	c.JSON(http.StatusOK, deletedWinner)
 }
