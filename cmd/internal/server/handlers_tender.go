@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"golang.org/x/sync/errgroup"
 )
@@ -86,6 +87,14 @@ type tenderPageResponse struct {
 	Lots    []LotResponse           `json:"lots"`
 }
 
+type WinnerResponse struct {
+	ID             int64  `json:"id"`              // ID записи победителя (для редактирования/удаления)
+	ContractorName string `json:"contractor_name"` // Название подрядчика
+	Inn            string `json:"inn"`             // ИНН
+	Price          string `json:"price"`           // Цена (строкой, чтобы не терять копейки)
+	Rank           int32  `json:"rank"`            // Место
+}
+
 type LotResponse struct {
 	ID            int64             `json:"id"`
 	LotKey        string            `json:"lot_key"`
@@ -94,88 +103,127 @@ type LotResponse struct {
 	KeyParameters map[string]string `json:"key_parameters"`
 	CreatedAt     string            `json:"created_at"`
 	UpdatedAt     string            `json:"updated_at"`
+	Winners       []WinnerResponse  `json:"winners"`
 }
 
 // getTenderDetailsHandler - возвращает детали тендера и его лоты
 func (s *Server) getTenderDetailsHandler(c *gin.Context) {
-    id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный формат ID тендера")))
-        return
-    }
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный формат ID тендера")))
+		return
+	}
 
-    // Добавим параметры пагинации из query
-    var queryParams struct {
-        Limit  int `form:"limit,default=100"`
-        Offset int `form:"offset,default=0"`
-    }
-    if err := c.ShouldBindQuery(&queryParams); err != nil {
-        c.JSON(http.StatusBadRequest, errorResponse(err))
-        return
-    }
+	var queryParams struct {
+		Limit  int `form:"limit,default=100"`
+		Offset int `form:"offset,default=0"`
+	}
+	if err := c.ShouldBindQuery(&queryParams); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
 
-    var (
-        tenderDetails db.GetTenderDetailsRow
-        lots          []db.Lot
-    )
-    
-    // Используем errgroup для параллельного выполнения независимых запросов
-    g, ctx := errgroup.WithContext(c.Request.Context())
+	var (
+		tenderDetails db.GetTenderDetailsRow
+		lots          []db.Lot
+		// НОВАЯ ПЕРЕМЕННАЯ: "сырые" данные о победителях из БД
+		winnersRaw    []db.GetWinnersByTenderIDRow 
+	)
 
-    // Горутина для получения деталей тендера
-    g.Go(func() error {
-        var err error
-        tenderDetails, err = s.store.GetTenderDetails(ctx, id)
-        if err != nil {
-            if err == sql.ErrNoRows {
-                // Оборачиваем ошибку для корректной обработки ниже
-                return fmt.Errorf("тендер с ID '%d' не найден: %w", id, err)
-            }
-            return err
-        }
-        return nil
-    })
+	g, ctx := errgroup.WithContext(c.Request.Context())
 
-    // Горутина для получения списка лотов
-    g.Go(func() error {
-        params := db.ListLotsByTenderIDParams{
-            TenderID: id,
-            Limit:    int32(queryParams.Limit),
-            Offset:   int32(queryParams.Offset),
-        }
-        var err error
-        lots, err = s.store.ListLotsByTenderID(ctx, params)
-        if err != nil {
-            s.logger.Errorf("ошибка получения лотов для тендера %d: %v", id, err)
-            return err
-        }
-        return nil
-    })
+	// 1. Детали тендера
+	g.Go(func() error {
+		var err error
+		tenderDetails, err = s.store.GetTenderDetails(ctx, id)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("тендер с ID '%d' не найден: %w", id, err)
+			}
+			return err
+		}
+		return nil
+	})
 
-    // Ждем завершения всех горутин и проверяем на ошибки
-    if err := g.Wait(); err != nil {
-        // Проверяем, была ли это ошибка "не найдено"
-        if errors.Is(err, sql.ErrNoRows) {
-            c.JSON(http.StatusNotFound, errorResponse(err))
-        } else {
-            c.JSON(http.StatusInternalServerError, errorResponse(err))
-        }
-        return
-    }
+	// 2. Лоты
+	g.Go(func() error {
+		params := db.ListLotsByTenderIDParams{
+			TenderID: id,
+			Limit:    int32(queryParams.Limit),
+			Offset:   int32(queryParams.Offset),
+		}
+		var err error
+		lots, err = s.store.ListLotsByTenderID(ctx, params)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 
-    // Трансформация данных теперь в одну строку
-    lotResponses := make([]LotResponse, len(lots))
-    for i, lot := range lots {
-        lotResponses[i] = newLotResponse(lot, s.logger)
-    }
+	// 3. НОВАЯ ГОРУТИНА: Победители
+	g.Go(func() error {
+		var err error
+		winnersRaw, err = s.store.GetWinnersByTenderID(ctx, id)
+		if err != nil {
+			// Логируем ошибку, но не валим весь запрос, если с победителями что-то не так
+			s.logger.Errorf("ошибка получения победителей для тендера %d: %v", id, err)
+			return nil 
+		}
+		return nil
+	})
 
-    // Собираем финальный ответ
-    response := tenderPageResponse{
-        Details: &tenderDetails,
-        Lots:    lotResponses,
-    }
+	if err := g.Wait(); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
+		return
+	}
 
-    c.JSON(http.StatusOK, response)
+	// 4. Сборка данных: Группируем победителей по LotID
+	winnersMap := make(map[int64][]WinnerResponse)
+	for _, w := range winnersRaw {
+		// Обработка nullable полей (Price, Rank, Inn могут быть NULL в БД)
+		priceStr := "0"
+		if w.Price.Valid { // Предполагаем, что sqlc сгенерировал sql.NullString для Numeric
+			priceStr = w.Price.String 
+		}
+
+		var rankVal int32 = 0
+		if w.Rank.Valid {
+			rankVal = w.Rank.Int32
+		}
+
+		item := WinnerResponse{
+			ID:             w.WinnerID,       // Поле из SQL: w.id AS winner_id
+			ContractorName: w.ContractorName,
+			Inn:            w.ContractorInn,
+			Price:          priceStr,
+			Rank:           rankVal,
+		}
+		winnersMap[w.LotID] = append(winnersMap[w.LotID], item)
+	}
+
+	// 5. Заполнение ответа
+	lotResponses := make([]LotResponse, len(lots))
+	for i, lot := range lots {
+		lr := newLotResponse(lot, s.logger)
+
+		// Если для лота есть победители — вставляем их
+		if winners, ok := winnersMap[lot.ID]; ok {
+			lr.Winners = winners
+		}
+		
+		lotResponses[i] = lr
+	}
+
+	response := tenderPageResponse{
+		Details: &tenderDetails,
+		Lots:    lotResponses,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // Используем указатели (*), чтобы отличить непереданное поле от поля, переданного как `null`.
@@ -229,4 +277,123 @@ func (s *Server) patchTenderHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tender)
+}
+
+// --- CRUD Победителей ---
+
+type createWinnerRequest struct {
+	ProposalID int64  `json:"proposal_id" binding:"required"`
+	Rank       int32  `json:"rank" binding:"required,gte=1"`
+	Notes      string `json:"notes"`
+}
+
+type updateWinnerRequest struct {
+	Rank  *int32  `json:"rank"`
+	Notes *string `json:"notes"`
+}
+
+// POST /api/v1/lots/:lotId/winners
+func (s *Server) createWinnerHandler(c *gin.Context) {
+	lotID, err := strconv.ParseInt(c.Param("lotId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный ID лота")))
+		return
+	}
+
+	var req createWinnerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	// 1. Валидация: Принадлежит ли proposal этому лоту?
+	paramsCheck := db.CheckProposalBelongsToLotParams{
+		ID:    req.ProposalID,
+		LotID: lotID,
+	}
+	isValid, err := s.store.CheckProposalBelongsToLot(c.Request.Context(), paramsCheck)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	if !isValid {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("proposal_id %d не принадлежит лоту %d", req.ProposalID, lotID)))
+		return
+	}
+
+	// 2. Создание
+	createParams := db.CreateWinnerParams{
+		ProposalID: req.ProposalID,
+		Rank:       sql.NullInt32{Int32: req.Rank, Valid: true},
+		Notes:      sql.NullString{String: req.Notes, Valid: req.Notes != ""},
+	}
+
+	winner, err := s.store.CreateWinner(c.Request.Context(), createParams)
+	if err != nil {
+		// Проверяем, является ли ошибка PostgreSQL ошибкой нарушения уникальности
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			c.JSON(http.StatusConflict, errorResponse(fmt.Errorf("это предложение уже является победителем")))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	c.JSON(http.StatusCreated, winner)
+}
+
+// PATCH /api/v1/winners/:winnerId
+func (s *Server) updateWinnerHandler(c *gin.Context) {
+	winnerID, err := strconv.ParseInt(c.Param("winnerId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный ID победителя")))
+		return
+	}
+
+	var req updateWinnerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	params := db.UpdateWinnerDetailsParams{
+		ID: winnerID,
+	}
+	// Заполняем только переданные поля
+	if req.Rank != nil {
+		params.Rank = sql.NullInt32{Int32: *req.Rank, Valid: true}
+	}
+	if req.Notes != nil {
+		params.Notes = sql.NullString{String: *req.Notes, Valid: true}
+	}
+
+	updatedWinner, err := s.store.UpdateWinnerDetails(c.Request.Context(), params)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, errorResponse(fmt.Errorf("победитель не найден")))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	c.JSON(http.StatusOK, updatedWinner)
+}
+
+// DELETE /api/v1/winners/:winnerId
+func (s *Server) deleteWinnerHandler(c *gin.Context) {
+	winnerID, err := strconv.ParseInt(c.Param("winnerId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("неверный ID победителя")))
+		return
+	}
+
+	// Используем метод DeleteWinnerByID из winner.sql
+	err = s.store.DeleteWinnerByID(c.Request.Context(), winnerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
 }
