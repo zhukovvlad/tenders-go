@@ -213,8 +213,6 @@ WHERE id = $1;
 -- 
 -- Параметры:
 --   $1 (tender_id) - ID тендера
---   sqlc.narg(limit)  - Максимальное количество записей (опционально, для пагинации)
---   sqlc.narg(offset) - Смещение для пагинации (опционально, сколько записей пропустить)
 -- 
 -- Возвращает: Список записей с полной информацией о победителях:
 --   - winner_id         - ID записи в таблице winners (для редактирования/удаления)
@@ -229,17 +227,16 @@ WHERE id = $1;
 --   - LEFT JOIN с proposal_summary_lines для получения цены
 --   - Фильтр по summary_key = 'total_cost_with_vat' (итоговая цена с НДС)
 --   - Сортировка: сначала по lot_id, затем по рангу победителя
---   - Пагинация опциональна: если limit/offset не указаны, возвращаются все записи
+--   - Возвращает все записи (без пагинации)
 -- 
 -- Использование:
---   - API GET /api/v1/tenders/:id/winners (без пагинации - все результаты)
---   - API GET /api/v1/tenders/:id/winners?limit=10&offset=0 (с пагинацией)
+--   - API GET /api/v1/tenders/:id/winners
 --   - Страница результатов тендера
 --   - Экспорт данных о победителях
 -- 
 -- Примечание: 
 --   - winner_id необходим для операций UPDATE/DELETE через API
---   - Для больших тендеров рекомендуется использовать пагинацию
+--   - Для больших тендеров рассмотрите создание отдельного запроса с пагинацией
 --   - Производительность: рекомендуются индексы на winners.proposal_id и proposals.contractor_id
 --     для оптимизации JOIN операций на больших датасетах
 SELECT
@@ -260,9 +257,7 @@ LEFT JOIN proposal_summary_lines psl
   ON psl.proposal_id = p.id
  AND psl.summary_key = 'total_cost_with_vat'
 WHERE l.tender_id = $1
-ORDER BY p.lot_id, w.rank ASC
-LIMIT sqlc.narg(limit)
-OFFSET COALESCE(sqlc.narg(offset), 0);
+ORDER BY p.lot_id, w.rank ASC;
 
 -- ============================================================================
 -- ВСПОМОГАТЕЛЬНЫЕ ЗАПРОСЫ (ВАЛИДАЦИЯ)
