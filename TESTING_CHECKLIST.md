@@ -35,16 +35,16 @@
 ## Фаза 1: Unit-тесты для утилит (Простые тесты для начала)
 
 ### ✅ Задача 1.1: Тесты для hash_utils.go
-- [ ] Создать `cmd/internal/util/hash_utils_test.go`
-- [ ] Тест `TestHashPassword` (проверка хеширования)
-- [ ] Тест `TestCheckPasswordHash` (проверка сравнения паролей)
-- [ ] Тест `TestCheckPasswordHash_WrongPassword` (негативный кейс)
-- [ ] Тест `TestHashPassword_EmptyPassword` (граничный случай)
+- [x] Создать `cmd/internal/util/hash_utils_test.go`
+- [x] Тест `TestHashPassword` (проверка хеширования)
+- [x] Тест `TestCheckPasswordHash` (проверка сравнения паролей)
+- [x] Тест `TestCheckPasswordHash_WrongPassword` (негативный кейс)
+- [x] Тест `TestHashPassword_EmptyPassword` (граничный случай)
 
 ### ✅ Задача 1.2: Тесты для nullable.go
-- [ ] Создать `cmd/internal/util/nullable_test.go`
-- [ ] Тесты для всех функций работы с nullable типами
-- [ ] Проверка граничных случаев (nil, empty string, zero values)
+- [x] Создать `cmd/internal/util/nullable_test.go`
+- [x] Тесты для всех функций работы с nullable типами
+- [x] Проверка граничных случаев (nil, empty string, zero values)
 
 ### ✅ Задача 1.3: Запуск и проверка
 - [x] Выполнить `make test-unit`
