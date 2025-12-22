@@ -127,7 +127,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		tenderDetails db.GetTenderDetailsRow
 		lots          []db.Lot
 		// НОВАЯ ПЕРЕМЕННАЯ: "сырые" данные о победителях из БД
-		winnersRaw    []db.GetWinnersByTenderIDRow 
+		winnersRaw []db.GetWinnersByTenderIDRow
 	)
 
 	g, ctx := errgroup.WithContext(c.Request.Context())
@@ -167,7 +167,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		if err != nil {
 			// Логируем ошибку, но не валим весь запрос, если с победителями что-то не так
 			s.logger.Errorf("ошибка получения победителей для тендера %d: %v", id, err)
-			return nil 
+			return nil
 		}
 		return nil
 	})
@@ -187,7 +187,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		// Обработка nullable полей (Price, Rank, Inn могут быть NULL в БД)
 		priceStr := "0"
 		if w.Price.Valid { // Предполагаем, что sqlc сгенерировал sql.NullString для Numeric
-			priceStr = w.Price.String 
+			priceStr = w.Price.String
 		}
 
 		var rankVal int32 = 0
@@ -196,7 +196,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		}
 
 		item := WinnerResponse{
-			ID:             w.WinnerID,       // Поле из SQL: w.id AS winner_id
+			ID:             w.WinnerID, // Поле из SQL: w.id AS winner_id
 			ContractorName: w.ContractorName,
 			Inn:            w.ContractorInn,
 			Price:          priceStr,
@@ -214,7 +214,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		if winners, ok := winnersMap[lot.ID]; ok {
 			lr.Winners = winners
 		}
-		
+
 		lotResponses[i] = lr
 	}
 
