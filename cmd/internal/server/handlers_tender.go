@@ -358,11 +358,21 @@ func (s *Server) updateWinnerHandler(c *gin.Context) {
 		return
 	}
 
+	// Требуем хотя бы одно поле для обновления
+	if req.Rank == nil && req.Notes == nil {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("необходимо указать хотя бы одно поле для обновления")))
+		return
+	}
+
 	params := db.UpdateWinnerDetailsParams{
 		ID: winnerID,
 	}
 	// Заполняем только переданные поля
 	if req.Rank != nil {
+		if *req.Rank < 1 {
+			c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("rank должен быть >= 1")))
+			return
+		}
 		params.Rank = sql.NullInt32{Int32: *req.Rank, Valid: true}
 	}
 	if req.Notes != nil {
