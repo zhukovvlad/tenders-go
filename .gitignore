@@ -14,3 +14,10 @@ prompt.md
 # Compiled binaries
 /main
 app
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+*.prof
+/tests/coverage/
