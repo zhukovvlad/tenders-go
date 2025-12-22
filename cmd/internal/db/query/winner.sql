@@ -240,6 +240,8 @@ WHERE id = $1;
 -- Примечание: 
 --   - winner_id необходим для операций UPDATE/DELETE через API
 --   - Для больших тендеров рекомендуется использовать пагинацию
+--   - Производительность: рекомендуются индексы на winners.proposal_id и proposals.contractor_id
+--     для оптимизации JOIN операций на больших датасетах
 SELECT
     w.id                          AS winner_id,
     p.lot_id                      AS lot_id,
@@ -259,7 +261,7 @@ LEFT JOIN proposal_summary_lines psl
  AND psl.summary_key = 'total_cost_with_vat'
 WHERE l.tender_id = $1
 ORDER BY p.lot_id, w.rank ASC
-LIMIT CASE WHEN sqlc.narg(limit) IS NULL THEN NULL ELSE sqlc.narg(limit) END
+LIMIT sqlc.narg(limit)
 OFFSET COALESCE(sqlc.narg(offset), 0);
 
 -- ============================================================================
