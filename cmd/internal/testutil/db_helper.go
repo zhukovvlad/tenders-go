@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -50,14 +54,21 @@ func SetupTestDatabase(t *testing.T) (*sql.DB, *PostgresContainer, error) {
 		return nil, nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
+	// Helper to cleanup container on error
+	cleanup := func() {
+		_ = container.Terminate(ctx)
+	}
+
 	// Получение хоста и порта контейнера
 	host, err := container.Host(ctx)
 	if err != nil {
+		cleanup()
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
 	port, err := container.MappedPort(ctx, "5432")
 	if err != nil {
+		cleanup()
 		return nil, nil, fmt.Errorf("failed to get container port: %w", err)
 	}
 
@@ -67,11 +78,14 @@ func SetupTestDatabase(t *testing.T) (*sql.DB, *PostgresContainer, error) {
 	// Подключение к БД
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
+		cleanup()
 		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	// Проверка подключения
 	if err := db.Ping(); err != nil {
+		db.Close()
+		cleanup()
 		return nil, nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -116,16 +130,21 @@ func RunMigrations(t *testing.T, db *sql.DB) error {
 		return fmt.Errorf("failed to read migration files: %w", err)
 	}
 
+	// Сортируем миграции для правильного порядка выполнения
+	sort.Strings(files)
+
 	// Применяем миграции
 	for _, file := range files {
-		content, err := filepath.Abs(file)
+		content, err := os.ReadFile(file)
 		if err != nil {
 			return fmt.Errorf("failed to read migration file %s: %w", file, err)
 		}
 
-		// Здесь нужно прочитать файл и выполнить SQL
-		// Для простоты можно использовать migrate библиотеку или выполнить вручную
-		t.Logf("Migration file: %s", content)
+		_, err = db.Exec(string(content))
+		if err != nil {
+			return fmt.Errorf("failed to execute migration %s: %w", file, err)
+		}
+		t.Logf("Applied migration: %s", file)
 	}
 
 	return nil
@@ -156,8 +175,12 @@ func CleanupTables(t *testing.T, db *sql.DB) error {
 	for _, table := range tables {
 		query := fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table)
 		if _, err := tx.ExecContext(ctx, query); err != nil {
-			// Игнорируем ошибки если таблица не существует
-			t.Logf("Warning: failed to truncate table %s: %v", table, err)
+			// PostgreSQL error code 42P01 = undefined_table
+			if strings.Contains(err.Error(), "42P01") || strings.Contains(err.Error(), "does not exist") {
+				t.Logf("Skipping non-existent table: %s", table)
+				continue
+			}
+			return fmt.Errorf("failed to truncate table %s: %w", table, err)
 		}
 	}
 

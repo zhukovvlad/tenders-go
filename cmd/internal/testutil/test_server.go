@@ -89,7 +89,9 @@ func AssertErrorResponse(t *testing.T, w *httptest.ResponseRecorder, expectedSta
 	ParseResponseBody(t, w.Body, &response)
 
 	if expectedMessage != "" {
-		AssertContains(t, response["error"].(string), expectedMessage)
+		errVal, ok := response["error"].(string)
+		require.True(t, ok, "Expected 'error' field to be a string, got: %T", response["error"])
+		AssertContains(t, errVal, expectedMessage)
 	}
 }
 

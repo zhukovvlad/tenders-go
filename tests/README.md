@@ -2,7 +2,7 @@
 
 ## Структура
 
-```
+```plaintext
 cmd/internal/testutil/  # Утилиты для тестирования (используют internal пакеты)
 ├── db_helper.go      # Хелперы для работы с БД
 ├── fixtures.go       # Тестовые данные (использует db.sqlc типы)

@@ -6,6 +6,13 @@ import (
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 )
 
+const (
+	// TestPasswordHash is the bcrypt hash for the password "password"
+	// Used in test fixtures for predictable authentication testing
+	TestPasswordHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+	TestPassword     = "password"
+)
+
 // Fixtures содержит готовые тестовые данные
 type Fixtures struct {
 	Users       []db.User
@@ -29,7 +36,7 @@ func CreateTestUser(email, role string, isActive bool) db.User {
 	return db.User{
 		ID:           1,
 		Email:        email,
-		PasswordHash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // "password"
+		PasswordHash: TestPasswordHash,
 		Role:         role,
 		IsActive:     isActive,
 		CreatedAt:    now,
