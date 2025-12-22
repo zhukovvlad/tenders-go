@@ -88,11 +88,11 @@ type tenderPageResponse struct {
 }
 
 type WinnerResponse struct {
-	ID             int64  `json:"id"`              // ID записи победителя (для редактирования/удаления)
-	ContractorName string `json:"contractor_name"` // Название подрядчика
-	Inn            string `json:"inn"`             // ИНН
-	Price          string `json:"price"`           // Цена (строкой, чтобы не терять копейки)
-	Rank           int32  `json:"rank"`            // Место
+	ID             int64   `json:"id"`              // ID записи победителя (для редактирования/удаления)
+	ContractorName string  `json:"contractor_name"` // Название подрядчика
+	Inn            string  `json:"inn"`             // ИНН
+	Price          *string `json:"price,omitempty"` // Цена (строкой, чтобы не терять копейки), nil если не установлена
+	Rank           *int32  `json:"rank,omitempty"`  // Место, nil если не установлено
 }
 
 type LotResponse struct {
@@ -184,23 +184,24 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	// 4. Сборка данных: Группируем победителей по LotID
 	winnersMap := make(map[int64][]WinnerResponse)
 	for _, w := range winnersRaw {
-		// Обработка nullable полей (Price, Rank, Inn могут быть NULL в БД)
-		priceStr := "0"
-		if w.Price.Valid { // Предполагаем, что sqlc сгенерировал sql.NullString для Numeric
-			priceStr = w.Price.String
+		// Обработка nullable полей (Price, Rank могут быть NULL в БД)
+		// Используем pointers, чтобы отличить NULL от реального нулевого значения
+		var pricePtr *string
+		if w.Price.Valid {
+			pricePtr = &w.Price.String
 		}
 
-		var rankVal int32 = 0
+		var rankPtr *int32
 		if w.Rank.Valid {
-			rankVal = w.Rank.Int32
+			rankPtr = &w.Rank.Int32
 		}
 
 		item := WinnerResponse{
 			ID:             w.WinnerID, // Поле из SQL: w.id AS winner_id
 			ContractorName: w.ContractorName,
 			Inn:            w.ContractorInn,
-			Price:          priceStr,
-			Rank:           rankVal,
+			Price:          pricePtr,
+			Rank:           rankPtr,
 		}
 		winnersMap[w.LotID] = append(winnersMap[w.LotID], item)
 	}
@@ -325,13 +326,14 @@ func (s *Server) createWinnerHandler(c *gin.Context) {
 	createParams := db.CreateWinnerParams{
 		ProposalID: req.ProposalID,
 		Rank:       sql.NullInt32{Int32: req.Rank, Valid: true},
-		Notes:      sql.NullString{String: req.Notes, Valid: req.Notes != ""},
+		Notes:      sql.NullString{String: req.Notes, Valid: true},
 	}
 
 	winner, err := s.store.CreateWinner(c.Request.Context(), createParams)
 	if err != nil {
-		// Проверяем, является ли ошибка PostgreSQL ошибкой нарушения уникальности
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+		// Проверяем, является ли ошибка (или обернутая ошибка) PostgreSQL ошибкой нарушения уникальности
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			c.JSON(http.StatusConflict, errorResponse(fmt.Errorf("это предложение уже является победителем")))
 			return
 		}
@@ -364,7 +366,8 @@ func (s *Server) updateWinnerHandler(c *gin.Context) {
 		params.Rank = sql.NullInt32{Int32: *req.Rank, Valid: true}
 	}
 	if req.Notes != nil {
-		params.Notes = sql.NullString{String: *req.Notes, Valid: true}
+		// Пустая строка сохраняется как NULL для консистентности с createWinnerHandler
+		params.Notes = sql.NullString{String: *req.Notes, Valid: *req.Notes != ""}
 	}
 
 	updatedWinner, err := s.store.UpdateWinnerDetails(c.Request.Context(), params)
@@ -388,9 +391,13 @@ func (s *Server) deleteWinnerHandler(c *gin.Context) {
 		return
 	}
 
-	// Используем метод DeleteWinnerByID из winner.sql
-	err = s.store.DeleteWinnerByID(c.Request.Context(), winnerID)
+	// Используем метод DeleteWinnerByID из winner.sql, который возвращает удаленную запись
+	_, err = s.store.DeleteWinnerByID(c.Request.Context(), winnerID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, errorResponse(fmt.Errorf("победитель не найден")))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
