@@ -1,4 +1,4 @@
-.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env createadmin
+.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env createadmin test test-unit test-integration test-e2e test-coverage test-watch
 
 # --- Переменные ---
 CONTAINER_NAME = postgres-tender
@@ -67,3 +67,31 @@ migratedown:
 createadmin:
 	@echo "Creating admin user..."
 	@go run cmd/createadmin/main.go
+
+# --- Тестирование ---
+
+test: test-unit ## Запуск всех тестов (unit + integration)
+	@echo "Running all tests..."
+
+test-unit: ## Запуск только unit-тестов
+	@echo "Running unit tests..."
+	@go test -v -race -short ./cmd/internal/...
+
+test-integration: ## Запуск интеграционных тестов (требуется Docker)
+	@echo "Running integration tests..."
+	@go test -v -race -timeout 5m ./tests/integration/...
+
+test-e2e: ## Запуск E2E тестов (требуется Docker)
+	@echo "Running E2E tests..."
+	@go test -v -race -timeout 10m ./tests/e2e/...
+
+test-coverage: ## Запуск тестов с отчетом о покрытии
+	@echo "Running tests with coverage..."
+	@go test -v -race -coverprofile=coverage.out -covermode=atomic ./cmd/internal/... ./tests/...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+	@go tool cover -func=coverage.out | grep total
+
+test-watch: ## Watch mode для тестов (требуется entr: apt install entr)
+	@echo "Starting test watch mode (Ctrl+C to stop)..."
+	@find . -name "*.go" | entr -c make test-unit
