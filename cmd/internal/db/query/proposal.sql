@@ -169,11 +169,13 @@ ORDER BY
 LIMIT $2
 OFFSET $3;
 
--- name: GetProposalsByTenderID :many
--- Получает все предложения для конкретного тендера одним запросом,
+-- name: GetProposalsByLotIDs :many
+-- Получает все предложения для указанных лотов одним запросом,
 -- избегая проблемы N+1. Включает данные подрядчика, итоговую стоимость
 -- и информацию о победителе (если есть).
 -- Оптимизирован для эффективной загрузки всех связанных данных за один раз.
+-- Используется совместно с пагинацией лотов: загружает предложения только
+-- для текущей страницы лотов, избегая загрузки лишних данных.
 SELECT
     p.id,
     p.lot_id,
@@ -195,14 +197,12 @@ FROM
     proposals p
 JOIN
     contractors c ON p.contractor_id = c.id
-JOIN
-    lots l ON p.lot_id = l.id
 LEFT JOIN
     proposal_summary_lines psl ON psl.proposal_id = p.id AND psl.summary_key = 'total_cost_with_vat'
 LEFT JOIN
     winners w ON w.proposal_id = p.id
 WHERE
-    l.tender_id = $1
+    p.lot_id = ANY(sqlc.arg(lot_ids)::bigint[])
 ORDER BY
     p.lot_id ASC,
     CASE WHEN w.id IS NOT NULL THEN 0 ELSE 1 END,

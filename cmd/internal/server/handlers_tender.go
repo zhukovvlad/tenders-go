@@ -182,7 +182,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	var (
 		tenderDetails db.GetTenderDetailsRow
 		lots          []db.Lot
-		proposalsRaw  []db.GetProposalsByTenderIDRow
+		proposalsRaw  []db.GetProposalsByLotIDsRow
 	)
 
 	g, ctx := errgroup.WithContext(c.Request.Context())
@@ -215,18 +215,6 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		return nil
 	})
 
-	// 3. Все предложения тендера (включая данные о победителях) одним запросом
-	g.Go(func() error {
-		var err error
-		proposalsRaw, err = s.store.GetProposalsByTenderID(ctx, id)
-		if err != nil {
-			// Логируем ошибку, но не валим весь запрос - предложений может не быть
-			s.logger.Warnf("не удалось получить предложения для тендера %d: %v", id, err)
-			return nil
-		}
-		return nil
-	})
-
 	if err := g.Wait(); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, errorResponse(err))
@@ -234,6 +222,22 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, errorResponse(err))
 		}
 		return
+	}
+
+	// 3. Предложения только для загруженных лотов (оптимизация)
+	// Собираем ID лотов из текущей страницы пагинации
+	if len(lots) > 0 {
+		lotIDs := make([]int64, len(lots))
+		for i, lot := range lots {
+			lotIDs[i] = lot.ID
+		}
+
+		var err error
+		proposalsRaw, err = s.store.GetProposalsByLotIDs(c.Request.Context(), lotIDs)
+		if err != nil {
+			// Логируем ошибку, но не валим весь запрос - предложений может не быть
+			s.logger.Warnf("не удалось получить предложения для лотов %v: %v", lotIDs, err)
+		}
 	}
 
 	// 4. Агрегация: Группируем предложения и победителей по лотам (in-memory)
@@ -266,7 +270,9 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 
 		isWinner := false
 		if row.IsWinner != nil {
-			isWinner = row.IsWinner.(bool)
+			if v, ok := row.IsWinner.(bool); ok {
+				isWinner = v
+			}
 		}
 
 		// Распарсить additional_info из JSON
