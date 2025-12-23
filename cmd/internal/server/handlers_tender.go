@@ -101,7 +101,7 @@ type ProposalResponse struct {
 }
 
 type WinnerResponse struct {
-	ID             int64   `json:"id"`              // ID записи победителя (для редактирования/удаления)
+	ID             int64   `json:"id"` // ID записи победителя (для редактирования/удаления)
 	ProposalID     int64   `json:"proposal_id"`
 	ContractorName string  `json:"contractor_name"` // Название подрядчика
 	Inn            string  `json:"inn"`             // ИНН
@@ -111,15 +111,15 @@ type WinnerResponse struct {
 }
 
 type LotResponse struct {
-	ID            int64               `json:"id"`
-	LotKey        string              `json:"lot_key"`
-	LotTitle      string              `json:"lot_title"`
-	TenderID      int64               `json:"tender_id"`
-	KeyParameters map[string]string   `json:"key_parameters"`
-	CreatedAt     string              `json:"created_at"`
-	UpdatedAt     string              `json:"updated_at"`
-	Proposals     []ProposalResponse  `json:"proposals"`
-	Winners       []WinnerResponse    `json:"winners"`
+	ID            int64              `json:"id"`
+	LotKey        string             `json:"lot_key"`
+	LotTitle      string             `json:"lot_title"`
+	TenderID      int64              `json:"tender_id"`
+	KeyParameters map[string]string  `json:"key_parameters"`
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
+	Proposals     []ProposalResponse `json:"proposals"`
+	Winners       []WinnerResponse   `json:"winners"`
 }
 
 // getTenderDetailsHandler возвращает детальную информацию о тендере с его лотами и победителями.
@@ -313,7 +313,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 				notesPtr = &row.WinnerNotes.String
 			}
 
-				item := WinnerResponse{
+			item := WinnerResponse{
 				ID:             row.WinnerID.Int64,
 				ProposalID:     row.ID,
 				ContractorName: row.ContractorName,
