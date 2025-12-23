@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -87,23 +88,38 @@ type tenderPageResponse struct {
 	Lots    []LotResponse           `json:"lots"`
 }
 
+type ProposalResponse struct {
+	ID             int64             `json:"id"`
+	LotID          int64             `json:"lot_id"`
+	ContractorID   int64             `json:"contractor_id"`
+	ContractorName string            `json:"contractor_name"`
+	ContractorInn  string            `json:"contractor_inn"`
+	IsBaseline     bool              `json:"is_baseline"`
+	TotalCost      *string           `json:"total_cost,omitempty"`
+	IsWinner       bool              `json:"is_winner"`
+	AdditionalInfo map[string]string `json:"additional_info,omitempty"`
+}
+
 type WinnerResponse struct {
-	ID             int64   `json:"id"`              // ID записи победителя (для редактирования/удаления)
+	ID             int64   `json:"id"` // ID записи победителя (для редактирования/удаления)
+	ProposalID     int64   `json:"proposal_id"`
 	ContractorName string  `json:"contractor_name"` // Название подрядчика
 	Inn            string  `json:"inn"`             // ИНН
 	Price          *string `json:"price,omitempty"` // Цена (строкой, чтобы не терять копейки), nil если не установлена
 	Rank           *int32  `json:"rank,omitempty"`  // Место, nil если не установлено
+	Notes          *string `json:"notes,omitempty"`
 }
 
 type LotResponse struct {
-	ID            int64             `json:"id"`
-	LotKey        string            `json:"lot_key"`
-	LotTitle      string            `json:"lot_title"`
-	TenderID      int64             `json:"tender_id"`
-	KeyParameters map[string]string `json:"key_parameters"`
-	CreatedAt     string            `json:"created_at"`
-	UpdatedAt     string            `json:"updated_at"`
-	Winners       []WinnerResponse  `json:"winners"`
+	ID            int64              `json:"id"`
+	LotKey        string             `json:"lot_key"`
+	LotTitle      string             `json:"lot_title"`
+	TenderID      int64              `json:"tender_id"`
+	KeyParameters map[string]string  `json:"key_parameters"`
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
+	Proposals     []ProposalResponse `json:"proposals"`
+	Winners       []WinnerResponse   `json:"winners"`
 }
 
 // getTenderDetailsHandler возвращает детальную информацию о тендере с его лотами и победителями.
@@ -166,8 +182,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	var (
 		tenderDetails db.GetTenderDetailsRow
 		lots          []db.Lot
-		// НОВАЯ ПЕРЕМЕННАЯ: "сырые" данные о победителях из БД
-		winnersRaw []db.GetWinnersByTenderIDRow
+		proposalsRaw  []db.GetProposalsByLotIDsRow
 	)
 
 	g, ctx := errgroup.WithContext(c.Request.Context())
@@ -200,19 +215,6 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		return nil
 	})
 
-	// 3. Победители (опциональные данные - их может не быть для нового тендера)
-	g.Go(func() error {
-		var err error
-		winnersRaw, err = s.store.GetWinnersByTenderID(ctx, id)
-		if err != nil {
-			// Логируем ошибку БД, но не валим весь запрос - победители опциональны
-			// При первой загрузке тендера победителей еще нет, это нормально
-			s.logger.Warnf("не удалось получить победителей для тендера %d: %v", id, err)
-			return nil
-		}
-		return nil
-	})
-
 	if err := g.Wait(); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, errorResponse(err))
@@ -222,29 +224,115 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 		return
 	}
 
-	// 4. Сборка данных: Группируем победителей по LotID
-	winnersMap := make(map[int64][]WinnerResponse)
-	for _, w := range winnersRaw {
-		// Обработка nullable полей (Price, Rank могут быть NULL в БД)
-		// Используем pointers, чтобы отличить NULL от реального нулевого значения
-		var pricePtr *string
-		if w.Price.Valid {
-			pricePtr = &w.Price.String
+	// 3. Предложения только для загруженных лотов (оптимизация)
+	// Собираем ID лотов из текущей страницы пагинации
+	if len(lots) > 0 {
+		lotIDs := make([]int64, len(lots))
+		for i, lot := range lots {
+			lotIDs[i] = lot.ID
 		}
 
-		var rankPtr *int32
-		if w.Rank.Valid {
-			rankPtr = &w.Rank.Int32
+		var err error
+		proposalsRaw, err = s.store.GetProposalsByLotIDs(c.Request.Context(), lotIDs)
+		if err != nil {
+			// Логируем ошибку, но не валим весь запрос - предложений может не быть
+			s.logger.Warnf("не удалось получить предложения для лотов %v: %v", lotIDs, err)
+		}
+	}
+
+	// 4. Агрегация: Группируем предложения и победителей по лотам (in-memory)
+	type lotBucket struct {
+		Proposals []ProposalResponse
+		Winners   []WinnerResponse
+	}
+	buckets := make(map[int64]*lotBucket)
+
+	// Инициализируем buckets для всех лотов
+	for _, lot := range lots {
+		buckets[lot.ID] = &lotBucket{
+			Proposals: []ProposalResponse{},
+			Winners:   []WinnerResponse{},
+		}
+	}
+
+	// Обрабатываем каждое предложение
+	for _, row := range proposalsRaw {
+		// Пропускаем baseline предложения (Initiator) - они служебные и не должны отображаться на фронтенде
+		if row.IsBaseline || row.ContractorName == "Initiator" {
+			continue
 		}
 
-		item := WinnerResponse{
-			ID:             w.WinnerID, // Поле из SQL: w.id AS winner_id
-			ContractorName: w.ContractorName,
-			Inn:            w.ContractorInn,
-			Price:          pricePtr,
-			Rank:           rankPtr,
+		// Создаем ProposalResponse
+		var totalCostPtr *string
+		if row.TotalCost.Valid {
+			totalCostPtr = &row.TotalCost.String
 		}
-		winnersMap[w.LotID] = append(winnersMap[w.LotID], item)
+
+		isWinner := false
+		if row.IsWinner != nil {
+			if v, ok := row.IsWinner.(bool); ok {
+				isWinner = v
+			}
+		}
+
+		// Распарсить additional_info из JSON
+		var additionalInfo map[string]string
+		if row.AdditionalInfo != nil {
+			if additionalInfoBytes, ok := row.AdditionalInfo.([]byte); ok && len(additionalInfoBytes) > 0 {
+				if err := json.Unmarshal(additionalInfoBytes, &additionalInfo); err != nil {
+					s.logger.Warnf("не удалось распарсить additional_info для proposal %d: %v", row.ID, err)
+				}
+			}
+		}
+
+		proposal := ProposalResponse{
+			ID:             row.ID,
+			LotID:          row.LotID,
+			ContractorID:   row.ContractorID,
+			ContractorName: row.ContractorName,
+			ContractorInn:  row.ContractorInn,
+			IsBaseline:     row.IsBaseline,
+			TotalCost:      totalCostPtr,
+			IsWinner:       isWinner,
+			AdditionalInfo: additionalInfo,
+		}
+
+		// Добавляем предложение в соответствующий bucket
+		if bucket, ok := buckets[row.LotID]; ok {
+			bucket.Proposals = append(bucket.Proposals, proposal)
+		}
+
+		// Если это предложение-победитель, создаем WinnerResponse
+		if isWinner && row.WinnerID.Valid {
+			var pricePtr *string
+			if row.TotalCost.Valid {
+				pricePtr = &row.TotalCost.String
+			}
+
+			var rankPtr *int32
+			if row.WinnerRank.Valid {
+				rankPtr = &row.WinnerRank.Int32
+			}
+
+			var notesPtr *string
+			if row.WinnerNotes.Valid {
+				notesPtr = &row.WinnerNotes.String
+			}
+
+			item := WinnerResponse{
+				ID:             row.WinnerID.Int64,
+				ProposalID:     row.ID,
+				ContractorName: row.ContractorName,
+				Inn:            row.ContractorInn,
+				Price:          pricePtr,
+				Rank:           rankPtr,
+				Notes:          notesPtr,
+			}
+
+			if bucket, ok := buckets[row.LotID]; ok {
+				bucket.Winners = append(bucket.Winners, item)
+			}
+		}
 	}
 
 	// 5. Заполнение ответа
@@ -252,9 +340,10 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	for i, lot := range lots {
 		lr := newLotResponse(lot, s.logger)
 
-		// Если для лота есть победители — вставляем их
-		if winners, ok := winnersMap[lot.ID]; ok {
-			lr.Winners = winners
+		// Заполняем предложения и победителей из buckets
+		if bucket, ok := buckets[lot.ID]; ok {
+			lr.Proposals = bucket.Proposals
+			lr.Winners = bucket.Winners
 		}
 
 		lotResponses[i] = lr
