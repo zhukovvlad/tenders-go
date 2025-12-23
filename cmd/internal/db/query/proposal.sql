@@ -168,3 +168,43 @@ ORDER BY
     total_cost ASC
 LIMIT $2
 OFFSET $3;
+
+-- name: GetProposalsByTenderID :many
+-- Получает все предложения для конкретного тендера одним запросом,
+-- избегая проблемы N+1. Включает данные подрядчика, итоговую стоимость
+-- и информацию о победителе (если есть).
+-- Оптимизирован для эффективной загрузки всех связанных данных за один раз.
+SELECT
+    p.id,
+    p.lot_id,
+    p.contractor_id,
+    p.is_baseline,
+    c.title AS contractor_name,
+    c.inn AS contractor_inn,
+    psl.total_cost,
+    w.id AS winner_id,
+    w.rank AS winner_rank,
+    w.notes AS winner_notes,
+    (w.id IS NOT NULL) AS is_winner,
+    COALESCE((
+        SELECT jsonb_object_agg(pai.info_key, pai.info_value)
+        FROM proposal_additional_info pai
+        WHERE pai.proposal_id = p.id
+    ), '{}'::jsonb) AS additional_info
+FROM
+    proposals p
+JOIN
+    contractors c ON p.contractor_id = c.id
+JOIN
+    lots l ON p.lot_id = l.id
+LEFT JOIN
+    proposal_summary_lines psl ON psl.proposal_id = p.id AND psl.summary_key = 'total_cost_with_vat'
+LEFT JOIN
+    winners w ON w.proposal_id = p.id
+WHERE
+    l.tender_id = $1
+ORDER BY
+    p.lot_id ASC,
+    CASE WHEN w.id IS NOT NULL THEN 0 ELSE 1 END,
+    w.rank ASC NULLS LAST,
+    psl.total_cost ASC NULLS LAST;
