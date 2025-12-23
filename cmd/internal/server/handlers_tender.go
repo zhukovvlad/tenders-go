@@ -14,6 +14,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	// initiatorContractorName - служебное имя подрядчика для baseline (исходных) предложений.
+	// Такие предложения используются для сравнения, но не отображаются на фронтенде.
+	initiatorContractorName = "Initiator"
+)
+
 type listTendersResponse struct {
 	ID                 int64         `json:"id"`
 	EtpID              string        `json:"etp_id"`
@@ -258,7 +264,7 @@ func (s *Server) getTenderDetailsHandler(c *gin.Context) {
 	// Обрабатываем каждое предложение
 	for _, row := range proposalsRaw {
 		// Пропускаем baseline предложения (Initiator) - они служебные и не должны отображаться на фронтенде
-		if row.IsBaseline || row.ContractorName == "Initiator" {
+		if row.IsBaseline || row.ContractorName == initiatorContractorName {
 			continue
 		}
 
