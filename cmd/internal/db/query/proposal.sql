@@ -208,3 +208,19 @@ ORDER BY
     CASE WHEN w.id IS NOT NULL THEN 0 ELSE 1 END,
     w.rank ASC NULLS LAST,
     psl.total_cost ASC NULLS LAST;
+
+-- name: GetProposalMeta :one
+-- Получает "шапку" предложения: название подрядчика, тендера и лота.
+SELECT 
+    p.id,
+    p.is_baseline,
+    c.title as contractor_name,
+    c.inn as contractor_inn,
+    t.title as tender_title,
+    t.etp_id as tender_etp_id,
+    l.lot_title
+FROM proposals p
+JOIN contractors c ON p.contractor_id = c.id
+JOIN lots l ON p.lot_id = l.id
+JOIN tenders t ON l.tender_id = t.id
+WHERE p.id = $1;

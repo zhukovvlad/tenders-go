@@ -195,3 +195,62 @@ WHERE
 ORDER BY
     pi.id -- (ВКЛЮЧЕНО: Детерминированный LIMIT)
 LIMIT $1;
+
+-- name: ListPositionsForEstimate :many
+-- Полный список строк КП (позиции + главы) для страницы просмотра предложения.
+-- Вытаскивает все расчетные поля (кол-ва, стоимости, отклонения), комментарии,
+-- а также текстовые названия ЕИ и каталожной позиции.
+-- Порядок строк сохраняется по ключу из JSON (position_key_in_proposal).
+SELECT
+    pi.id,
+    pi.proposal_id,
+    pi.catalog_position_id,
+    pi.position_key_in_proposal,
+
+    pi.item_number_in_proposal,
+    pi.chapter_number_in_proposal,
+    pi.chapter_ref_in_proposal,
+    pi.job_title_in_proposal,
+    pi.is_chapter,
+
+    pi.comment_organazier,
+    pi.comment_contractor,
+
+    pi.unit_id,
+    u.normalized_name AS unit_name,
+
+    pi.quantity,
+    pi.suggested_quantity,
+    pi.total_cost_for_organizer_quantity,
+
+    pi.unit_cost_materials,
+    pi.unit_cost_works,
+    pi.unit_cost_indirect_costs,
+    pi.unit_cost_total,
+
+    pi.total_cost_materials,
+    pi.total_cost_works,
+    pi.total_cost_indirect_costs,
+    pi.total_cost_total,
+
+    pi.deviation_from_baseline_cost,
+
+    pi.created_at,
+    pi.updated_at,
+
+    cp.standard_job_title AS catalog_name
+FROM
+    position_items pi
+LEFT JOIN
+    units_of_measurement u ON pi.unit_id = u.id
+LEFT JOIN
+    catalog_positions cp ON pi.catalog_position_id = cp.id
+WHERE
+    pi.proposal_id = $1
+ORDER BY
+    CASE
+        WHEN pi.position_key_in_proposal ~ '^\d+$'
+            THEN pi.position_key_in_proposal::int
+    END ASC,
+    pi.position_key_in_proposal ASC,
+    pi.id ASC;
