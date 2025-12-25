@@ -249,8 +249,8 @@ WHERE
     pi.proposal_id = $1
 ORDER BY
     CASE
-        WHEN pi.position_key_in_proposal ~ '^\d+$'
-            THEN pi.position_key_in_proposal::int
+        WHEN pi.position_key_in_proposal ~ '^[0-9]+(\.[0-9]+)?$'
+            THEN pi.position_key_in_proposal::numeric
     END ASC,
     pi.position_key_in_proposal ASC,
     pi.id ASC;

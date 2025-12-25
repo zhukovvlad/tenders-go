@@ -141,8 +141,7 @@ func NewServer(
 			protected.GET("/tenders", server.listTendersHandler)
 			protected.GET("/tenders/:id", server.getTenderDetailsHandler)
 			protected.GET("/tenders/:id/proposals", server.listProposalsHandler)
-
-			v1.GET("/proposals/:id/details", server.getProposalFullDetailsHandler)
+			protected.GET("/proposals/:id/details", server.getProposalFullDetailsHandler)
 
 			// Используем PATCH для частичного обновления всего ресурса 'tenders'
 			protected.PATCH("/tenders/:id", server.patchTenderHandler)

@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,9 +15,14 @@ import (
 // Response Structures
 type ProposalFullDetailsResponse struct {
 	Meta      ProposalMetaResponse           `json:"meta"`
-	Summaries []db.ProposalSummaryLine       `json:"summaries"`
+	Summaries []SummaryLineResponse          `json:"summaries"`
 	Info      map[string]string              `json:"info"`
 	Positions []ProposalPositionItemResponse `json:"positions"`
+}
+
+type SummaryLineResponse struct {
+	SummaryKey string `json:"summary_key"`
+	TotalCost  string `json:"total_cost"`
 }
 
 type ProposalMetaResponse struct {
@@ -72,7 +78,7 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 		meta, err = s.store.GetProposalMeta(ctx, proposalID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return fmt.Errorf("предложение не найдено")
+				return sql.ErrNoRows
 			}
 			return err
 		}
@@ -84,7 +90,7 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 		var err error
 		summaries, err = s.store.ListProposalSummaryLinesByProposalID(ctx, db.ListProposalSummaryLinesByProposalIDParams{
 			ProposalID: proposalID,
-			Limit:      100,
+			Limit:      1000, // Увеличен лимит для избежания усечения данных
 			Offset:     0,
 		})
 		return err
@@ -95,7 +101,7 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 		var err error
 		infoList, err = s.store.ListProposalAdditionalInfoByProposalID(ctx, db.ListProposalAdditionalInfoByProposalIDParams{
 			ProposalID: proposalID,
-			Limit:      100,
+			Limit:      1000, // Увеличен лимит для избежания усечения данных
 			Offset:     0,
 		})
 		return err
@@ -110,6 +116,10 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 	})
 
 	if err := g.Wait(); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, errorResponse(fmt.Errorf("предложение не найдено")))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
@@ -165,8 +175,8 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 			costWorks = &cw
 		}
 		if p.CommentContractor.Valid {
-			c := p.CommentContractor.String
-			comment = &c
+			cmt := p.CommentContractor.String
+			comment = &cmt
 		}
 
 		apiPositions[i] = ProposalPositionItemResponse{
@@ -187,6 +197,19 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 		}
 	}
 
+	// Маппинг summaries в API response структуру
+	apiSummaries := make([]SummaryLineResponse, len(summaries))
+	for i, s := range summaries {
+		totalCost := ""
+		if s.TotalCost.Valid {
+			totalCost = s.TotalCost.String
+		}
+		apiSummaries[i] = SummaryLineResponse{
+			SummaryKey: s.SummaryKey,
+			TotalCost:  totalCost,
+		}
+	}
+
 	response := ProposalFullDetailsResponse{
 		Meta: ProposalMetaResponse{
 			ID:             meta.ID,
@@ -197,7 +220,7 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 			LotTitle:       meta.LotTitle,
 			IsBaseline:     meta.IsBaseline,
 		},
-		Summaries: summaries,
+		Summaries: apiSummaries,
 		Info:      infoMap,
 		Positions: apiPositions,
 	}
