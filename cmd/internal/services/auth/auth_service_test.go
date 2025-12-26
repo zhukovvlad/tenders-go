@@ -269,10 +269,10 @@ func TestValidateAccessToken_TamperedPayload(t *testing.T) {
 	// Decode payload, modify user_id, re-encode
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
-	
+
 	modifiedPayload := strings.Replace(string(payload), `"user_id":123`, `"user_id":999`, 1)
 	parts[1] = base64.RawURLEncoding.EncodeToString([]byte(modifiedPayload))
-	
+
 	tamperedToken := strings.Join(parts, ".")
 
 	// WHEN: Tampered token is validated
