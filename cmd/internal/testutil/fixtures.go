@@ -1,7 +1,10 @@
 package testutil
 
 import (
+	"net"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 )
@@ -9,7 +12,8 @@ import (
 const (
 	// TestPasswordHash is the bcrypt hash for the password "password"
 	// Used in test fixtures for predictable authentication testing
-	TestPasswordHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+	// Generated with: bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
+	TestPasswordHash = "$2a$10$j94IoTEXd628/ESukxvscuehNcj11LE80UtkFt3U5FqfNH1dloP.."
 	TestPassword     = "password"
 )
 
@@ -215,4 +219,16 @@ func Bool(b bool) *bool {
 // Time возвращает указатель на time.Time
 func Time(t time.Time) *time.Time {
 	return &t
+}
+
+// CompareTestPassword compares a password with a bcrypt hash
+// Returns nil if password matches the hash
+func CompareTestPassword(hash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+}
+
+// ParseIP parses an IP address for testing.
+// Returns nil if the IP string is invalid.
+func ParseIP(ip string) net.IP {
+	return net.ParseIP(ip)
 }

@@ -2,6 +2,8 @@
 
 /logs
 /postgres_data
+*.log
+**/logs/
 
 /cmd/config
 
