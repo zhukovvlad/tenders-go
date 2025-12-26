@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -254,26 +256,32 @@ func TestValidateAccessToken_UnsafeAlgorithm(t *testing.T) {
 	assert.Equal(t, ErrInvalidToken, err)
 }
 
-func TestValidateAccessToken_ModifiedClaims(t *testing.T) {
+func TestValidateAccessToken_TamperedPayload(t *testing.T) {
 	// GIVEN: A valid token
 	service := setupTestService(t)
 	token, err := service.generateAccessToken(123, "user")
 	require.NoError(t, err)
 
-	// Verify that even swapping parts from different tokens fails
-	token2, err := service.generateAccessToken(456, "admin")
+	// Split token into parts
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3, "JWT should have 3 parts")
+
+	// Decode payload, modify user_id, re-encode
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
+	
+	modifiedPayload := strings.Replace(string(payload), `"user_id":123`, `"user_id":999`, 1)
+	parts[1] = base64.RawURLEncoding.EncodeToString([]byte(modifiedPayload))
+	
+	tamperedToken := strings.Join(parts, ".")
 
-	// Validate both tokens work correctly
-	claims1, err1 := service.ValidateAccessToken(token)
-	claims2, err2 := service.ValidateAccessToken(token2)
+	// WHEN: Tampered token is validated
+	claims, err := service.ValidateAccessToken(tamperedToken)
 
-	require.NoError(t, err1)
-	require.NoError(t, err2)
-	assert.NotEqual(t, claims1.UserID, claims2.UserID, "Tokens should have different data")
-
-	// THEN: Any modification to token would invalidate signature
-	// (This is implicitly tested by other malformed token tests)
+	// THEN: Validation fails due to signature mismatch
+	require.Error(t, err)
+	assert.Nil(t, claims)
+	assert.Equal(t, ErrInvalidToken, err)
 }
 
 // =============================================================================
@@ -361,7 +369,7 @@ func TestValidateRefreshTokenFormat_Invalid(t *testing.T) {
 	}{
 		{"empty", ""},
 		{"too short", "abc123"},
-		{"too long", string(make([]byte, 100)) + "a"},
+		{"too long", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0"}, // 65 hex chars
 		{"non-hex", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"},
 		{"63 chars", "123456789012345678901234567890123456789012345678901234567890123"},
 		{"65 chars", "12345678901234567890123456789012345678901234567890123456789012345"},
@@ -426,10 +434,7 @@ func TestValidateUserAgent_NoTruncation(t *testing.T) {
 
 func TestValidateUserAgent_TruncatesLong(t *testing.T) {
 	// GIVEN: User agent with exactly 255 characters (ASCII)
-	exact255 := ""
-	for i := 0; i < 255; i++ {
-		exact255 += "A"
-	}
+	exact255 := strings.Repeat("A", 255)
 
 	// WHEN: Validated
 	result := validateUserAgent(exact255)
@@ -439,10 +444,7 @@ func TestValidateUserAgent_TruncatesLong(t *testing.T) {
 	assert.Equal(t, 255, len([]rune(result)))
 
 	// GIVEN: User agent with 300 characters
-	long300 := ""
-	for i := 0; i < 300; i++ {
-		long300 += "B"
-	}
+	long300 := strings.Repeat("B", 300)
 
 	// WHEN: Validated
 	result = validateUserAgent(long300)

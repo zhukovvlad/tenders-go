@@ -227,7 +227,8 @@ func CompareTestPassword(hash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
-// ParseIP parses an IP address for testing
+// ParseIP parses an IP address for testing.
+// Returns nil if the IP string is invalid.
 func ParseIP(ip string) net.IP {
 	return net.ParseIP(ip)
 }
