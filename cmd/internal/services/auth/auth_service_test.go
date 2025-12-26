@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -473,7 +474,7 @@ func TestValidateUserAgent_UTF8Safe(t *testing.T) {
 	assert.LessOrEqual(t, len([]rune(result)), 255, "Should truncate by rune count")
 
 	// Verify result is valid UTF-8
-	assert.Equal(t, result, string([]rune(result)), "Result should be valid UTF-8")
+	assert.True(t, utf8.ValidString(result), "Result should be valid UTF-8")
 }
 
 func TestValidateUserAgent_PreservesStructure(t *testing.T) {
