@@ -121,7 +121,7 @@ type LotResponse struct {
 	LotKey        string             `json:"lot_key"`
 	LotTitle      string             `json:"lot_title"`
 	TenderID      int64              `json:"tender_id"`
-	KeyParameters map[string]string  `json:"key_parameters"`
+	KeyParameters json.RawMessage    `json:"key_parameters"`
 	CreatedAt     string             `json:"created_at"`
 	UpdatedAt     string             `json:"updated_at"`
 	Proposals     []ProposalResponse `json:"proposals"`
