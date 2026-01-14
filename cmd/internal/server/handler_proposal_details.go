@@ -21,8 +21,16 @@ type ProposalFullDetailsResponse struct {
 }
 
 type SummaryLineResponse struct {
-	SummaryKey string `json:"summary_key"`
-	TotalCost  string `json:"total_cost"`
+	SummaryKey string               `json:"summary_key"`
+	JobTitle   string               `json:"job_title"`
+	TotalCost  SummaryCostBreakdown `json:"total_cost"`
+}
+
+type SummaryCostBreakdown struct {
+	Materials     *string `json:"materials"`
+	Works         *string `json:"works"`
+	IndirectCosts *string `json:"indirect_costs"`
+	Total         *string `json:"total"`
 }
 
 type ProposalMetaResponse struct {
@@ -200,13 +208,34 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 	// Маппинг summaries в API response структуру
 	apiSummaries := make([]SummaryLineResponse, len(summaries))
 	for i, s := range summaries {
-		totalCost := ""
-		if s.TotalCost.Valid {
-			totalCost = s.TotalCost.String
+		var materials, works, indirectCosts, total *string
+
+		if s.MaterialsCost.Valid {
+			val := s.MaterialsCost.String
+			materials = &val
 		}
+		if s.WorksCost.Valid {
+			val := s.WorksCost.String
+			works = &val
+		}
+		if s.IndirectCostsCost.Valid {
+			val := s.IndirectCostsCost.String
+			indirectCosts = &val
+		}
+		if s.TotalCost.Valid {
+			val := s.TotalCost.String
+			total = &val
+		}
+
 		apiSummaries[i] = SummaryLineResponse{
 			SummaryKey: s.SummaryKey,
-			TotalCost:  totalCost,
+			JobTitle:   s.JobTitle,
+			TotalCost: SummaryCostBreakdown{
+				Materials:     materials,
+				Works:         works,
+				IndirectCosts: indirectCosts,
+				Total:         total,
+			},
 		}
 	}
 

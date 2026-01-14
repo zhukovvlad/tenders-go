@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/sqlc-dev/pqtype"
@@ -10,27 +9,21 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
-// parseKeyParameters безопасно парсит pqtype.NullRawMessage в map[string]string.
-func parseKeyParameters(p pqtype.NullRawMessage, logger *logging.Logger) map[string]string {
-	params := make(map[string]string)
-
+// parseKeyParameters безопасно парсит pqtype.NullRawMessage в json.RawMessage.
+// Возвращает сырой JSON со всеми типами данных (числа, bool, вложенные объекты).
+func parseKeyParameters(p pqtype.NullRawMessage, logger *logging.Logger) json.RawMessage {
 	// Проверяем, что поле не NULL и JSON не пустой или равен "null"
 	if !p.Valid || len(p.RawMessage) == 0 || string(p.RawMessage) == "null" {
-		return params
+		return json.RawMessage("{}")
 	}
 
-	var rawParams map[string]interface{}
-	if err := json.Unmarshal(p.RawMessage, &rawParams); err != nil {
-		logger.Warnf("не удалось распарсить key parameters: %v", err)
-		return params
+	// Валидируем, что это корректный JSON
+	if !json.Valid(p.RawMessage) {
+		logger.Warnf("невалидный JSON в key_parameters")
+		return json.RawMessage("{}")
 	}
 
-	// Конвертируем все значения в строки
-	for k, v := range rawParams {
-		params[k] = fmt.Sprintf("%v", v)
-	}
-
-	return params
+	return json.RawMessage(p.RawMessage)
 }
 
 // Функция newLotResponse, которая использует parseKeyParameters
