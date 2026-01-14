@@ -207,29 +207,29 @@ func (s *Server) getProposalFullDetailsHandler(c *gin.Context) {
 
 	// Маппинг summaries в API response структуру
 	apiSummaries := make([]SummaryLineResponse, len(summaries))
-	for i, s := range summaries {
+	for i, summ := range summaries {
 		var materials, works, indirectCosts, total *string
 
-		if s.MaterialsCost.Valid {
-			val := s.MaterialsCost.String
+		if summ.MaterialsCost.Valid {
+			val := summ.MaterialsCost.String
 			materials = &val
 		}
-		if s.WorksCost.Valid {
-			val := s.WorksCost.String
+		if summ.WorksCost.Valid {
+			val := summ.WorksCost.String
 			works = &val
 		}
-		if s.IndirectCostsCost.Valid {
-			val := s.IndirectCostsCost.String
+		if summ.IndirectCostsCost.Valid {
+			val := summ.IndirectCostsCost.String
 			indirectCosts = &val
 		}
-		if s.TotalCost.Valid {
-			val := s.TotalCost.String
+		if summ.TotalCost.Valid {
+			val := summ.TotalCost.String
 			total = &val
 		}
 
 		apiSummaries[i] = SummaryLineResponse{
-			SummaryKey: s.SummaryKey,
-			JobTitle:   s.JobTitle,
+			SummaryKey: summ.SummaryKey,
+			JobTitle:   summ.JobTitle,
 			TotalCost: SummaryCostBreakdown{
 				Materials:     materials,
 				Works:         works,
