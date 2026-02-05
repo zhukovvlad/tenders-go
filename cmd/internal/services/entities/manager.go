@@ -279,7 +279,7 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 		"input_raw_job_title":     posAPI.JobTitle,
 		"used_standard_job_title": standardJobTitleForDB,
 		"determined_kind":         kind,
-		"unit_id":                 unitID.Int64, // Логируем
+		"unit_id":                 unitID, // Логируем и Int64 и Valid
 	})
 
 	var isNewPendingItem bool
@@ -389,7 +389,17 @@ func (em *EntityManager) GetOrCreateUnitOfMeasurement(
 				Description:    descriptionParam,
 			})
 			if createErr != nil {
-				opLogger.Errorf("Ошибка создания единицы измерения: %v", createErr)
+				// Возможен race condition: другой запрос мог создать единицу измерения.
+				// Пытаемся прочитать ещё раз перед возвратом ошибки.
+				opLogger.Warnf("Ошибка создания единицы измерения: %v. Проверяем, не создал ли её другой запрос.", createErr)
+				unit, retryErr := qtx.GetUnitOfMeasurementByNormalizedName(ctx, normalizedNameForDB)
+				if retryErr == nil {
+					// Единица измерения существует — значит race condition разрешился
+					opLogger.Infof("Единица измерения найдена после повторного чтения (создана другим запросом), ID: %d", unit.ID)
+					return sql.NullInt64{Int64: unit.ID, Valid: true}, nil
+				}
+				// Не удалось ни создать, ни найти — возвращаем исходную ошибку создания
+				opLogger.Errorf("Не удалось создать единицу измерения: %v", createErr)
 				return sql.NullInt64{}, fmt.Errorf("ошибка создания единицы измерения '%s': %w", normalizedNameForDB, createErr)
 			}
 			opLogger.Infof("Единица измерения успешно создана, ID: %d", createdUnit.ID)
