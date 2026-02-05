@@ -32,7 +32,7 @@
 ### ⚠️ Почему нельзя на production с данными?
 
 **Проблема версионирования:**
-```
+```text
 Production БД:           Консолидированная миграция:
 schema_migrations        schema_migrations
 ├─ version: 7           ├─ version: 1  ❌ КОНФЛИКТ!
@@ -82,7 +82,7 @@ INSERT INTO schema_migrations (version, dirty) VALUES (1, false);
 - `pgvector` — векторный поиск для RAG
 
 #### **2. Справочники** (4 таблицы)
-```
+```text
 units_of_measurement     — Единицы измерения (м², м³, шт и т.д.)
 tender_types             — Типы тендеров
   ├─ tender_chapters     — Главы (разделы работ)
@@ -90,7 +90,7 @@ tender_types             — Типы тендеров
 ```
 
 #### **3. RAG-инфраструктура** (3 таблицы + 1 VIEW)
-```
+```text
 catalog_positions        — Каталог работ (core)
   ├─ matching_cache      — Кэш семантического поиска (TTL)
   └─ suggested_merges    — Очередь задач для дедупликации (Human-in-the-Loop)
@@ -105,7 +105,7 @@ catalog_positions_clean  — VIEW: только валидные позиции 
 - **Частичный HNSW-индекс** только для `kind='POSITION'` (ускоряет RAG на 3-5x)
 
 #### **4. Тендеры и лоты** (6 таблиц)
-```
+```text
 objects                  — Объекты строительства
 executors                — Организаторы тендеров
 tenders                  — Тендеры
@@ -120,7 +120,7 @@ tenders                  — Тендеры
 - При удалении лота **каскадно удаляются** документы и предложения
 
 #### **5. Предложения подрядчиков** (8 таблиц)
-```
+```text
 contractors              — Подрядчики
   └─ persons             — Контактные лица
 proposals                — Предложения (сметы)
@@ -133,7 +133,7 @@ proposals                — Предложения (сметы)
 **Каскадное удаление:** При удалении `proposals` **автоматически удаляются** все дочерние записи (`winners`, `position_items` и т.д.)
 
 #### **6. Авторизация** (2 таблицы)
-```
+```text
 users                    — Локальные пользователи (bcrypt)
   └─ user_sessions       — Refresh-токены (SHA-256 hash)
 ```
