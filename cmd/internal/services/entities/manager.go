@@ -296,7 +296,7 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 		// createFn: Создаем с unitID
 		func() (db.CatalogPosition, error) {
 			opLogger.Info("Позиция каталога не найдена, создается новая.")
-			
+
 			var newStatus string
 			if kind == "POSITION" {
 				newStatus = "pending_indexing"
