@@ -262,19 +262,15 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 	qtx db.Querier,
 	posAPI api_models.PositionItem,
 	lotTitle string,
+	unitID sql.NullInt64, // <--- НОВЫЙ АРГУМЕНТ
 ) (db.CatalogPosition, bool, error) {
 
-	// Шаг 1: Получаем и kind, и standardJobTitle
+	// 1. Нормализация (как и было)
 	kind, standardJobTitleForDB, err := em.getKindAndStandardTitle(posAPI, lotTitle)
 	if err != nil {
-		// Эта ошибка теперь не должна возникать, т.к. хелпер обрабатывает пустые строки
 		return db.CatalogPosition{}, false, err
 	}
-
-	// Если имя пустое (например, заголовок с пустым job_title),
-	// мы не должны создавать запись в catalog_positions.
 	if standardJobTitleForDB == "" {
-		// Возвращаем пустую структуру, `processSinglePosition` пропустит эту позицию
 		return db.CatalogPosition{}, false, nil
 	}
 
@@ -283,59 +279,55 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 		"input_raw_job_title":     posAPI.JobTitle,
 		"used_standard_job_title": standardJobTitleForDB,
 		"determined_kind":         kind,
+		"unit_id":                 unitID.Int64, // Логируем
 	})
 
-	// Используем getOrCreateOrUpdate.
-	// P теперь - это существующий тип db.UpdateCatalogPositionDetailsParams
-
-	// Флаг для отслеживания создания новой pending_indexing позиции
 	var isNewPendingItem bool
 
 	result, err := getOrCreateOrUpdate(
 		ctx, qtx,
-		// getFn
+		// getFn: Ищем по НОВОМУ методу (Название + Unit)
 		func() (db.CatalogPosition, error) {
-			return qtx.GetCatalogPositionByStandardJobTitle(ctx, standardJobTitleForDB)
+			return qtx.GetCatalogPositionByTitleAndUnit(ctx, db.GetCatalogPositionByTitleAndUnitParams{
+				StandardJobTitle: standardJobTitleForDB,
+				UnitID:           unitID, // Передаем unitID
+			})
 		},
-		// createFn
+		// createFn: Создаем с unitID
 		func() (db.CatalogPosition, error) {
 			opLogger.Info("Позиция каталога не найдена, создается новая.")
-
-			// Как мы и обсуждали, устанавливаем статус в зависимости от типа
+			
 			var newStatus string
 			if kind == "POSITION" {
-				newStatus = "pending_indexing" // Ставим в очередь на RAG
-				isNewPendingItem = true        // Взводим флаг
+				newStatus = "pending_indexing"
+				isNewPendingItem = true
 			} else {
-				newStatus = "na" // (Header, Trash и т.д. - не индексируем)
+				newStatus = "na"
 			}
 
-			//
 			return qtx.CreateCatalogPosition(ctx, db.CreateCatalogPositionParams{
 				StandardJobTitle: standardJobTitleForDB,
 				Description:      sql.NullString{String: posAPI.JobTitle, Valid: true},
 				Kind:             kind,
-				Status:           newStatus, // 👈 (ИСПРАВЛЕНИЕ)
+				Status:           newStatus,
+				UnitID:           unitID, // <--- Записываем в БД
 			})
 		},
-		// diffFn: Проверяем, не изменился ли `kind`
+		// diffFn: (Оставляем как было, unit_id не обновляем, это часть ключа)
 		func(existing db.CatalogPosition) (bool, db.UpdateCatalogPositionDetailsParams, error) {
-			// Если парсер вдруг передумал (например, `TO_REVIEW` -> `POSITION`), обновляем.
 			if existing.Kind != kind {
-				opLogger.Warnf("Kind для '%s' изменился: '%s' -> '%s'. Обновляем.", standardJobTitleForDB, existing.Kind, kind)
+				opLogger.Warnf("Kind изменился: '%s' -> '%s'. Обновляем.", existing.Kind, kind)
 				return true, db.UpdateCatalogPositionDetailsParams{
-					ID:   existing.ID,
-					Kind: sql.NullString{String: kind, Valid: true},
-					// Обновляем и описание на всякий случай
+					ID:          existing.ID,
+					Kind:        sql.NullString{String: kind, Valid: true},
 					Description: sql.NullString{String: posAPI.JobTitle, Valid: true},
 				}, nil
 			}
 			return false, db.UpdateCatalogPositionDetailsParams{}, nil
 		},
-		// updateFn: будет вызвана хелпером, если diffFn вернет true
+		// updateFn
 		func(params db.UpdateCatalogPositionDetailsParams) (db.CatalogPosition, error) {
-			opLogger.Info("Обновляем Kind для существующей позиции.") //
-			return qtx.UpdateCatalogPositionDetails(ctx, params)      //
+			return qtx.UpdateCatalogPositionDetails(ctx, params)
 		},
 	)
 

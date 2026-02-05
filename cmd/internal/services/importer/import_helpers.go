@@ -176,7 +176,12 @@ func (s *TenderImportService) processSinglePosition(
 	lotTitle string,
 ) (bool, error) {
 	// 1. Получаем зависимости
-	catPos, isNewPendingItem, err := s.Entities.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle)
+	unitID, err := s.Entities.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
+	if err != nil {
+		return false, fmt.Errorf("не удалось получить/создать единицу измерения: %w", err)
+	}
+
+	catPos, isNewPendingItem, err := s.Entities.GetOrCreateCatalogPosition(ctx, qtx, posAPI, lotTitle, unitID)
 	if err != nil {
 		return false, fmt.Errorf("не удалось получить/создать позицию каталога: %w", err)
 	}
@@ -186,10 +191,6 @@ func (s *TenderImportService) processSinglePosition(
 		return false, nil
 	}
 
-	unitID, err := s.Entities.GetOrCreateUnitOfMeasurement(ctx, qtx, posAPI.Unit)
-	if err != nil {
-		return false, fmt.Errorf("не удалось получить/создать единицу измерения: %w", err)
-	}
 
 	var finalCatalogPositionID sql.NullInt64
 

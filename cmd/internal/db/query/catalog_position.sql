@@ -3,15 +3,15 @@
 -- Запросы для работы с "золотым" справочником catalog_positions.
 
 -- name: CreateCatalogPosition :one
--- Создает новую запись в каталоге стандартных позиций.
--- ВАЖНО (v4): Теперь ОБЯЗАТЕЛЬНО принимает `kind`.
+-- ВАЖНО (v5): Добавлен unit_id
 INSERT INTO catalog_positions (
     standard_job_title,
     description,
     kind,
-    status
+    status,
+    unit_id
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 )
 RETURNING *;
 
@@ -20,10 +20,12 @@ RETURNING *;
 SELECT * FROM catalog_positions
 WHERE id = $1;
 
--- name: GetCatalogPositionByStandardJobTitle :one
--- Получает стандартную позицию по её уникальному standard_job_title.
+-- name: GetCatalogPositionByTitleAndUnit :one
+-- ВАЖНО: Ищем по паре (Title + Unit).
+-- Хитрая проверка (unit_id IS NULL AND $2 IS NULL) нужна для корректной работы с NULL в Go.
 SELECT * FROM catalog_positions
-WHERE standard_job_title = $1;
+WHERE standard_job_title = $1
+  AND (unit_id = sqlc.narg('unit_id') OR (unit_id IS NULL AND sqlc.narg('unit_id') IS NULL));
 
 -- name: ListCatalogPositions :many
 -- (Улучшено) Получает список всех стандартных позиций (для админки).
