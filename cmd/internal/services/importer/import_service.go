@@ -57,7 +57,7 @@ func (s *TenderImportService) ImportFullTender(
 	rawJSON []byte,
 ) (int64, map[string]int64, bool, error) {
 
-	s.logger.Infof("Начинаем импорт тендера %s, размер JSON: %d байт, количество лотов: %d", 
+	s.logger.Infof("Начинаем импорт тендера %s, размер JSON: %d байт, количество лотов: %d",
 		payload.TenderID, len(rawJSON), len(payload.LotsData))
 
 	var newTenderDBID int64
@@ -66,7 +66,7 @@ func (s *TenderImportService) ImportFullTender(
 
 	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
 		s.logger.Info("Транзакция начата")
-		
+
 		// Шаг 1: Обработка основной информации о тендере
 		s.logger.Info("Шаг 1: Обработка основной информации о тендере")
 		dbTender, err := s.processCoreTenderData(ctx, qtx, payload)
@@ -83,7 +83,7 @@ func (s *TenderImportService) ImportFullTender(
 		for lotKey, lotAPI := range payload.LotsData {
 			lotIndex++
 			s.logger.Infof("Обрабатываем лот %d/%d (ключ: %s)", lotIndex, len(payload.LotsData), lotKey)
-			
+
 			lotDBID, lotHasNewPending, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
 			if err != nil {
 				s.logger.Errorf("Ошибка при обработке лота '%s': %v", lotKey, err)
@@ -96,7 +96,7 @@ func (s *TenderImportService) ImportFullTender(
 			s.logger.Infof("Лот %s обработан, DB ID: %d", lotKey, lotDBID)
 		}
 		s.logger.Info("Все лоты обработаны успешно")
-		
+
 		// Шаг 3: UPSERT "сырого" JSON в tender_raw_data в рамках той же транзакции.
 		// sqlc сгенерировал тип параметра как json.RawMessage — передаём rawJSON как есть.
 		s.logger.Infof("Шаг 3: Сохраняем исходный JSON для тендера ID: %d (размер: %d байт)", newTenderDBID, len(rawJSON))
