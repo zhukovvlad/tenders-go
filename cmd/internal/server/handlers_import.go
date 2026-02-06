@@ -12,6 +12,8 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 )
 
+const defaultImportTimeout = 5 * time.Minute
+
 // ImportTenderHandler — импорт полного тендера через POST /api/v1/import-tender.
 //
 // Что делает хэндлер:
@@ -30,9 +32,9 @@ import (
 func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ImportTenderHandler")
 	logger.Info("Начало обработки запроса на импорт тендера")
-	
+
 	// Добавляем таймаут для защиты от зависания
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), defaultImportTimeout)
 	defer cancel()
 
 	// --- 1) Считываем исходный JSON один раз в raw ---
@@ -61,7 +63,7 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 	}
 
 	logger.Info("Валидация успешна, начинаем импорт в БД...")
-	
+
 	// --- 4) Сервисный слой: передаём payload + raw ---
 	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(ctx, &payload, raw)
 	if err != nil {

@@ -65,24 +65,24 @@ func (s *TenderImportService) ImportFullTender(
 	anyNewPendingItems := false
 
 	txErr := s.store.ExecTx(ctx, func(qtx *db.Queries) error {
-		s.logger.Info("Транзакция начата")
+		s.logger.Debug("Транзакция начата")
 
 		// Шаг 1: Обработка основной информации о тендере
-		s.logger.Info("Шаг 1: Обработка основной информации о тендере")
+		s.logger.Debug("Шаг 1: Обработка основной информации о тендере")
 		dbTender, err := s.processCoreTenderData(ctx, qtx, payload)
 		if err != nil {
 			s.logger.Errorf("Ошибка на шаге 1: %v", err)
 			return err
 		}
 		newTenderDBID = dbTender.ID
-		s.logger.Infof("Тендер создан с DB ID: %d", newTenderDBID)
+		s.logger.Debugf("Тендер создан с DB ID: %d", newTenderDBID)
 
 		// Шаг 2: Обработка лотов
-		s.logger.Infof("Шаг 2: Обработка %d лотов", len(payload.LotsData))
+		s.logger.Debugf("Шаг 2: Обработка %d лотов", len(payload.LotsData))
 		lotIndex := 0
 		for lotKey, lotAPI := range payload.LotsData {
 			lotIndex++
-			s.logger.Infof("Обрабатываем лот %d/%d (ключ: %s)", lotIndex, len(payload.LotsData), lotKey)
+			s.logger.Debugf("Обрабатываем лот %d/%d (ключ: %s)", lotIndex, len(payload.LotsData), lotKey)
 
 			lotDBID, lotHasNewPending, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
 			if err != nil {
@@ -93,13 +93,13 @@ func (s *TenderImportService) ImportFullTender(
 			if lotHasNewPending {
 				anyNewPendingItems = true
 			}
-			s.logger.Infof("Лот %s обработан, DB ID: %d", lotKey, lotDBID)
+			s.logger.Debugf("Лот %s обработан, DB ID: %d", lotKey, lotDBID)
 		}
-		s.logger.Info("Все лоты обработаны успешно")
+		s.logger.Debug("Все лоты обработаны успешно")
 
 		// Шаг 3: UPSERT "сырого" JSON в tender_raw_data в рамках той же транзакции.
 		// sqlc сгенерировал тип параметра как json.RawMessage — передаём rawJSON как есть.
-		s.logger.Infof("Шаг 3: Сохраняем исходный JSON для тендера ID: %d (размер: %d байт)", newTenderDBID, len(rawJSON))
+		s.logger.Debugf("Шаг 3: Сохраняем исходный JSON для тендера ID: %d (размер: %d байт)", newTenderDBID, len(rawJSON))
 		if _, err := qtx.UpsertTenderRawData(ctx, db.UpsertTenderRawDataParams{
 			TenderID: newTenderDBID,
 			RawData:  json.RawMessage(rawJSON),
@@ -107,8 +107,8 @@ func (s *TenderImportService) ImportFullTender(
 			s.logger.Errorf("Ошибка при сохранении tender_raw_data для тендера ID %d: %v", newTenderDBID, err)
 			return fmt.Errorf("не удалось сохранить исходный JSON (tender_raw_data): %w", err)
 		}
-		s.logger.Infof("Исходный JSON успешно сохранен для тендера ID: %d", newTenderDBID)
-		s.logger.Info("Транзакция завершена успешно")
+		s.logger.Debugf("Исходный JSON успешно сохранен для тендера ID: %d", newTenderDBID)
+		s.logger.Debug("Транзакция завершена успешно")
 
 		return nil // транзакция завершится успешно
 	})
