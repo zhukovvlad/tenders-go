@@ -55,6 +55,8 @@ func (s *TenderImportService) processLot(
 	lotKey string,
 	lotAPI api_models.Lot,
 ) (int64, bool, error) {
+	s.logger.Infof("processLot: начало обработки лота %s (предложений: %d)", lotKey, len(lotAPI.ProposalData)+1)
+	
 	// UpsertLot уже возвращает нам полную запись о лоте, включая его ID
 	dbLot, err := qtx.UpsertLot(ctx, db.UpsertLotParams{
 		TenderID: tenderID,
@@ -65,10 +67,12 @@ func (s *TenderImportService) processLot(
 		// Если лот не удалось сохранить, возвращаем нулевой ID и ошибку
 		return 0, false, fmt.Errorf("не удалось сохранить лот: %w", err)
 	}
+	s.logger.Infof("processLot: лот %s сохранен, DB ID: %d", lotKey, dbLot.ID)
 
 	hasNewPending := false
 
 	// Обработка базового предложения
+	s.logger.Infof("processLot: обработка базового предложения для лота %s", lotKey)
 	baselineHasNew, err := s.processProposal(ctx, qtx, dbLot.ID, &lotAPI.BaseLineProposal, true, lotAPI.LotTitle)
 	if err != nil {
 		// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
@@ -77,9 +81,16 @@ func (s *TenderImportService) processLot(
 	if baselineHasNew {
 		hasNewPending = true
 	}
+	s.logger.Infof("processLot: базовое предложение обработано для лота %s", lotKey)
 
 	// Обработка предложений подрядчиков
+	s.logger.Infof("processLot: обработка %d предложений подрядчиков для лота %s", len(lotAPI.ProposalData), lotKey)
+	proposalIdx := 0
 	for _, proposalDetails := range lotAPI.ProposalData {
+		proposalIdx++
+		s.logger.Infof("processLot: обработка предложения %d/%d (подрядчик: %s) для лота %s", 
+			proposalIdx, len(lotAPI.ProposalData), proposalDetails.Title, lotKey)
+		
 		proposalHasNew, err := s.processProposal(ctx, qtx, dbLot.ID, &proposalDetails, false, lotAPI.LotTitle)
 		if err != nil {
 			// Если дочерний элемент не удалось обработать, возвращаем нулевой ID и ошибку
@@ -89,6 +100,7 @@ func (s *TenderImportService) processLot(
 			hasNewPending = true
 		}
 	}
+	s.logger.Infof("processLot: лот %s обработан полностью", lotKey)
 
 	return dbLot.ID, hasNewPending, nil
 }

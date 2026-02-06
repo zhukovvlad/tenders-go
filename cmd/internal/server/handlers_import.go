@@ -2,9 +2,11 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
@@ -28,6 +30,10 @@ import (
 func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ImportTenderHandler")
 	logger.Info("Начало обработки запроса на импорт тендера")
+	
+	// Добавляем таймаут для защиты от зависания
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
 
 	// --- 1) Считываем исходный JSON один раз в raw ---
 	raw, err := io.ReadAll(c.Request.Body)
@@ -54,10 +60,13 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 		return
 	}
 
+	logger.Info("Валидация успешна, начинаем импорт в БД...")
+	
 	// --- 4) Сервисный слой: передаём payload + raw ---
-	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload, raw)
+	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(ctx, &payload, raw)
 	if err != nil {
 		// Ошибка уже должна быть залогирована в сервисе
+		logger.Errorf("Ошибка импорта тендера: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
