@@ -2,12 +2,19 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
+)
+
+const (
+	defaultImportTimeout = 5 * time.Minute
+	maxRequestBodySize   = 50 * 1024 * 1024 // 50 MB
 )
 
 // ImportTenderHandler — импорт полного тендера через POST /api/v1/import-tender.
@@ -30,10 +37,16 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger.Info("Начало обработки запроса на импорт тендера")
 
 	// --- 1) Считываем исходный JSON один раз в raw ---
-	raw, err := io.ReadAll(c.Request.Body)
+	// Ограничиваем размер для защиты от OOM (читаем +1 байт для детектирования превышения)
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxRequestBodySize+1))
 	if err != nil {
 		logger.Errorf("Ошибка чтения тела запроса: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("не удалось прочитать тело запроса: %w", err)))
+		return
+	}
+	if int64(len(raw)) > maxRequestBodySize {
+		logger.Warnf("Тело запроса превышает лимит %d байт", maxRequestBodySize)
+		c.JSON(http.StatusRequestEntityTooLarge, errorResponse(fmt.Errorf("тело запроса превышает лимит %d байт", maxRequestBodySize)))
 		return
 	}
 	// Важно: вернуть тело, чтобы биндер смог его прочитать повторно
@@ -54,10 +67,17 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 		return
 	}
 
+	logger.Info("Валидация успешна, начинаем импорт в БД...")
+
 	// --- 4) Сервисный слой: передаём payload + raw ---
-	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(c.Request.Context(), &payload, raw)
+	// Таймаут применяется только к операции импорта в БД
+	ctx, cancel := context.WithTimeout(c.Request.Context(), defaultImportTimeout)
+	defer cancel()
+
+	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(ctx, &payload, raw)
 	if err != nil {
 		// Ошибка уже должна быть залогирована в сервисе
+		logger.Errorf("Ошибка импорта тендера: %v", err)
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
