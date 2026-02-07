@@ -37,11 +37,16 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger.Info("Начало обработки запроса на импорт тендера")
 
 	// --- 1) Считываем исходный JSON один раз в raw ---
-	// Ограничиваем размер для защиты от OOM
-	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxRequestBodySize))
+	// Ограничиваем размер для защиты от OOM (читаем +1 байт для детектирования превышения)
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxRequestBodySize+1))
 	if err != nil {
 		logger.Errorf("Ошибка чтения тела запроса: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("не удалось прочитать тело запроса: %w", err)))
+		return
+	}
+	if int64(len(raw)) > maxRequestBodySize {
+		logger.Warnf("Тело запроса превышает лимит %d байт", maxRequestBodySize)
+		c.JSON(http.StatusRequestEntityTooLarge, errorResponse(fmt.Errorf("тело запроса превышает лимит %d байт", maxRequestBodySize)))
 		return
 	}
 	// Важно: вернуть тело, чтобы биндер смог его прочитать повторно
