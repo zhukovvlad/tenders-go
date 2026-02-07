@@ -12,7 +12,10 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 )
 
-const defaultImportTimeout = 5 * time.Minute
+const (
+	defaultImportTimeout = 5 * time.Minute
+	maxRequestBodySize   = 50 * 1024 * 1024 // 50 MB
+)
 
 // ImportTenderHandler — импорт полного тендера через POST /api/v1/import-tender.
 //
@@ -33,12 +36,9 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ImportTenderHandler")
 	logger.Info("Начало обработки запроса на импорт тендера")
 
-	// Добавляем таймаут для защиты от зависания
-	ctx, cancel := context.WithTimeout(c.Request.Context(), defaultImportTimeout)
-	defer cancel()
-
 	// --- 1) Считываем исходный JSON один раз в raw ---
-	raw, err := io.ReadAll(c.Request.Body)
+	// Ограничиваем размер для защиты от OOM
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxRequestBodySize))
 	if err != nil {
 		logger.Errorf("Ошибка чтения тела запроса: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("не удалось прочитать тело запроса: %w", err)))
@@ -65,6 +65,10 @@ func (s *Server) ImportTenderHandler(c *gin.Context) {
 	logger.Info("Валидация успешна, начинаем импорт в БД...")
 
 	// --- 4) Сервисный слой: передаём payload + raw ---
+	// Таймаут применяется только к операции импорта в БД
+	ctx, cancel := context.WithTimeout(c.Request.Context(), defaultImportTimeout)
+	defer cancel()
+
 	dbID, lotsMap, newItemsPending, err := s.tenderService.ImportFullTender(ctx, &payload, raw)
 	if err != nil {
 		// Ошибка уже должна быть залогирована в сервисе

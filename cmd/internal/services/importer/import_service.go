@@ -78,11 +78,10 @@ func (s *TenderImportService) ImportFullTender(
 		s.logger.Debugf("Тендер создан с DB ID: %d", newTenderDBID)
 
 		// Шаг 2: Обработка лотов
+		// Примечание: порядок итерации по map не детерминирован
 		s.logger.Debugf("Шаг 2: Обработка %d лотов", len(payload.LotsData))
-		lotIndex := 0
 		for lotKey, lotAPI := range payload.LotsData {
-			lotIndex++
-			s.logger.Debugf("Обрабатываем лот %d/%d (ключ: %s)", lotIndex, len(payload.LotsData), lotKey)
+			s.logger.Debugf("Обрабатываем лот (ключ: %s)", lotKey)
 
 			lotDBID, lotHasNewPending, err := s.processLot(ctx, qtx, dbTender.ID, lotKey, lotAPI)
 			if err != nil {
@@ -108,7 +107,7 @@ func (s *TenderImportService) ImportFullTender(
 			return fmt.Errorf("не удалось сохранить исходный JSON (tender_raw_data): %w", err)
 		}
 		s.logger.Debugf("Исходный JSON успешно сохранен для тендера ID: %d", newTenderDBID)
-		s.logger.Debug("Транзакция завершена успешно")
+		s.logger.Debug("Callback завершен, выполняем коммит транзакции")
 
 		return nil // транзакция завершится успешно
 	})
@@ -118,6 +117,7 @@ func (s *TenderImportService) ImportFullTender(
 		return 0, nil, false, fmt.Errorf("транзакция импорта тендера провалена: %w", txErr)
 	}
 
+	s.logger.Debug("Транзакция успешно закоммичена")
 	s.logger.Infof("Тендер ETP_ID %s успешно импортирован с ID базы данных: %d, новые pending позиции: %v", payload.TenderID, newTenderDBID, anyNewPendingItems)
 	return newTenderDBID, lotIDs, anyNewPendingItems, nil
 }
