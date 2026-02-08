@@ -48,7 +48,7 @@ LIMIT $1 -- Обрабатываем пачками
 OFFSET $2;
 
 -- name: UpdateCatalogPositionDetails :one
--- Обновляет текстовые детали И/ИЛИ `kind` существующей позиции.
+-- Обновляет текстовые детали И/ИЛИ `unit_id` существующей позиции.
 -- При этом ОБНУЛЯЕТ существующий эмбеддинг, так как он становится неактуальным.
 UPDATE catalog_positions
 SET
@@ -137,7 +137,7 @@ OFFSET $2;
 WITH semantic_search AS (
     SELECT id, row_number() OVER (ORDER BY embedding <=> $1) as rank
     FROM catalog_positions
-    WHERE kind = 'POSITION' AND status = 'active'
+    WHERE kind = 'POSITION' AND status = 'active' AND embedding IS NOT NULL
     ORDER BY embedding <=> $1
     LIMIT 50
 ),
