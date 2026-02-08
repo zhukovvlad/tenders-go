@@ -60,9 +60,9 @@ SET
     updated_at = NOW()
 WHERE id = sqlc.arg(id)
   AND (
-    sqlc.narg(standard_job_title) IS DISTINCT FROM standard_job_title
-    OR sqlc.narg(description) IS DISTINCT FROM description
-    OR sqlc.narg(unit_id) IS DISTINCT FROM unit_id
+    (sqlc.narg(standard_job_title) IS NOT NULL AND sqlc.narg(standard_job_title) IS DISTINCT FROM standard_job_title)
+    OR (sqlc.narg(description) IS NOT NULL AND sqlc.narg(description) IS DISTINCT FROM description)
+    OR (sqlc.narg(unit_id) IS NOT NULL AND sqlc.narg(unit_id) IS DISTINCT FROM unit_id)
   )
 RETURNING *;
 
