@@ -146,6 +146,7 @@ keyword_search AS (
     FROM catalog_positions
     WHERE fts_vector @@ plainto_tsquery('simple', $2)
       AND kind = 'POSITION' AND status = 'active'
+    ORDER BY ts_rank(fts_vector, plainto_tsquery('simple', $2)) DESC
     LIMIT 50
 )
 SELECT 
@@ -160,11 +161,3 @@ FULL OUTER JOIN keyword_search k ON s.id = k.id
 JOIN catalog_positions cp ON cp.id = COALESCE(s.id, k.id)
 ORDER BY rrf_score DESC
 LIMIT $3;
-
--- name: ListPositionsForIndexing :many
--- Выбирает позиции, которые нужно обработать воркеру
-SELECT id, standard_job_title, description
-FROM catalog_positions
-WHERE status = 'pending_indexing'
-  AND kind = 'POSITION'
-LIMIT $1;
