@@ -54,11 +54,11 @@ UPDATE catalog_positions
 SET
     standard_job_title = COALESCE(sqlc.narg(standard_job_title), standard_job_title),
     description = COALESCE(sqlc.narg(description), description),
-    kind = COALESCE(sqlc.narg(kind), kind),
-    embedding = NULL, -- Сбрасываем эмбеддинг, т.к. текст/суть изменились
+    unit_id = COALESCE(sqlc.narg(unit_id), unit_id),
+    status = 'pending_indexing', -- Обязательно сбрасываем для воркера
+    embedding = NULL,           -- Старый вектор больше не валиден
     updated_at = NOW()
-WHERE
-    id = sqlc.arg(id)
+WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: UpdateCatalogPositionEmbedding :one
@@ -130,3 +130,41 @@ ORDER BY
     id
 LIMIT $1
 OFFSET $2;
+
+-- name: HybridSearchCatalogPositions :many
+-- Гибридный поиск (RRF) для матчинга тендерных позиций.
+-- $1 - вектор запроса (от Google), $2 - текст запроса (леммы от spaCy)
+WITH semantic_search AS (
+    SELECT id, row_number() OVER (ORDER BY embedding <=> $1) as rank
+    FROM catalog_positions
+    WHERE kind = 'POSITION' AND status = 'active'
+    ORDER BY embedding <=> $1
+    LIMIT 50
+),
+keyword_search AS (
+    SELECT id, row_number() OVER (ORDER BY ts_rank(fts_vector, plainto_tsquery('simple', $2)) DESC) as rank
+    FROM catalog_positions
+    WHERE fts_vector @@ plainto_tsquery('simple', $2)
+      AND kind = 'POSITION' AND status = 'active'
+    LIMIT 50
+)
+SELECT 
+    cp.id, 
+    cp.standard_job_title, 
+    cp.description, 
+    cp.unit_id,
+    -- Формула RRF
+    (COALESCE(1.0 / (60 + s.rank), 0) + COALESCE(1.0 / (60 + k.rank), 0)) AS rrf_score
+FROM semantic_search s
+FULL OUTER JOIN keyword_search k ON s.id = k.id
+JOIN catalog_positions cp ON cp.id = COALESCE(s.id, k.id)
+ORDER BY rrf_score DESC
+LIMIT $3;
+
+-- name: ListPositionsForIndexing :many
+-- Выбирает позиции, которые нужно обработать воркеру
+SELECT id, standard_job_title, description
+FROM catalog_positions
+WHERE status = 'pending_indexing'
+  AND kind = 'POSITION'
+LIMIT $1;
