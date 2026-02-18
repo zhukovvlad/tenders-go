@@ -296,29 +296,23 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 		func() (db.CatalogPosition, error) {
 			opLogger.Info("Позиция каталога не найдена, создается новая.")
 
-			var newStatus string
 			if kind == "POSITION" {
-				newStatus = "pending_indexing"
 				isNewPendingItem = true
-			} else {
-				newStatus = "na"
 			}
 
 			return qtx.CreateCatalogPosition(ctx, db.CreateCatalogPositionParams{
 				StandardJobTitle: standardJobTitleForDB,
 				Description:      sql.NullString{String: posAPI.JobTitle, Valid: true},
 				Kind:             kind,
-				Status:           newStatus,
 				UnitID:           unitID, // <--- Записываем в БД
 			})
 		},
 		// diffFn: (Оставляем как было, unit_id не обновляем, это часть ключа)
 		func(existing db.CatalogPosition) (bool, db.UpdateCatalogPositionDetailsParams, error) {
-			if existing.Kind != kind {
-				opLogger.Warnf("Kind изменился: '%s' -> '%s'. Обновляем.", existing.Kind, kind)
+			if existing.Description.String != posAPI.JobTitle {
+				opLogger.Warnf("Description изменился. Обновляем.")
 				return true, db.UpdateCatalogPositionDetailsParams{
 					ID:          existing.ID,
-					Kind:        sql.NullString{String: kind, Valid: true},
 					Description: sql.NullString{String: posAPI.JobTitle, Valid: true},
 				}, nil
 			}

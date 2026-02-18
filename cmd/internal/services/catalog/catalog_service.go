@@ -142,9 +142,9 @@ func (s *CatalogService) GetUnindexedCatalogItems(
 	}
 
 	// 1. Вызываем наш SQLC-запрос
-	dbRows, err := s.store.GetUnindexedCatalogItems(ctx, limit)
+	dbRows, err := s.store.ListCatalogPositionsForEmbedding(ctx, limit)
 	if err != nil {
-		s.logger.Errorf("Ошибка GetUnindexedCatalogItems: %v", err)
+		s.logger.Errorf("Ошибка ListCatalogPositionsForEmbedding: %v", err)
 		return nil, fmt.Errorf("ошибка БД: %w", err)
 	}
 
@@ -156,7 +156,7 @@ func (s *CatalogService) GetUnindexedCatalogItems(
 	for _, row := range dbRows {
 		response = append(response, api_models.UnmatchedPositionResponse{
 			// Python-воркеру нужен 'catalog_id'
-			PositionItemID:     row.CatalogID,
+			PositionItemID:     row.ID,
 			JobTitleInProposal: row.StandardJobTitle,
 			RichContextString:  buildContextString(row.Description, row.StandardJobTitle),
 		})

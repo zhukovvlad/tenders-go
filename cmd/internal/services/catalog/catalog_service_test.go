@@ -33,17 +33,17 @@ without a real database.
 GIVEN / WHEN / THEN Scenarios:
 ================================================================================
 
-SCENARIO 1: GetUnindexedCatalogItems
+SCENARIO 1: ListCatalogPositionsForEmbedding
 - GIVEN valid limit and pending_indexing items in DB
-  WHEN GetUnindexedCatalogItems is called
+  WHEN ListCatalogPositionsForEmbedding is called
   THEN items are returned with correctly built context strings
 
 - GIVEN zero or negative limit
-  WHEN GetUnindexedCatalogItems is called
+  WHEN ListCatalogPositionsForEmbedding is called
   THEN ValidationError is returned without DB call
 
 - GIVEN a DB error
-  WHEN GetUnindexedCatalogItems is called
+  WHEN ListCatalogPositionsForEmbedding is called
   THEN wrapped DB error is returned
 
 SCENARIO 2: MarkCatalogItemsAsActive
@@ -177,27 +177,27 @@ func TestBuildContextString_EmptyStringDescription(t *testing.T) {
 }
 
 // =============================================================================
-// GetUnindexedCatalogItems TESTS
+// ListCatalogPositionsForEmbedding TESTS
 // =============================================================================
 
-func TestGetUnindexedCatalogItems_Success(t *testing.T) {
+func TestListCatalogPositionsForEmbedding_Success(t *testing.T) {
 	service, mockStore := setupTestService(t)
 
 	// GIVEN items pending indexing in DB
-	dbRows := []db.GetUnindexedCatalogItemsRow{
+	dbRows := []db.ListCatalogPositionsForEmbeddingRow{
 		{
-			CatalogID:        1,
+			ID:               1,
 			StandardJobTitle: "монтаж трубопровод",
 			Description:      sql.NullString{String: "Монтаж трубопровода из ПВХ", Valid: true},
 		},
 		{
-			CatalogID:        2,
+			ID:               2,
 			StandardJobTitle: "окраска стена",
 			Description:      sql.NullString{Valid: false},
 		},
 	}
 	mockStore.EXPECT().
-		GetUnindexedCatalogItems(gomock.Any(), int32(10)).
+		ListCatalogPositionsForEmbedding(gomock.Any(), int32(10)).
 		Return(dbRows, nil)
 
 	// WHEN
@@ -218,13 +218,13 @@ func TestGetUnindexedCatalogItems_Success(t *testing.T) {
 	assert.Equal(t, "окраска стена", result[1].RichContextString)
 }
 
-func TestGetUnindexedCatalogItems_EmptyResult(t *testing.T) {
+func TestListCatalogPositionsForEmbedding_EmptyResult(t *testing.T) {
 	service, mockStore := setupTestService(t)
 
 	// GIVEN no pending items
 	mockStore.EXPECT().
-		GetUnindexedCatalogItems(gomock.Any(), int32(50)).
-		Return([]db.GetUnindexedCatalogItemsRow{}, nil)
+		ListCatalogPositionsForEmbedding(gomock.Any(), int32(50)).
+		Return([]db.ListCatalogPositionsForEmbeddingRow{}, nil)
 
 	// WHEN
 	result, err := service.GetUnindexedCatalogItems(context.Background(), 50)
@@ -234,7 +234,7 @@ func TestGetUnindexedCatalogItems_EmptyResult(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-func TestGetUnindexedCatalogItems_InvalidLimit_Zero(t *testing.T) {
+func TestListCatalogPositionsForEmbedding_InvalidLimit_Zero(t *testing.T) {
 	service, _ := setupTestService(t)
 
 	// GIVEN limit = 0
@@ -248,7 +248,7 @@ func TestGetUnindexedCatalogItems_InvalidLimit_Zero(t *testing.T) {
 	assert.True(t, errors.As(err, &validationErr))
 }
 
-func TestGetUnindexedCatalogItems_InvalidLimit_Negative(t *testing.T) {
+func TestListCatalogPositionsForEmbedding_InvalidLimit_Negative(t *testing.T) {
 	service, _ := setupTestService(t)
 
 	// GIVEN negative limit
@@ -262,13 +262,13 @@ func TestGetUnindexedCatalogItems_InvalidLimit_Negative(t *testing.T) {
 	assert.True(t, errors.As(err, &validationErr))
 }
 
-func TestGetUnindexedCatalogItems_DBError(t *testing.T) {
+func TestListCatalogPositionsForEmbedding_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 
 	// GIVEN DB returns an error
 	dbErr := errors.New("connection refused")
 	mockStore.EXPECT().
-		GetUnindexedCatalogItems(gomock.Any(), int32(10)).
+		ListCatalogPositionsForEmbedding(gomock.Any(), int32(10)).
 		Return(nil, dbErr)
 
 	// WHEN

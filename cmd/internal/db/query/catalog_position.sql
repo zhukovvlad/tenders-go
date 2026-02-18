@@ -1,9 +1,9 @@
 -- catalog_position.sql
--- (Версия 3, финальная, с `kind` и `VIEW`)
--- Запросы для работы с "золотым" справочником catalog_positions.
+-- (Версия 3.1, исправленная, с атомарным обновлением статуса)
 
 -- name: CreateCatalogPosition :one
--- ВАЖНО (v5): Добавлен unit_id
+-- Создает позицию или обновляет существующую (Upsert).
+-- ВАЖНО: Всегда ставит status = 'pending_indexing', чтобы воркер создал эмбеддинг.
 INSERT INTO catalog_positions (
     standard_job_title,
     description,
@@ -11,25 +11,31 @@ INSERT INTO catalog_positions (
     status,
     unit_id
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, -- standard_job_title
+    $2, -- description
+    $3, -- kind
+    'pending_indexing', -- STATUS: Всегда отправляем в очередь на векторизацию
+    $4  -- unit_id
 )
+ON CONFLICT (standard_job_title, COALESCE(unit_id, -1)) 
+DO UPDATE SET
+    description = EXCLUDED.description,
+    kind = EXCLUDED.kind,
+    status = 'pending_indexing',        -- Сбрасываем статус, чтобы обновить вектор
+    embedding = NULL,                   -- Сбрасываем старый вектор
+    updated_at = NOW()
 RETURNING *;
 
 -- name: GetCatalogPositionByID :one
--- Получает стандартную позицию по её ID.
 SELECT * FROM catalog_positions
 WHERE id = $1;
 
 -- name: GetCatalogPositionByTitleAndUnit :one
--- ВАЖНО: Ищем по паре (Title + Unit).
--- Хитрая проверка (unit_id IS NULL AND $2 IS NULL) нужна для корректной работы с NULL в Go.
 SELECT * FROM catalog_positions
 WHERE standard_job_title = $1
   AND (unit_id = sqlc.narg('unit_id') OR (unit_id IS NULL AND sqlc.narg('unit_id') IS NULL));
 
 -- name: ListCatalogPositions :many
--- (Улучшено) Получает список всех стандартных позиций (для админки).
--- Не выбирает "тяжелое" поле `embedding`.
 SELECT id, standard_job_title, description, kind, created_at, updated_at
 FROM catalog_positions
 ORDER BY standard_job_title
@@ -37,26 +43,24 @@ LIMIT $1
 OFFSET $2;
 
 -- name: ListCatalogPositionsForEmbedding :many
--- Получает "очередь" для Python-воркера.
--- Выбирает только `kind = 'POSITION'`, у которых еще нет эмбеддинга.
-SELECT id, standard_job_title, description FROM catalog_positions
+-- Основная очередь для воркера. Ищем по статусу.
+SELECT id, standard_job_title, description 
+FROM catalog_positions
 WHERE 
-    embedding IS NULL 
+    status = 'pending_indexing'
     AND kind = 'POSITION'
-ORDER BY id -- Для последовательной обработки
-LIMIT $1 -- Обрабатываем пачками
-OFFSET $2;
+ORDER BY id
+LIMIT $1;
 
 -- name: UpdateCatalogPositionDetails :one
--- Обновляет текстовые детали И/ИЛИ `unit_id` существующей позиции.
--- При этом ОБНУЛЯЕТ существующий эмбеддинг, так как он становится неактуальным.
+-- Обновляет детали, сбрасывает статус и удаляет старый вектор.
 UPDATE catalog_positions
 SET
     standard_job_title = COALESCE(sqlc.narg(standard_job_title), standard_job_title),
     description = COALESCE(sqlc.narg(description), description),
     unit_id = COALESCE(sqlc.narg(unit_id), unit_id),
-    status = 'pending_indexing', -- Обязательно сбрасываем для воркера
-    embedding = NULL,           -- Старый вектор больше не валиден
+    status = 'pending_indexing',
+    embedding = NULL,
     updated_at = NOW()
 WHERE id = sqlc.arg(id)
   AND (
@@ -67,26 +71,22 @@ WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: UpdateCatalogPositionEmbedding :one
--- Обновляет поле embedding для существующей стандартной позиции.
--- Вызывается Python-воркером после генерации эмбеддинга.
+-- ВАЖНО: Обновляет эмбеддинг и СРАЗУ активирует позицию (атомарность).
 UPDATE catalog_positions
 SET
     embedding = sqlc.arg(embedding),
+    status = 'active',
     updated_at = NOW()
 WHERE
     id = sqlc.arg(id)
 RETURNING *;
 
 -- name: DeleteCatalogPosition :exec
--- Удаляет стандартную позицию по ID.
--- Вызывается Go-сервером при слиянии дубликатов.
 DELETE FROM catalog_positions
 WHERE id = $1;
 
 -- name: SearchCatalogPositions :many
--- (Улучшено) Ищет стандартные позиции по частичному совпадению.
--- ВАЖНО (v4): Использует VIEW `catalog_positions_clean`
--- для поиска только среди "чистых" позиций (`kind = 'POSITION'`).
+-- Простой поиск для админки по VIEW.
 SELECT id, standard_job_title, description, kind, created_at, updated_at
 FROM catalog_positions_clean
 WHERE standard_job_title ILIKE '%' || sqlc.arg(search_term)::text || '%'
@@ -95,62 +95,44 @@ LIMIT sqlc.arg(page_limit)::int
 OFFSET sqlc.arg(page_offset)::int;
 
 -- name: ListCatalogPositionsToReview :many
--- Получает "очередь" для админ-панели (ручная модерация).
--- Ищет записи, которые Go-сервер не смог классифицировать (`kind = 'TO_REVIEW'`).
 SELECT * FROM catalog_positions
 WHERE kind = 'TO_REVIEW'
 ORDER BY created_at DESC
 LIMIT $1
 OFFSET $2;
 
--- name: GetUnindexedCatalogItems :many
-SELECT 
-    id AS catalog_id,
-    standard_job_title,
-    description
-FROM 
-    catalog_positions
-WHERE 
-    status = 'pending_indexing'
-    AND kind = 'POSITION'
-LIMIT $1;
-
 -- name: SetCatalogStatusActive :exec
--- (Для RAG-воркера) Устанавливает статус 'active' после индексации
+-- Оставляем на случай массовой активации, если понадобится.
 UPDATE catalog_positions
 SET status = 'active'
 WHERE id = ANY($1::bigint[]);
 
 -- name: GetActiveCatalogItems :many
-SELECT 
-    id AS catalog_id,
-    standard_job_title,
-    description
-FROM 
-    catalog_positions
-WHERE 
-    status = 'active'
-    AND kind = 'POSITION'
-ORDER BY 
-    id
+-- Пагинация активных позиций каталога (для поиска дубликатов и др.)
+SELECT id AS catalog_id, standard_job_title, description
+FROM catalog_positions
+WHERE kind = 'POSITION' AND status = 'active'
+ORDER BY id
 LIMIT $1
 OFFSET $2;
 
 -- name: HybridSearchCatalogPositions :many
--- Гибридный поиск (RRF) для матчинга тендерных позиций.
--- $1 - вектор запроса (от Google), $2 - текст запроса (леммы от spaCy)
+-- Гибридный поиск (RRF) для матчинга.
 WITH semantic_search AS (
-    SELECT id, row_number() OVER (ORDER BY embedding <=> $1) as rank
+    SELECT id, row_number() OVER (ORDER BY embedding <=> $1::vector) as rank
     FROM catalog_positions
-    WHERE kind = 'POSITION' AND status = 'active' AND embedding IS NOT NULL
-    ORDER BY embedding <=> $1
+    WHERE kind = 'POSITION' 
+      AND status = 'active' 
+      AND embedding IS NOT NULL
+    ORDER BY embedding <=> $1::vector
     LIMIT 50
 ),
 keyword_search AS (
     SELECT id, row_number() OVER (ORDER BY ts_rank(fts_vector, plainto_tsquery('simple', $2)) DESC) as rank
     FROM catalog_positions
     WHERE fts_vector @@ plainto_tsquery('simple', $2)
-      AND kind = 'POSITION' AND status = 'active'
+      AND kind = 'POSITION' 
+      AND status = 'active'
     ORDER BY ts_rank(fts_vector, plainto_tsquery('simple', $2)) DESC
     LIMIT 50
 )
@@ -159,8 +141,8 @@ SELECT
     cp.standard_job_title, 
     cp.description, 
     cp.unit_id,
-    -- Формула RRF
-    (COALESCE(1.0 / (60 + s.rank), 0) + COALESCE(1.0 / (60 + k.rank), 0)) AS rrf_score
+    -- Кастинг в float8 для Go
+    (COALESCE(1.0 / (60 + s.rank), 0.0) + COALESCE(1.0 / (60 + k.rank), 0.0))::float8 AS rrf_score 
 FROM semantic_search s
 FULL OUTER JOIN keyword_search k ON s.id = k.id
 JOIN catalog_positions cp ON cp.id = COALESCE(s.id, k.id)
