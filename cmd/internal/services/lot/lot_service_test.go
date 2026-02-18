@@ -14,6 +14,7 @@ import (
 
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/testutil"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
@@ -89,24 +90,6 @@ SCENARIO 2: UpdateLotKeyParametersDirectly
   THEN serialization error is returned without calling ExecTx
 */
 
-// mockLogger implements a no-op Logger for testing
-// mockLogger implements logging.Logger interface for testing (no-op)
-type mockLogger struct{}
-
-func (m *mockLogger) WithField(key string, value interface{}) logging.Logger  { return m }
-func (m *mockLogger) WithFields(fields map[string]interface{}) logging.Logger { return m }
-func (m *mockLogger) WithError(err error) logging.Logger                      { return m }
-func (m *mockLogger) Debug(args ...any)                                       {}
-func (m *mockLogger) Debugf(format string, args ...any)                       {}
-func (m *mockLogger) Info(args ...any)                                        {}
-func (m *mockLogger) Infof(format string, args ...any)                        {}
-func (m *mockLogger) Warn(args ...any)                                        {}
-func (m *mockLogger) Warnf(format string, args ...any)                        {}
-func (m *mockLogger) Error(args ...any)                                       {}
-func (m *mockLogger) Errorf(format string, args ...any)                       {}
-func (m *mockLogger) Fatal(args ...any)                                       {}
-func (m *mockLogger) Fatalf(format string, args ...any)                       {}
-
 // setupTestService creates a LotService with mock store for unit testing.
 // gomock.NewController registers t.Cleanup(ctrl.Finish) automatically,
 // so callers don't need to defer ctrl.Finish().
@@ -114,7 +97,7 @@ func setupTestService(t *testing.T) (*LotService, *db.MockStore) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockStore := db.NewMockStore(ctrl)
-	logger := &mockLogger{}
+	logger := testutil.NewMockLogger()
 
 	service := &LotService{
 		store:  mockStore,
@@ -137,7 +120,11 @@ func newMockQueries(t *testing.T) (sqlmock.Sqlmock, *db.Queries, func()) {
 	sqlDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	q := db.New(sqlDB)
-	cleanup := func() { sqlDB.Close() }
+	cleanup := func() {
+		err := mock.ExpectationsWereMet()
+		assert.NoError(t, err, "sqlmock: there were unmet expectations")
+		sqlDB.Close()
+	}
 	return mock, q, cleanup
 }
 
@@ -644,7 +631,7 @@ func TestUpdateLotKeyParametersDirectly_NegativeID(t *testing.T) {
 func TestNewLotService_CreatesInstance(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := db.NewMockStore(ctrl)
-	logger := &mockLogger{}
+	logger := testutil.NewMockLogger()
 
 	// WHEN
 	service := NewLotService(mockStore, logger)
@@ -660,6 +647,6 @@ func TestNewLotService_CreatesInstance(t *testing.T) {
 // =============================================================================
 
 func TestMockLoggerImplementsInterface(t *testing.T) {
-	// Verify that mockLogger implements the logging.Logger interface
-	var _ logging.Logger = (*mockLogger)(nil)
+	// Verify that testutil.MockLogger implements the logging.Logger interface
+	var _ logging.Logger = (*testutil.MockLogger)(nil)
 }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/testutil"
-	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
 /*
@@ -66,23 +65,6 @@ SCENARIO 3: Input Validation
   THEN strings are safely truncated at character boundary (UTF-8 safe)
 */
 
-// mockLogger implements logging.Logger interface for testing (no-op)
-type mockLogger struct{}
-
-func (m *mockLogger) WithField(key string, value interface{}) logging.Logger  { return m }
-func (m *mockLogger) WithFields(fields map[string]interface{}) logging.Logger { return m }
-func (m *mockLogger) WithError(err error) logging.Logger                      { return m }
-func (m *mockLogger) Debug(args ...any)                                       {}
-func (m *mockLogger) Debugf(format string, args ...any)                       {}
-func (m *mockLogger) Info(args ...any)                                        {}
-func (m *mockLogger) Infof(format string, args ...any)                        {}
-func (m *mockLogger) Warn(args ...any)                                        {}
-func (m *mockLogger) Warnf(format string, args ...any)                        {}
-func (m *mockLogger) Error(args ...any)                                       {}
-func (m *mockLogger) Errorf(format string, args ...any)                       {}
-func (m *mockLogger) Fatal(args ...any)                                       {}
-func (m *mockLogger) Fatalf(format string, args ...any)                       {}
-
 // setupTestService creates service with test configuration (no DB needed for token tests)
 func setupTestService(t *testing.T) *Service {
 	t.Helper()
@@ -95,7 +77,7 @@ func setupTestService(t *testing.T) *Service {
 		},
 	}
 
-	logger := &mockLogger{}
+	logger := testutil.NewMockLogger()
 
 	// Store is nil for token-only tests (no DB operations)
 	return &Service{
@@ -168,7 +150,7 @@ func TestValidateAccessToken_Expired(t *testing.T) {
 	}
 	service := &Service{
 		config: cfg,
-		logger: &mockLogger{},
+		logger: testutil.NewMockLogger(),
 	}
 
 	// Generate token that's already expired
@@ -197,7 +179,7 @@ func TestValidateAccessToken_WrongSignature(t *testing.T) {
 	}
 	service2 := &Service{
 		config: cfg2,
-		logger: &mockLogger{},
+		logger: testutil.NewMockLogger(),
 	}
 
 	// Generate token with service1's secret

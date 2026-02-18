@@ -36,6 +36,7 @@ func newLotResponse(lot db.Lot, logger logging.Logger) LotResponse {
 		KeyParameters: parseKeyParameters(lot.LotKeyParameters, logger), // ✅ Используем нашу финальную функцию
 		CreatedAt:     lot.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     lot.UpdatedAt.Format(time.RFC3339),
-		Winners:       []WinnerResponse{}, // ✅ Инициализируем пустым массивом вместо nil
+		Proposals:     []ProposalResponse{}, // Инициализируем пустым массивом вместо nil
+		Winners:       []WinnerResponse{},   // Инициализируем пустым массивом вместо nil
 	}
 }
