@@ -121,12 +121,18 @@ type mockChild struct {
 
 func (c *mockChild) WithField(key string, value interface{}) logging.Logger {
 	merged := copyFields(c.fields)
+	if merged == nil {
+		merged = make(map[string]interface{})
+	}
 	merged[key] = value
 	return &mockChild{parent: c.parent, fields: merged, err: c.err}
 }
 
 func (c *mockChild) WithFields(fields map[string]interface{}) logging.Logger {
 	merged := copyFields(c.fields)
+	if merged == nil {
+		merged = make(map[string]interface{}, len(fields))
+	}
 	for k, v := range fields {
 		merged[k] = v
 	}

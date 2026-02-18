@@ -616,7 +616,23 @@ func TestUpdateLotKeyParametersDirectly_NegativeID(t *testing.T) {
 	require.Error(t, err)
 	var validationErr *apierrors.ValidationError
 	assert.True(t, errors.As(err, &validationErr), "expected ValidationError, got: %T", err)
-	assert.Contains(t, err.Error(), "отрицательным")
+	assert.Contains(t, err.Error(), "положительным")
+}
+
+func TestUpdateLotKeyParametersDirectly_ZeroID(t *testing.T) {
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	// GIVEN zero lot ID — rejected before DB access (IDs must be positive)
+
+	// WHEN
+	err := service.UpdateLotKeyParametersDirectly(ctx, "0", map[string]interface{}{"k": "v"})
+
+	// THEN
+	require.Error(t, err)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr), "expected ValidationError, got: %T", err)
+	assert.Contains(t, err.Error(), "положительным")
 }
 
 // =============================================================================
