@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -60,15 +62,16 @@ const (
 	testEmail     = "user@example.com"
 )
 
-// testPasswordHash is a bcrypt hash of testPassword, generated once at init.
+// testPasswordHash is a bcrypt hash of testPassword, generated once in TestMain.
 var testPasswordHash string
 
-func init() {
+func TestMain(m *testing.M) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.MinCost)
 	if err != nil {
-		panic(fmt.Sprintf("failed to generate test password hash: %v", err))
+		log.Fatalf("failed to generate test password hash: %v", err)
 	}
 	testPasswordHash = string(hash)
+	os.Exit(m.Run())
 }
 
 // testConfig returns a Config with test-appropriate auth settings.
@@ -291,6 +294,9 @@ func TestLoginHandler_Success(t *testing.T) {
 }
 
 func TestLoginHandler_ValidationErrors(t *testing.T) {
+	// Router is created once — validation sub-tests don't touch mutable state (no DB calls).
+	router, _, _, _ := setupAuthTestServer(t)
+
 	tests := []struct {
 		name string
 		body interface{}
@@ -304,7 +310,6 @@ func TestLoginHandler_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router, _, _, _ := setupAuthTestServer(t)
 			req := makeJSONRequest(t, http.MethodPost, "/api/v1/auth/login", tt.body)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -541,11 +546,10 @@ func TestRefreshHandler_InvalidTokenFormat(t *testing.T) {
 	body := parseBody(t, w)
 	assert.Equal(t, "invalid or expired refresh token", body["error"])
 
-	// Cookies should be cleared
+	// clearAuthCookies always sets access_token with MaxAge = -1
 	accessCookie := findCookie(w, "access_token")
-	if accessCookie != nil {
-		assert.True(t, accessCookie.MaxAge < 0, "access_token should be cleared")
-	}
+	require.NotNil(t, accessCookie, "expected access_token cookie to be present (cleared)")
+	assert.True(t, accessCookie.MaxAge < 0, "access_token should be cleared (MaxAge < 0)")
 }
 
 func TestRefreshHandler_SessionNotFound(t *testing.T) {
