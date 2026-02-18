@@ -46,7 +46,6 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
-	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
 // Logger defines the logging interface used by the catalog service.
@@ -74,7 +73,7 @@ type CatalogService struct {
 //   - logger: экземпляр логгера для записи событий и ошибок
 //
 // Возвращает готовый к использованию сервис каталога.
-func NewCatalogService(store db.Store, logger *logging.Logger) *CatalogService {
+func NewCatalogService(store db.Store, logger Logger) *CatalogService {
 	return &CatalogService{
 		store:  store,
 		logger: logger,

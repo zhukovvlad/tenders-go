@@ -75,12 +75,18 @@
 - [x] **Результат: 24 unit теста, все проходят. Покрытие token/validation логики: ~95%**
 - [x] **NOTE: Login/Refresh/Logout требуют транзакций и будут протестированы в integration тестах (Phase 3)**
 ### ✅ Задача 2.2: Тесты для Catalog Service
-- [ ] Создать `cmd/internal/services/catalog/service_test.go`
-- [ ] Мок для database queries
-- [ ] Тест создания категории
-- [ ] Тест получения списка категорий
-- [ ] Тест обновления категории
-- [ ] Тест удаления категории
+- [x] Создать `cmd/internal/services/catalog/catalog_service_test.go`
+- [x] Мок для database queries (gomock MockStore, регенерирован для полноты интерфейса)
+- [x] Введён Logger interface для тестируемости (по аналогии с auth service)
+- [x] Тесты GetUnindexedCatalogItems (получение неиндексированных позиций)
+- [x] Тесты GetAllActiveCatalogItems (получение активных позиций с пагинацией)
+- [x] Тесты MarkCatalogItemsAsActive (обновление статуса позиций)
+- [x] Тесты SuggestMerge (предложение слияния дубликатов)
+- [x] Тесты buildContextString (приоритет описания над лемматизированным названием)
+- [x] Тесты валидации параметров (negative limit/offset → ValidationError)
+- [x] Тесты обработки ошибок БД (wrapped errors)
+- [x] Тесты граничных случаев (пустые списки, nil, self-merge)
+- [x] **Результат: 24 unit теста, все проходят**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [ ] Создать `cmd/internal/services/lot/service_test.go`

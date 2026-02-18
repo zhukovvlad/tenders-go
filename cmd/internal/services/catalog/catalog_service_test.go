@@ -102,8 +102,10 @@ func (m *mockLogger) Warnf(format string, args ...any)  {}
 func (m *mockLogger) Errorf(format string, args ...any) {}
 func (m *mockLogger) Warn(args ...any)                  {}
 
-// setupTestService creates a CatalogService with mock store for unit testing
-func setupTestService(t *testing.T) (*CatalogService, *db.MockStore, *gomock.Controller) {
+// setupTestService creates a CatalogService with mock store for unit testing.
+// gomock.NewController registers t.Cleanup(ctrl.Finish) automatically,
+// so callers don't need to defer ctrl.Finish().
+func setupTestService(t *testing.T) (*CatalogService, *db.MockStore) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockStore := db.NewMockStore(ctrl)
@@ -114,7 +116,7 @@ func setupTestService(t *testing.T) (*CatalogService, *db.MockStore, *gomock.Con
 		logger: logger,
 	}
 
-	return service, mockStore, ctrl
+	return service, mockStore
 }
 
 // =============================================================================
@@ -186,8 +188,7 @@ func TestBuildContextString_EmptyStringDescription(t *testing.T) {
 // =============================================================================
 
 func TestGetUnindexedCatalogItems_Success(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN items pending indexing in DB
 	dbRows := []db.GetUnindexedCatalogItemsRow{
@@ -225,8 +226,7 @@ func TestGetUnindexedCatalogItems_Success(t *testing.T) {
 }
 
 func TestGetUnindexedCatalogItems_EmptyResult(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN no pending items
 	mockStore.EXPECT().
@@ -242,8 +242,7 @@ func TestGetUnindexedCatalogItems_EmptyResult(t *testing.T) {
 }
 
 func TestGetUnindexedCatalogItems_InvalidLimit_Zero(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN limit = 0
 	// WHEN
@@ -257,8 +256,7 @@ func TestGetUnindexedCatalogItems_InvalidLimit_Zero(t *testing.T) {
 }
 
 func TestGetUnindexedCatalogItems_InvalidLimit_Negative(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN negative limit
 	// WHEN
@@ -272,8 +270,7 @@ func TestGetUnindexedCatalogItems_InvalidLimit_Negative(t *testing.T) {
 }
 
 func TestGetUnindexedCatalogItems_DBError(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN DB returns an error
 	dbErr := errors.New("connection refused")
@@ -296,8 +293,7 @@ func TestGetUnindexedCatalogItems_DBError(t *testing.T) {
 // =============================================================================
 
 func TestMarkCatalogItemsAsActive_Success(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN valid catalog IDs
 	ids := []int64{1, 2, 3}
@@ -313,8 +309,7 @@ func TestMarkCatalogItemsAsActive_Success(t *testing.T) {
 }
 
 func TestMarkCatalogItemsAsActive_SingleID(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN single catalog ID
 	ids := []int64{42}
@@ -330,8 +325,7 @@ func TestMarkCatalogItemsAsActive_SingleID(t *testing.T) {
 }
 
 func TestMarkCatalogItemsAsActive_EmptyList(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN empty list — no DB call expected (no EXPECT on mockStore)
 	// WHEN
@@ -342,8 +336,7 @@ func TestMarkCatalogItemsAsActive_EmptyList(t *testing.T) {
 }
 
 func TestMarkCatalogItemsAsActive_NilList(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN nil list
 	// WHEN
@@ -354,8 +347,7 @@ func TestMarkCatalogItemsAsActive_NilList(t *testing.T) {
 }
 
 func TestMarkCatalogItemsAsActive_DBError(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN DB returns error
 	dbErr := errors.New("deadlock detected")
@@ -378,8 +370,7 @@ func TestMarkCatalogItemsAsActive_DBError(t *testing.T) {
 // =============================================================================
 
 func TestSuggestMerge_Success(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN valid merge request with different IDs
 	req := api_models.SuggestMergeRequest{
@@ -403,8 +394,7 @@ func TestSuggestMerge_Success(t *testing.T) {
 }
 
 func TestSuggestMerge_HighSimilarity(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN similarity score at boundary (1.0)
 	req := api_models.SuggestMergeRequest{
@@ -428,8 +418,7 @@ func TestSuggestMerge_HighSimilarity(t *testing.T) {
 }
 
 func TestSuggestMerge_SelfMerge_Skipped(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN same main and duplicate ID (self-merge attempt)
 	// No EXPECT on mockStore — DB should NOT be called
@@ -447,8 +436,7 @@ func TestSuggestMerge_SelfMerge_Skipped(t *testing.T) {
 }
 
 func TestSuggestMerge_DBError(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN DB returns error
 	dbErr := errors.New("foreign key violation")
@@ -471,8 +459,7 @@ func TestSuggestMerge_DBError(t *testing.T) {
 }
 
 func TestSuggestMerge_LowSimilarity(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN a very low similarity score — still valid, no threshold in service
 	req := api_models.SuggestMergeRequest{
@@ -500,8 +487,7 @@ func TestSuggestMerge_LowSimilarity(t *testing.T) {
 // =============================================================================
 
 func TestGetAllActiveCatalogItems_Success(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN active items in DB
 	dbRows := []db.GetActiveCatalogItemsRow{
@@ -549,8 +535,7 @@ func TestGetAllActiveCatalogItems_Success(t *testing.T) {
 }
 
 func TestGetAllActiveCatalogItems_WithOffset(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN second page of active items
 	dbRows := []db.GetActiveCatalogItemsRow{
@@ -577,8 +562,7 @@ func TestGetAllActiveCatalogItems_WithOffset(t *testing.T) {
 }
 
 func TestGetAllActiveCatalogItems_EmptyResult(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN no active items (e.g. beyond last page)
 	mockStore.EXPECT().
@@ -597,8 +581,7 @@ func TestGetAllActiveCatalogItems_EmptyResult(t *testing.T) {
 }
 
 func TestGetAllActiveCatalogItems_InvalidLimit_Zero(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN limit = 0
 	// WHEN
@@ -612,8 +595,7 @@ func TestGetAllActiveCatalogItems_InvalidLimit_Zero(t *testing.T) {
 }
 
 func TestGetAllActiveCatalogItems_InvalidLimit_Negative(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN negative limit
 	// WHEN
@@ -627,8 +609,7 @@ func TestGetAllActiveCatalogItems_InvalidLimit_Negative(t *testing.T) {
 }
 
 func TestGetAllActiveCatalogItems_InvalidOffset_Negative(t *testing.T) {
-	service, _, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, _ := setupTestService(t)
 
 	// GIVEN negative offset
 	// WHEN
@@ -642,8 +623,7 @@ func TestGetAllActiveCatalogItems_InvalidOffset_Negative(t *testing.T) {
 }
 
 func TestGetAllActiveCatalogItems_DBError(t *testing.T) {
-	service, mockStore, ctrl := setupTestService(t)
-	defer ctrl.Finish()
+	service, mockStore := setupTestService(t)
 
 	// GIVEN DB returns error
 	dbErr := errors.New("timeout exceeded")
@@ -668,15 +648,15 @@ func TestGetAllActiveCatalogItems_DBError(t *testing.T) {
 // CONTEXT STRING CONSISTENCY TEST
 // =============================================================================
 
-func TestContextString_ConsistencyBetweenEndpoints(t *testing.T) {
-	// GIVEN the same description and title
+func TestBuildContextString_DescriptionTakesPriorityOverTitle(t *testing.T) {
+	// GIVEN a valid description and a different lemmatized title
 	desc := sql.NullString{String: "Монтаж систем вентиляции", Valid: true}
 	title := "монтаж система вентиляция"
 
-	// WHEN context string is built (same function used by both endpoints)
+	// WHEN context string is built
 	result := buildContextString(desc, title)
 
-	// THEN both endpoints would produce identical context strings
+	// THEN description takes priority over lemmatized title
 	assert.Equal(t, "Монтаж систем вентиляции", result)
 	assert.NotEqual(t, title, result, "description should take priority over lemmatized title")
 }
