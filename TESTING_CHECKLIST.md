@@ -30,6 +30,7 @@
 - [x] Создать `cmd/internal/testutil/mock_logger.go` (мок логгера для тестов)
 - [x] Создать `cmd/internal/testutil/test_server.go` (тестовый HTTP сервер)
 - [x] Создать `tests/README.md` (документация тестирования)
+- [x] Добавить shared-хелперы в `assertions.go`: `FindResponseCookie`, `AssertNoTokensInBody`, `AssertAuthCookieSecurity`
 
 ---
 
@@ -73,6 +74,8 @@
 - [x] Тест `TestValidateUserAgent_TruncatesLong` (обрезка длинных User-Agent)
 - [x] Тест `TestValidateUserAgent_UTF8Safe` (безопасная работа с UTF-8)
 - [x] Тесты для helper функций (hashIdentifier, hashUserID, ipToInet)
+- [x] Добавлен sentinel error `ErrTokenExpired` — отдельная ошибка для истекших JWT (отличается от `ErrInvalidToken`)
+- [x] Тест `TestErrorConstants` обновлён: проверка уникальности и содержимого `ErrTokenExpired`
 - [x] **Результат: 24 unit теста, все проходят. Покрытие token/validation логики: ~95%**
 - [x] **NOTE: Login/Refresh/Logout требуют транзакций и будут протестированы в integration тестах (Phase 3)**
 ### ✅ Задача 2.2: Тесты для Catalog Service
@@ -199,8 +202,29 @@
 - [x] Тест `POST /api/auth/logout` (CSRF) — TestLogoutHandler_MissingCSRF, TestLogoutHandler_CSRFMismatch
 - [x] Тест `POST /api/auth/logout` (ошибки) — TestLogoutHandler_ServiceError
 - [x] Тест `GET /api/auth/me` — TestMeHandler_Success, TestMeHandler_NoAuth, TestMeHandler_InvalidToken, TestMeHandler_DBError
+- [x] **Безопасность (XSS/cookie)**:
+  - TestLoginHandler_TokensNotInResponseBody — JWT/refresh-токены не утекают в JSON-body
+  - TestLoginHandler_CookieSecurityAttributes — HttpOnly, Secure, SameSite=Strict, Path=/
+  - TestLoginHandler_EmailNormalization — нормализация email (trim + lowercase)
+- [x] **Протухшие и поддельные токены**:
+  - TestMeHandler_ExpiredToken — истекший JWT → 401 + X-Auth-Error: `access_token_expired` + cookie cleared
+  - TestMeHandler_WrongSigningKey — чужой signing key → 401 + X-Auth-Error: `access_token_invalid` + cookie cleared
+- [x] **Транзакционная целостность refresh**:
+  - TestRefreshHandler_RevokeOldSessionFails — откат при ошибке revoke
+  - TestRefreshHandler_CreateNewSessionFails — откат при ошибке create session
+  - TestRefreshHandler_GetUserFailsInsideTx — откат при ошибке get user внутри tx
+- [x] **Defense-in-depth**:
+  - TestRefreshHandler_ExpiredSessionTimeMismatch — Go-side time check ловит expired session при рассинхроне DB/app
+  - TestRefreshHandler_CookiesClearedOnAuthError — куки очищены при auth-ошибке refresh
+  - TestRefreshHandler_CookiesNotClearedOnInternalError — куки НЕ очищены при internal error
+  - TestRefreshHandler_CookieSecurityAttributes — HttpOnly, Secure, SameSite=Strict для refresh cookies
+- [x] **Edge cases**:
+  - TestLogoutHandler_InvalidRefreshTokenFormat — logout с невалидным форматом refresh token
+  - TestCSRF_HeaderMissingCookiePresent — CSRF: X-CSRF-Token header есть, cookie нет → rejected
+- [x] **Middleware**: X-Auth-Error различает `access_token_expired` (истёк) и `access_token_invalid` (подделан/повреждён)
+- [x] **Shared-хелперы**: `performSuccessfulLogin` (DRY для login mock setup), `testutil.FindResponseCookie`, `testutil.AssertNoTokensInBody`, `testutil.AssertAuthCookieSecurity`
 - [x] **NOTE: `POST /api/auth/register` не реализован — создание пользователей через CLI (cmd/createadmin) и admin API**
-- [x] **Результат: 24 теста (включая sub-tests), все проходят. Покрытие: login, refresh, logout, me + CSRF + AuthMiddleware**
+- [x] **Результат: 38 тестов (включая sub-tests), все проходят. Покрытие: login, refresh, logout, me + CSRF + AuthMiddleware + security + transaction integrity**
 
 ### Задача 5.3: Тесты для handlers_tender.go
 - [ ] Создать `cmd/internal/server/handlers_tender_test.go`

@@ -24,6 +24,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInvalidToken       = errors.New("invalid or expired token")
+	ErrTokenExpired       = errors.New("access token expired")
 	ErrSessionNotFound    = errors.New("session not found or expired")
 )
 
@@ -324,6 +325,10 @@ func (s *Service) ValidateAccessToken(tokenString string) (*JWTClaims, error) {
 	})
 
 	if err != nil {
+		// Differentiate expired tokens from other validation failures
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
 		return nil, ErrInvalidToken
 	}
 
