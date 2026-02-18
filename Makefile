@@ -17,7 +17,11 @@ GOPATH = $(shell go env GOPATH)
 all: run # Команда по умолчанию
 
 run:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && go run cmd/main/app.go
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
+	unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY && \
+	export NO_PROXY=localhost,127.0.0.1 && \
+	export no_proxy=localhost,127.0.0.1 && \
+	go run cmd/main/app.go
 
 sqlc:
 	$(GOPATH)/bin/sqlc generate
