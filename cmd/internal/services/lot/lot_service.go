@@ -109,6 +109,11 @@ func (s *LotService) UpdateLotKeyParametersDirectly(
 		return apierrors.NewValidationError("неверный формат lot_id: %s", lotIDStr)
 	}
 
+	if lotID < 0 {
+		logger.Errorf("Отрицательный lot_id: %d", lotID)
+		return apierrors.NewValidationError("lot_id не может быть отрицательным: %s", lotIDStr)
+	}
+
 	// Сериализуем keyParameters в JSON
 	keyParamsJSON, err := json.Marshal(keyParameters)
 	if err != nil {

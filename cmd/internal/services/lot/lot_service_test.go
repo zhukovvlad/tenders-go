@@ -533,7 +533,7 @@ func TestUpdateLotKeyParametersDirectly_JSONSerializationError(t *testing.T) {
 	service, _ := setupTestService(t)
 	ctx := context.Background()
 
-	// GIVEN keyParameters with an unseriializable value — no ExecTx expectation
+	// GIVEN keyParameters with an unserializable value — no ExecTx expectation
 	badParams := map[string]interface{}{
 		"fn": func() {}, // functions cannot be JSON-serialized
 	}
@@ -603,25 +603,20 @@ func TestUpdateLotKeyParametersDirectly_OverflowID(t *testing.T) {
 }
 
 func TestUpdateLotKeyParametersDirectly_NegativeID(t *testing.T) {
-	service, mockStore := setupTestService(t)
+	service, _ := setupTestService(t)
 	ctx := context.Background()
 
-	// GIVEN negative lot ID (valid int64, but unlikely to exist)
-	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
-		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			mock.ExpectQuery("SELECT .+ FROM lots WHERE id").
-				WithArgs(int64(-1)).
-				WillReturnError(sql.ErrNoRows)
-		}),
-	)
+	// GIVEN negative lot ID — rejected before DB access
+	// No ExecTx expectation: validation fires before transaction
 
 	// WHEN
 	err := service.UpdateLotKeyParametersDirectly(ctx, "-1", map[string]interface{}{"k": "v"})
 
 	// THEN
 	require.Error(t, err)
-	var notFoundErr *apierrors.NotFoundError
-	assert.True(t, errors.As(err, &notFoundErr), "expected NotFoundError, got: %T", err)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr), "expected ValidationError, got: %T", err)
+	assert.Contains(t, err.Error(), "отрицательным")
 }
 
 // =============================================================================
