@@ -187,14 +187,20 @@
 - [x] Хелперы для HTTP запросов (GET, POST, PUT, DELETE)
 - [x] Хелперы для проверки JSON ответов (`AssertResponse`)
 
-### Задача 5.2: Тесты для handlers_auth.go
-- [ ] Создать `cmd/internal/server/handlers_auth_test.go`
-- [ ] Тест `POST /api/auth/register` (успех)
-- [ ] Тест `POST /api/auth/register` (валидация)
-- [ ] Тест `POST /api/auth/login` (успех)
-- [ ] Тест `POST /api/auth/login` (неверные credentials)
-- [ ] Тест `POST /api/auth/refresh`
-- [ ] Тест `POST /api/auth/logout`
+### ✅ Задача 5.2: Тесты для handlers_auth.go
+- [x] Создать `cmd/internal/server/handlers_auth_test.go`
+- [x] Тест `POST /api/auth/login` (успех) — TestLoginHandler_Success
+- [x] Тест `POST /api/auth/login` (валидация) — TestLoginHandler_ValidationErrors (5 sub-tests), TestLoginHandler_MalformedJSON
+- [x] Тест `POST /api/auth/login` (неверные credentials) — TestLoginHandler_WrongPassword, TestLoginHandler_UserNotFound, TestLoginHandler_InactiveUser
+- [x] Тест `POST /api/auth/login` (ошибки БД) — TestLoginHandler_DBError, TestLoginHandler_SessionCreationFailed
+- [x] Тест `POST /api/auth/refresh` (успех) — TestRefreshHandler_Success
+- [x] Тест `POST /api/auth/refresh` (ошибки) — TestRefreshHandler_NoCookie, TestRefreshHandler_InvalidTokenFormat, TestRefreshHandler_SessionNotFound, TestRefreshHandler_DBError
+- [x] Тест `POST /api/auth/logout` (успех) — TestLogoutHandler_Success, TestLogoutHandler_NoCookie
+- [x] Тест `POST /api/auth/logout` (CSRF) — TestLogoutHandler_MissingCSRF, TestLogoutHandler_CSRFMismatch
+- [x] Тест `POST /api/auth/logout` (ошибки) — TestLogoutHandler_ServiceError
+- [x] Тест `GET /api/auth/me` — TestMeHandler_Success, TestMeHandler_NoAuth, TestMeHandler_InvalidToken, TestMeHandler_DBError
+- [x] **NOTE: `POST /api/auth/register` не реализован — создание пользователей через CLI (cmd/createadmin) и admin API**
+- [x] **Результат: 24 теста (включая sub-tests), все проходят. Покрытие: login, refresh, logout, me + CSRF + AuthMiddleware**
 
 ### Задача 5.3: Тесты для handlers_tender.go
 - [ ] Создать `cmd/internal/server/handlers_tender_test.go`

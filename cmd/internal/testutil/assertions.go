@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,4 +103,44 @@ func AssertLen(t *testing.T, object interface{}, length int, msgAndArgs ...inter
 func AssertWithinDuration(t *testing.T, expected, actual time.Time, delta time.Duration, msgAndArgs ...interface{}) {
 	t.Helper()
 	assert.WithinDuration(t, expected, actual, delta, msgAndArgs...)
+}
+
+// ---------------------------------------------------------------------------
+// Log assertions (работают с MockLogger)
+// ---------------------------------------------------------------------------
+
+// HasLogEntry проверяет, что в логах MockLogger есть запись с указанным уровнем,
+// содержащая msgSubstr в сообщении.
+func HasLogEntry(logger *MockLogger, level LogLevel, msgSubstr string) bool {
+	for _, entry := range logger.Records() {
+		if entry.Level == level && strings.Contains(entry.Message, msgSubstr) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasLogEntryWithError проверяет, что в логах MockLogger есть запись с указанным уровнем,
+// содержащая msgSubstr в сообщении и имеющая non-nil Err.
+func HasLogEntryWithError(logger *MockLogger, level LogLevel, msgSubstr string) bool {
+	for _, entry := range logger.Records() {
+		if entry.Level == level && strings.Contains(entry.Message, msgSubstr) && entry.Err != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// AssertLogEntry проверяет наличие записи лога и вызывает t.Errorf при её отсутствии.
+func AssertLogEntry(t *testing.T, logger *MockLogger, level LogLevel, msgSubstr string) {
+	t.Helper()
+	assert.True(t, HasLogEntry(logger, level, msgSubstr),
+		"expected %s log containing %q, got records: %v", level, msgSubstr, logger.Records())
+}
+
+// AssertLogEntryWithError проверяет наличие записи лога с non-nil Err.
+func AssertLogEntryWithError(t *testing.T, logger *MockLogger, level LogLevel, msgSubstr string) {
+	t.Helper()
+	assert.True(t, HasLogEntryWithError(logger, level, msgSubstr),
+		"expected %s log containing %q with error, got records: %v", level, msgSubstr, logger.Records())
 }
