@@ -876,18 +876,12 @@ func TestLoginHandler_TokensNotInResponseBody(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	// Response body must NOT contain any token values
+	// Response body must NOT contain any token values (XSS risk)
 	body := parseBody(t, w)
-	_, hasAccessToken := body["access_token"]
-	_, hasRefreshToken := body["refresh_token"]
-	_, hasToken := body["token"]
-	assert.False(t, hasAccessToken, "access_token must not be in response JSON — XSS risk")
-	assert.False(t, hasRefreshToken, "refresh_token must not be in response JSON — XSS risk")
-	assert.False(t, hasToken, "generic 'token' field must not be in response JSON")
+	testutil.AssertNoTokensInBody(t, body)
 
-	// Tokens MUST be in cookies (httpOnly)
-	assert.NotNil(t, findCookie(w, "access_token"), "access_token must be in cookie")
-	assert.NotNil(t, findCookie(w, "refresh_token"), "refresh_token must be in cookie")
+	// Tokens MUST be in cookies with correct security flags
+	testutil.AssertAuthCookieSecurity(t, w)
 }
 
 // TestLoginHandler_CookieSecurityAttributes verifies auth cookies have correct security flags:
@@ -923,24 +917,17 @@ func TestLoginHandler_CookieSecurityAttributes(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	// Access token must be HttpOnly
+	// Verify core security attributes via shared helper
+	testutil.AssertAuthCookieSecurity(t, w)
+
+	// Additional attribute checks specific to login
 	accessCookie := findCookie(w, "access_token")
-	require.NotNil(t, accessCookie)
-	assert.True(t, accessCookie.HttpOnly, "access_token MUST be HttpOnly — XSS can steal it without this flag")
 	assert.Equal(t, "/", accessCookie.Path, "access_token must be available on all paths")
 	assert.True(t, accessCookie.MaxAge > 0, "access_token should have positive TTL")
 
-	// Refresh token must be HttpOnly
 	refreshCookie := findCookie(w, "refresh_token")
-	require.NotNil(t, refreshCookie)
-	assert.True(t, refreshCookie.HttpOnly, "refresh_token MUST be HttpOnly — XSS can steal it without this flag")
 	assert.Equal(t, "/", refreshCookie.Path, "refresh_token must be available on all paths")
 	assert.True(t, refreshCookie.MaxAge > 0, "refresh_token should have positive TTL")
-
-	// CSRF token must NOT be HttpOnly (frontend JS needs to read it for X-CSRF-Token header)
-	csrfCookie := findCookie(w, "csrf_token")
-	require.NotNil(t, csrfCookie)
-	assert.False(t, csrfCookie.HttpOnly, "csrf_token must NOT be HttpOnly — JS must read it for X-CSRF-Token header")
 }
 
 // TestLoginHandler_EmailNormalization verifies that email is case-insensitive.
@@ -1094,8 +1081,8 @@ func TestRefreshHandler_ExpiredSessionTimeMismatch(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(sessionColumns).
 					AddRow(int64(1), int64(1), refreshHash,
 						pastTime.Add(-7*24*time.Hour), // created_at
-						pastTime,                       // expires_at (in the past!)
-						nil))                           // not revoked
+						pastTime,                      // expires_at (in the past!)
+						nil))                          // not revoked
 			// No further expectations — Go-side check should reject before any more queries
 		}),
 	)
@@ -1375,20 +1362,8 @@ func TestRefreshHandler_CookieSecurityAttributes(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	// Access token must be HttpOnly after refresh too
-	accessCookie := findCookie(w, "access_token")
-	require.NotNil(t, accessCookie)
-	assert.True(t, accessCookie.HttpOnly, "access_token must remain HttpOnly after refresh")
-
-	// Refresh token must be HttpOnly after refresh too
-	refreshCookie := findCookie(w, "refresh_token")
-	require.NotNil(t, refreshCookie)
-	assert.True(t, refreshCookie.HttpOnly, "refresh_token must remain HttpOnly after refresh")
-
-	// CSRF token must NOT be HttpOnly
-	csrfCookie := findCookie(w, "csrf_token")
-	require.NotNil(t, csrfCookie)
-	assert.False(t, csrfCookie.HttpOnly, "csrf_token must NOT be HttpOnly after refresh")
+	// Verify all cookie security flags are correct after refresh too
+	testutil.AssertAuthCookieSecurity(t, w)
 }
 
 // --- Logout Edge Cases ---
