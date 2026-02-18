@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -63,10 +64,17 @@ func AuthMiddleware(cfg *config.Config, store db.Store, logger logging.Logger) g
 			// Если access token битый/просрочен — очищаем только access cookie,
 			// чтобы избежать "вечного 401" на фронте и дать возможность refresh-флоу.
 			clearAccessCookie(c, cfg)
-			// Явный сигнал фронту для автоматического refresh
-			c.Header("X-Auth-Error", "access_token_expired")
+
+			// Различаем истекшие и невалидные токены для фронтенда:
+			// - "access_token_expired" — можно обновить через /auth/refresh
+			// - "access_token_invalid" — необходим полный re-login
+			authError := "access_token_invalid"
+			if errors.Is(err, auth.ErrTokenExpired) {
+				authError = "access_token_expired"
+			}
+			c.Header("X-Auth-Error", authError)
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "access_token_expired",
+				"error": authError,
 			})
 			c.Abort()
 			return

@@ -160,10 +160,10 @@ func TestValidateAccessToken_Expired(t *testing.T) {
 	// WHEN: Expired token is validated
 	claims, err := service.ValidateAccessToken(expiredToken)
 
-	// THEN: Validation fails with invalid token error
+	// THEN: Validation fails with expired token error
 	require.Error(t, err)
 	assert.Nil(t, claims)
-	assert.Equal(t, ErrInvalidToken, err)
+	assert.Equal(t, ErrTokenExpired, err)
 }
 
 func TestValidateAccessToken_WrongSignature(t *testing.T) {
@@ -500,10 +500,13 @@ func TestErrorConstants(t *testing.T) {
 	assert.NotEqual(t, ErrInvalidCredentials, ErrInvalidToken)
 	assert.NotEqual(t, ErrInvalidToken, ErrSessionNotFound)
 	assert.NotEqual(t, ErrInvalidCredentials, ErrSessionNotFound)
+	assert.NotEqual(t, ErrTokenExpired, ErrInvalidToken)
+	assert.NotEqual(t, ErrTokenExpired, ErrInvalidCredentials)
 
 	// Verify error messages are meaningful
 	assert.Contains(t, ErrInvalidCredentials.Error(), "invalid")
 	assert.Contains(t, ErrInvalidToken.Error(), "invalid")
+	assert.Contains(t, ErrTokenExpired.Error(), "expired")
 	assert.Contains(t, ErrSessionNotFound.Error(), "session")
 }
 

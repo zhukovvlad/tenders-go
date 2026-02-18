@@ -151,8 +151,8 @@ func AssertLogEntryWithError(t *testing.T, logger *MockLogger, level LogLevel, m
 // HTTP / Cookie assertions
 // ---------------------------------------------------------------------------
 
-// findResponseCookie returns a response cookie by name, or nil if not found.
-func findResponseCookie(w *httptest.ResponseRecorder, name string) *http.Cookie {
+// FindResponseCookie returns a response cookie by name, or nil if not found.
+func FindResponseCookie(w *httptest.ResponseRecorder, name string) *http.Cookie {
 	for _, c := range w.Result().Cookies() {
 		if c.Name == name {
 			return c
@@ -177,15 +177,15 @@ func AssertNoTokensInBody(t *testing.T, body map[string]interface{}) {
 func AssertAuthCookieSecurity(t *testing.T, w *httptest.ResponseRecorder) {
 	t.Helper()
 
-	accessCookie := findResponseCookie(w, "access_token")
+	accessCookie := FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "expected access_token cookie")
 	assert.True(t, accessCookie.HttpOnly, "access_token MUST be HttpOnly — XSS can steal it otherwise")
 
-	refreshCookie := findResponseCookie(w, "refresh_token")
+	refreshCookie := FindResponseCookie(w, "refresh_token")
 	require.NotNil(t, refreshCookie, "expected refresh_token cookie")
 	assert.True(t, refreshCookie.HttpOnly, "refresh_token MUST be HttpOnly — XSS can steal it otherwise")
 
-	csrfCookie := findResponseCookie(w, "csrf_token")
+	csrfCookie := FindResponseCookie(w, "csrf_token")
 	require.NotNil(t, csrfCookie, "expected csrf_token cookie")
 	assert.False(t, csrfCookie.HttpOnly, "csrf_token must NOT be HttpOnly — JS must read it for X-CSRF-Token header")
 }

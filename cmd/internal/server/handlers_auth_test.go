@@ -201,16 +201,6 @@ func parseBody(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{
 	return body
 }
 
-// findCookie returns a response cookie by name, or nil if not found.
-func findCookie(w *httptest.ResponseRecorder, name string) *http.Cookie {
-	for _, c := range w.Result().Cookies() {
-		if c.Name == name {
-			return c
-		}
-	}
-	return nil
-}
-
 // addCSRF adds csrf_token cookie and X-CSRF-Token header to a request.
 func addCSRF(req *http.Request, csrfToken string) {
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrfToken})
@@ -252,6 +242,41 @@ func execTxDoAndReturn(t *testing.T, setupFn func(mock sqlmock.Sqlmock)) func(ct
 // =============================================================================
 // LOGIN HANDLER TESTS
 // =============================================================================
+
+// performSuccessfulLogin sets up mocks for a successful login flow (GetUserAuthByEmail +
+// ExecTx with session creation and last_login update), sends a POST /api/v1/auth/login,
+// and asserts HTTP 200. Returns the recorder for further assertions.
+func performSuccessfulLogin(t *testing.T, router *gin.Engine, mockStore *db.MockStore) *httptest.ResponseRecorder {
+	t.Helper()
+	user := testUser()
+
+	mockStore.EXPECT().
+		GetUserAuthByEmail(gomock.Any(), testEmail).
+		Return(user, nil)
+
+	now := time.Now()
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("INSERT INTO user_sessions").
+				WithArgs(user.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(sessionColumns).
+					AddRow(int64(1), user.ID, "hash", now, now.Add(7*24*time.Hour), nil))
+			mock.ExpectExec("UPDATE users").
+				WithArgs(user.ID).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+		}),
+	)
+
+	req := makeJSONRequest(t, http.MethodPost, "/api/v1/auth/login", LoginRequest{
+		Email:    testEmail,
+		Password: testPassword,
+	})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	return w
+}
 
 func TestLoginHandler_Success(t *testing.T) {
 	router, mockStore, logger, _ := setupAuthTestServer(t)
@@ -297,9 +322,9 @@ func TestLoginHandler_Success(t *testing.T) {
 	assert.Equal(t, user.Role, userResp["role"])
 
 	// Assert auth cookies are set
-	assert.NotNil(t, findCookie(w, "access_token"), "expected access_token cookie")
-	assert.NotNil(t, findCookie(w, "refresh_token"), "expected refresh_token cookie")
-	assert.NotNil(t, findCookie(w, "csrf_token"), "expected csrf_token cookie")
+	assert.NotNil(t, testutil.FindResponseCookie(w, "access_token"), "expected access_token cookie")
+	assert.NotNil(t, testutil.FindResponseCookie(w, "refresh_token"), "expected refresh_token cookie")
+	assert.NotNil(t, testutil.FindResponseCookie(w, "csrf_token"), "expected csrf_token cookie")
 
 	// Assert logger: successful login recorded by auth service
 	testutil.AssertLogEntry(t, logger, testutil.LevelInfo, "successful login")
@@ -522,9 +547,9 @@ func TestRefreshHandler_Success(t *testing.T) {
 	assert.Equal(t, "tokens refreshed successfully", body["message"])
 
 	// New cookies should be set
-	assert.NotNil(t, findCookie(w, "access_token"), "expected new access_token cookie")
-	assert.NotNil(t, findCookie(w, "refresh_token"), "expected new refresh_token cookie")
-	assert.NotNil(t, findCookie(w, "csrf_token"), "expected new csrf_token cookie")
+	assert.NotNil(t, testutil.FindResponseCookie(w, "access_token"), "expected new access_token cookie")
+	assert.NotNil(t, testutil.FindResponseCookie(w, "refresh_token"), "expected new refresh_token cookie")
+	assert.NotNil(t, testutil.FindResponseCookie(w, "csrf_token"), "expected new csrf_token cookie")
 }
 
 func TestRefreshHandler_NoCookie(t *testing.T) {
@@ -559,7 +584,7 @@ func TestRefreshHandler_InvalidTokenFormat(t *testing.T) {
 	assert.Equal(t, "invalid or expired refresh token", body["error"])
 
 	// clearAuthCookies always sets access_token with MaxAge = -1
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "expected access_token cookie to be present (cleared)")
 	assert.True(t, accessCookie.MaxAge < 0, "access_token should be cleared (MaxAge < 0)")
 }
@@ -649,11 +674,11 @@ func TestLogoutHandler_Success(t *testing.T) {
 	assert.Equal(t, "logged out successfully", body["message"])
 
 	// Auth cookies should be cleared (MaxAge < 0)
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "access_token cookie should be present (cleared)")
 	assert.True(t, accessCookie.MaxAge < 0, "access_token should be expired")
 
-	refreshCookie := findCookie(w, "refresh_token")
+	refreshCookie := testutil.FindResponseCookie(w, "refresh_token")
 	require.NotNil(t, refreshCookie, "refresh_token cookie should be present (cleared)")
 	assert.True(t, refreshCookie.MaxAge < 0, "refresh_token should be expired")
 }
@@ -810,7 +835,7 @@ func TestMeHandler_InvalidToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	body := parseBody(t, w)
-	assert.Equal(t, "access_token_expired", body["error"])
+	assert.Equal(t, "access_token_invalid", body["error"])
 }
 
 func TestMeHandler_DBError(t *testing.T) {
@@ -848,33 +873,8 @@ func TestMeHandler_DBError(t *testing.T) {
 // never in the JSON response body. If tokens leak into response body, XSS can steal them.
 func TestLoginHandler_TokensNotInResponseBody(t *testing.T) {
 	router, mockStore, _, _ := setupAuthTestServer(t)
-	user := testUser()
 
-	mockStore.EXPECT().
-		GetUserAuthByEmail(gomock.Any(), testEmail).
-		Return(user, nil)
-
-	now := time.Now()
-	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
-		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			mock.ExpectQuery("INSERT INTO user_sessions").
-				WithArgs(user.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(sessionColumns).
-					AddRow(int64(1), user.ID, "hash", now, now.Add(7*24*time.Hour), nil))
-			mock.ExpectExec("UPDATE users").
-				WithArgs(user.ID).
-				WillReturnResult(sqlmock.NewResult(0, 1))
-		}),
-	)
-
-	req := makeJSONRequest(t, http.MethodPost, "/api/v1/auth/login", LoginRequest{
-		Email:    testEmail,
-		Password: testPassword,
-	})
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
+	w := performSuccessfulLogin(t, router, mockStore)
 
 	// Response body must NOT contain any token values (XSS risk)
 	body := parseBody(t, w)
@@ -889,43 +889,18 @@ func TestLoginHandler_TokensNotInResponseBody(t *testing.T) {
 // - csrf_token: HttpOnly=false (frontend JS needs to read it for headers)
 func TestLoginHandler_CookieSecurityAttributes(t *testing.T) {
 	router, mockStore, _, _ := setupAuthTestServer(t)
-	user := testUser()
 
-	mockStore.EXPECT().
-		GetUserAuthByEmail(gomock.Any(), testEmail).
-		Return(user, nil)
-
-	now := time.Now()
-	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
-		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			mock.ExpectQuery("INSERT INTO user_sessions").
-				WithArgs(user.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(sessionColumns).
-					AddRow(int64(1), user.ID, "hash", now, now.Add(7*24*time.Hour), nil))
-			mock.ExpectExec("UPDATE users").
-				WithArgs(user.ID).
-				WillReturnResult(sqlmock.NewResult(0, 1))
-		}),
-	)
-
-	req := makeJSONRequest(t, http.MethodPost, "/api/v1/auth/login", LoginRequest{
-		Email:    testEmail,
-		Password: testPassword,
-	})
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
+	w := performSuccessfulLogin(t, router, mockStore)
 
 	// Verify core security attributes via shared helper
 	testutil.AssertAuthCookieSecurity(t, w)
 
 	// Additional attribute checks specific to login
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	assert.Equal(t, "/", accessCookie.Path, "access_token must be available on all paths")
 	assert.True(t, accessCookie.MaxAge > 0, "access_token should have positive TTL")
 
-	refreshCookie := findCookie(w, "refresh_token")
+	refreshCookie := testutil.FindResponseCookie(w, "refresh_token")
 	assert.Equal(t, "/", refreshCookie.Path, "refresh_token must be available on all paths")
 	assert.True(t, refreshCookie.MaxAge > 0, "refresh_token should have positive TTL")
 }
@@ -1011,13 +986,13 @@ func TestMeHandler_ExpiredToken(t *testing.T) {
 		"middleware must set X-Auth-Error header so frontend can trigger auto-refresh")
 
 	// Access cookie MUST be cleared (prevents browser re-sending expired cookie → infinite 401)
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "access_token cookie must be present (with cleared value)")
 	assert.True(t, accessCookie.MaxAge < 0, "access_token cookie must be expired/cleared")
 
 	// Refresh cookie must NOT be cleared — middleware only clears access cookie,
 	// allowing client to call /auth/refresh to get a new access token
-	refreshCookie := findCookie(w, "refresh_token")
+	refreshCookie := testutil.FindResponseCookie(w, "refresh_token")
 	assert.Nil(t, refreshCookie, "refresh_token cookie must NOT be set/cleared by middleware")
 }
 
@@ -1052,11 +1027,11 @@ func TestMeHandler_WrongSigningKey(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
-	// Should get same treatment as expired token
-	assert.Equal(t, "access_token_expired", w.Header().Get("X-Auth-Error"))
+	// Wrong signing key is an invalid token, not an expired one
+	assert.Equal(t, "access_token_invalid", w.Header().Get("X-Auth-Error"))
 
 	// Access cookie cleared
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie)
 	assert.True(t, accessCookie.MaxAge < 0)
 }
@@ -1101,7 +1076,7 @@ func TestRefreshHandler_ExpiredSessionTimeMismatch(t *testing.T) {
 	assert.Equal(t, "invalid or expired refresh token", body["error"])
 
 	// Cookies must be cleared (same as session-not-found path)
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "access_token cookie must be cleared")
 	assert.True(t, accessCookie.MaxAge < 0)
 }
@@ -1132,15 +1107,15 @@ func TestRefreshHandler_CookiesClearedOnAuthError(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	// ALL auth cookies must be cleared to prevent stuck client state
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "access_token cookie must be present (cleared)")
 	assert.True(t, accessCookie.MaxAge < 0, "access_token must have expired MaxAge")
 
-	refreshCookie := findCookie(w, "refresh_token")
+	refreshCookie := testutil.FindResponseCookie(w, "refresh_token")
 	require.NotNil(t, refreshCookie, "refresh_token cookie must be present (cleared)")
 	assert.True(t, refreshCookie.MaxAge < 0, "refresh_token must have expired MaxAge")
 
-	csrfCookie := findCookie(w, "csrf_token")
+	csrfCookie := testutil.FindResponseCookie(w, "csrf_token")
 	require.NotNil(t, csrfCookie, "csrf_token cookie must be present (cleared)")
 	assert.True(t, csrfCookie.MaxAge < 0, "csrf_token must have expired MaxAge")
 }
@@ -1392,7 +1367,7 @@ func TestLogoutHandler_InvalidRefreshTokenFormat(t *testing.T) {
 	assert.Equal(t, "logged out successfully", body["message"])
 
 	// Cookies must still be cleared
-	accessCookie := findCookie(w, "access_token")
+	accessCookie := testutil.FindResponseCookie(w, "access_token")
 	require.NotNil(t, accessCookie, "access_token cookie must be cleared")
 	assert.True(t, accessCookie.MaxAge < 0, "access_token must be expired")
 
