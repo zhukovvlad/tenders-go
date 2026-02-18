@@ -118,12 +118,12 @@
 
 ## Фаза 4: Integration-тесты для Database Layer
 
-### ✅ Задача 4.1: Настройка testcontainers
-- [ ] Создать `tests/integration/db_setup_test.go`
-- [ ] Функция создания PostgreSQL контейнера
-- [ ] Функция применения миграций к тестовой БД
-- [ ] Функция очистки данных между тестами
-- [ ] Функция teardown контейнера
+### ✅ Задача 4.1: Настройка testcontainers (Выполнено в testutil)
+- [x] Создать `cmd/internal/testutil/db_helper.go` (реализовано вместо `db_setup_test.go`)
+- [x] Функция создания PostgreSQL контейнера (`SetupTestDatabase`)
+- [x] Функция применения миграций к тестовой БД (`RunMigrations`)
+- [x] Функция очистки данных между тестами (`CleanupTables`)
+- [x] Функция teardown контейнера (`TeardownTestDatabase`)
 
 ### ✅ Задача 4.2: Тесты SQLC queries
 - [ ] Создать `tests/integration/db_users_test.go`
@@ -150,16 +150,21 @@
 - [ ] Тест отката миграций
 - [ ] Тест идемпотентности миграций
 
+### ✅ Задача 4.6: Тесты ограничений целостности (из TODO.md)
+- [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)
+- [ ] Тест `ON DELETE RESTRICT` для подрядчиков (наличие персон)
+- [ ] Тест `ON DELETE CASCADE` для типов тендеров
+- [ ] Тест `ON DELETE CASCADE` для лотов
+
 ---
 
 ## Фаза 5: Integration-тесты для API Handlers
 
-### ✅ Задача 5.1: Подготовка тестового окружения
-- [ ] Создать `tests/testutil/test_server.go`
-- [ ] Функция создания тестового Gin роутера
-- [ ] Функция создания моков всех сервисов
-- [ ] Хелперы для HTTP запросов (GET, POST, PUT, DELETE)
-- [ ] Хелперы для проверки JSON ответов
+### ✅ Задача 5.1: Подготовка тестового окружения (Выполнено в testutil)
+- [x] Создать `cmd/internal/testutil/test_server.go`
+- [x] Функция создания тестового Gin роутера (`NewTestServer`)
+- [x] Хелперы для HTTP запросов (GET, POST, PUT, DELETE)
+- [x] Хелперы для проверки JSON ответов (`AssertResponse`)
 
 ### ✅ Задача 5.2: Тесты для handlers_auth.go
 - [ ] Создать `cmd/internal/server/handlers_auth_test.go`

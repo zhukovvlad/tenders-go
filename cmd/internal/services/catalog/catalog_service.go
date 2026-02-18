@@ -49,13 +49,22 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
+// Logger defines the logging interface used by the catalog service.
+// This interface is compatible with *logging.Logger (based on logrus.Entry).
+type Logger interface {
+	Infof(format string, args ...any)
+	Warnf(format string, args ...any)
+	Errorf(format string, args ...any)
+	Warn(args ...any)
+}
+
 // CatalogService управляет операциями с каталогом позиций.
 //
 // Этот сервис предоставляет высокоуровневые методы для работы с catalog_positions,
 // скрывая детали работы с БД и реализуя бизнес-логику валидации и обработки данных.
 type CatalogService struct {
-	store  db.Store        // Интерфейс для доступа к БД (SQLC-сгенерированные запросы)
-	logger *logging.Logger // Структурированный логгер для отслеживания операций
+	store  db.Store // Интерфейс для доступа к БД (SQLC-сгенерированные запросы)
+	logger Logger   // Логгер для отслеживания операций (интерфейс для тестируемости)
 }
 
 // NewCatalogService создает новый экземпляр CatalogService.
