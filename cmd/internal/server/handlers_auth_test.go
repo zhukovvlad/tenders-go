@@ -262,10 +262,22 @@ func TestLoginHandler_Success(t *testing.T) {
 		GetUserAuthByEmail(gomock.Any(), testEmail).
 		Return(user, nil)
 
-	// Mock: session creation transaction (callback not executed — result built from pre-ExecTx data)
-	mockStore.EXPECT().
-		ExecTx(gomock.Any(), gomock.Any()).
-		Return(nil)
+	// Mock: session creation transaction — exercises the CreateUserSession INSERT + UpdateUserLastLogin
+	now := time.Now()
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// CreateUserSession: INSERT with (user_id, refresh_token_hash, user_agent, expires_at, ip_address)
+			mock.ExpectQuery("INSERT INTO user_sessions").
+				WithArgs(user.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(sessionColumns).
+					AddRow(int64(1), user.ID, "hash", now, now.Add(7*24*time.Hour), nil))
+
+			// UpdateUserLastLogin: UPDATE users SET last_login_at
+			mock.ExpectExec("UPDATE users").
+				WithArgs(user.ID).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+		}),
+	)
 
 	req := makeJSONRequest(t, http.MethodPost, "/api/v1/auth/login", LoginRequest{
 		Email:    testEmail,
@@ -681,7 +693,7 @@ func TestLogoutHandler_MissingCSRF(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 
 	body := parseBody(t, w)
-	assert.Contains(t, body["error"], "csrf")
+	assert.Equal(t, "csrf_token_missing", body["error"])
 }
 
 func TestLogoutHandler_CSRFMismatch(t *testing.T) {
