@@ -13,6 +13,7 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/testutil"
 )
 
 /*
@@ -94,14 +95,6 @@ SCENARIO 5: buildContextString (helper)
   THEN standardJobTitle is used as fallback
 */
 
-// mockLogger implements a no-op logger for testing
-type mockLogger struct{}
-
-func (m *mockLogger) Infof(format string, args ...any)  {}
-func (m *mockLogger) Warnf(format string, args ...any)  {}
-func (m *mockLogger) Errorf(format string, args ...any) {}
-func (m *mockLogger) Warn(args ...any)                  {}
-
 // setupTestService creates a CatalogService with mock store for unit testing.
 // gomock.NewController registers t.Cleanup(ctrl.Finish) automatically,
 // so callers don't need to defer ctrl.Finish().
@@ -109,7 +102,7 @@ func setupTestService(t *testing.T) (*CatalogService, *db.MockStore) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockStore := db.NewMockStore(ctrl)
-	logger := &mockLogger{}
+	logger := testutil.NewMockLogger()
 
 	service := &CatalogService{
 		store:  mockStore,

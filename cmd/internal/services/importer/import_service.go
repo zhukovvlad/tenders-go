@@ -14,16 +14,18 @@ import (
 // TenderImportService отвечает ТОЛЬКО за импорт тендерных данных,
 // включая импорт тендера, объектов, лотов, предложений, позиций и итоговых строк.
 type TenderImportService struct {
-	store  db.Store        // SQLC-совместимый store, обеспечивающий транзакции
-	logger *logging.Logger // Обёртка над logrus с поддержкой полей
+	store  db.Store       // SQLC-совместимый store, обеспечивающий транзакции
+	logger logging.Logger // Unified logging interface
 
 	// Единственная зависимость - менеджер сущностей
 	Entities *entities.EntityManager
-} // NewTenderImportService создает новый экземпляр TenderImportService.
+}
+
+// NewTenderImportService создает новый экземпляр TenderImportService.
 // Получает все зависимости извне (Dependency Injection).
 func NewTenderImportService(
 	store db.Store,
-	logger *logging.Logger,
+	logger logging.Logger,
 	entityManager *entities.EntityManager,
 ) *TenderImportService {
 	return &TenderImportService{

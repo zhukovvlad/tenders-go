@@ -11,7 +11,7 @@ import (
 
 // parseKeyParameters безопасно парсит pqtype.NullRawMessage в json.RawMessage.
 // Возвращает сырой JSON со всеми типами данных (числа, bool, вложенные объекты).
-func parseKeyParameters(p pqtype.NullRawMessage, logger *logging.Logger) json.RawMessage {
+func parseKeyParameters(p pqtype.NullRawMessage, logger logging.Logger) json.RawMessage {
 	// Проверяем, что поле не NULL и JSON не пустой или равен "null"
 	if !p.Valid || len(p.RawMessage) == 0 || string(p.RawMessage) == "null" {
 		return json.RawMessage("{}")
@@ -27,7 +27,7 @@ func parseKeyParameters(p pqtype.NullRawMessage, logger *logging.Logger) json.Ra
 }
 
 // Функция newLotResponse, которая использует parseKeyParameters
-func newLotResponse(lot db.Lot, logger *logging.Logger) LotResponse {
+func newLotResponse(lot db.Lot, logger logging.Logger) LotResponse {
 	return LotResponse{
 		ID:            lot.ID,
 		LotKey:        lot.LotKey,
@@ -36,6 +36,7 @@ func newLotResponse(lot db.Lot, logger *logging.Logger) LotResponse {
 		KeyParameters: parseKeyParameters(lot.LotKeyParameters, logger), // ✅ Используем нашу финальную функцию
 		CreatedAt:     lot.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     lot.UpdatedAt.Format(time.RFC3339),
-		Winners:       []WinnerResponse{}, // ✅ Инициализируем пустым массивом вместо nil
+		Proposals:     []ProposalResponse{}, // Инициализируем пустым массивом вместо nil
+		Winners:       []WinnerResponse{},   // Инициализируем пустым массивом вместо nil
 	}
 }

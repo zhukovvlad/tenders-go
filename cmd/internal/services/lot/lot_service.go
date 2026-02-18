@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/sirupsen/logrus"
 	"github.com/sqlc-dev/pqtype"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
@@ -17,11 +16,11 @@ import (
 // LotService управляет операциями с лотами
 type LotService struct {
 	store  db.Store
-	logger *logging.Logger
+	logger logging.Logger
 }
 
 // NewLotService создает новый экземпляр LotService
-func NewLotService(store db.Store, logger *logging.Logger) *LotService {
+func NewLotService(store db.Store, logger logging.Logger) *LotService {
 	return &LotService{
 		store:  store,
 		logger: logger,
@@ -97,7 +96,7 @@ func (s *LotService) UpdateLotKeyParametersDirectly(
 	lotIDStr string,
 	keyParameters map[string]interface{},
 ) error {
-	logger := s.logger.WithFields(logrus.Fields{
+	logger := s.logger.WithFields(map[string]interface{}{
 		"method": "UpdateLotKeyParametersDirectly",
 		"lot_id": lotIDStr,
 	})
@@ -108,6 +107,11 @@ func (s *LotService) UpdateLotKeyParametersDirectly(
 	if err != nil {
 		logger.Errorf("Неверный формат lot_id: %s", lotIDStr)
 		return apierrors.NewValidationError("неверный формат lot_id: %s", lotIDStr)
+	}
+
+	if lotID <= 0 {
+		logger.Errorf("Некорректный lot_id: %d", lotID)
+		return apierrors.NewValidationError("lot_id должен быть положительным числом: %s", lotIDStr)
 	}
 
 	// Сериализуем keyParameters в JSON

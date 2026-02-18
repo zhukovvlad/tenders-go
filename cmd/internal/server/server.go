@@ -19,7 +19,7 @@ import (
 type Server struct {
 	store           db.Store
 	router          *gin.Engine
-	logger          *logging.Logger
+	logger          logging.Logger
 	authService     *auth.Service
 	tenderService   *importer.TenderImportService
 	catalogService  *catalog.CatalogService
@@ -31,7 +31,7 @@ type Server struct {
 
 func NewServer(
 	store db.Store,
-	logger *logging.Logger,
+	logger logging.Logger,
 	tenderService *importer.TenderImportService,
 	catalogService *catalog.CatalogService,
 	lotService *lot.LotService,
@@ -75,7 +75,6 @@ func NewServer(
 			corsConfig.AllowOrigins = cfg.CORS.AllowedOrigins
 		} else {
 			// В production CORS origins должны быть явно настроены
-			logger := logging.GetLogger()
 			logger.Warn("CORS allowed_origins not configured in production - using restrictive default")
 			corsConfig.AllowOrigins = []string{} // No origins allowed
 		}

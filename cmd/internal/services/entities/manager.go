@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
@@ -14,11 +13,11 @@ import (
 
 // EntityManager управляет операциями с сущностями (объекты, исполнители, подрядчики и т.д.)
 type EntityManager struct {
-	logger *logging.Logger
+	logger logging.Logger
 }
 
 // NewEntityManager создает новый экземпляр EntityManager
-func NewEntityManager(logger *logging.Logger) *EntityManager {
+func NewEntityManager(logger logging.Logger) *EntityManager {
 	return &EntityManager{
 		logger: logger,
 	}
@@ -113,7 +112,7 @@ func (em *EntityManager) GetOrCreateObject(
 	title string,
 	address string,
 ) (db.Object, error) {
-	opLogger := em.logger.WithFields(logrus.Fields{
+	opLogger := em.logger.WithFields(map[string]interface{}{
 		"entity":  "object",
 		"title":   title,
 		"address": address,
@@ -159,7 +158,7 @@ func (em *EntityManager) GetOrCreateExecutor(
 	name string,
 	phone string,
 ) (db.Executor, error) {
-	opLogger := em.logger.WithFields(logrus.Fields{
+	opLogger := em.logger.WithFields(map[string]interface{}{
 		"entity": "executor",
 		"name":   name,
 		"phone":  phone,
@@ -274,7 +273,7 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 		return db.CatalogPosition{}, false, nil
 	}
 
-	opLogger := em.logger.WithFields(logrus.Fields{
+	opLogger := em.logger.WithFields(map[string]interface{}{
 		"service_method":          "GetOrCreateCatalogPosition",
 		"input_raw_job_title":     posAPI.JobTitle,
 		"used_standard_job_title": standardJobTitleForDB,
@@ -362,7 +361,7 @@ func (em *EntityManager) GetOrCreateUnitOfMeasurement(
 	// (например, приводим к нижнему регистру)
 	normalizedNameForDB := strings.ToLower(trimmedUnitName)
 
-	opLogger := em.logger.WithFields(logrus.Fields{
+	opLogger := em.logger.WithFields(map[string]interface{}{
 		"service_method":      "GetOrCreateUnitOfMeasurement",
 		"input_api_unit_name": originalUnitNameValue, // Логируем исходное значение для отладки
 		"normalized_name_key": normalizedNameForDB,
