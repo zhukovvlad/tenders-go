@@ -75,12 +75,18 @@
 - [x] **Результат: 24 unit теста, все проходят. Покрытие token/validation логики: ~95%**
 - [x] **NOTE: Login/Refresh/Logout требуют транзакций и будут протестированы в integration тестах (Phase 3)**
 ### ✅ Задача 2.2: Тесты для Catalog Service
-- [ ] Создать `cmd/internal/services/catalog/service_test.go`
-- [ ] Мок для database queries
-- [ ] Тест создания категории
-- [ ] Тест получения списка категорий
-- [ ] Тест обновления категории
-- [ ] Тест удаления категории
+- [x] Создать `cmd/internal/services/catalog/catalog_service_test.go`
+- [x] Мок для database queries (gomock MockStore, регенерирован для полноты интерфейса)
+- [x] Введён Logger interface для тестируемости (по аналогии с auth service)
+- [x] Тесты GetUnindexedCatalogItems (получение неиндексированных позиций)
+- [x] Тесты GetAllActiveCatalogItems (получение активных позиций с пагинацией)
+- [x] Тесты MarkCatalogItemsAsActive (обновление статуса позиций)
+- [x] Тесты SuggestMerge (предложение слияния дубликатов)
+- [x] Тесты buildContextString (приоритет описания над лемматизированным названием)
+- [x] Тесты валидации параметров (negative limit/offset → ValidationError)
+- [x] Тесты обработки ошибок БД (wrapped errors)
+- [x] Тесты граничных случаев (пустые списки, nil, self-merge)
+- [x] **Результат: 24 unit теста, все проходят**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [ ] Создать `cmd/internal/services/lot/service_test.go`
@@ -118,12 +124,12 @@
 
 ## Фаза 4: Integration-тесты для Database Layer
 
-### ✅ Задача 4.1: Настройка testcontainers
-- [ ] Создать `tests/integration/db_setup_test.go`
-- [ ] Функция создания PostgreSQL контейнера
-- [ ] Функция применения миграций к тестовой БД
-- [ ] Функция очистки данных между тестами
-- [ ] Функция teardown контейнера
+### ✅ Задача 4.1: Настройка testcontainers (Выполнено в testutil)
+- [x] Создать `cmd/internal/testutil/db_helper.go` (реализовано вместо `db_setup_test.go`)
+- [x] Функция создания PostgreSQL контейнера (`SetupTestDatabase`)
+- [x] Функция применения миграций к тестовой БД (`RunMigrations`)
+- [x] Функция очистки данных между тестами (`CleanupTables`)
+- [x] Функция teardown контейнера (`TeardownTestDatabase`)
 
 ### ✅ Задача 4.2: Тесты SQLC queries
 - [ ] Создать `tests/integration/db_users_test.go`
@@ -150,16 +156,21 @@
 - [ ] Тест отката миграций
 - [ ] Тест идемпотентности миграций
 
+### ✅ Задача 4.6: Тесты ограничений целостности (из TODO.md)
+- [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)
+- [ ] Тест `ON DELETE RESTRICT` для подрядчиков (наличие персон)
+- [ ] Тест `ON DELETE CASCADE` для типов тендеров
+- [ ] Тест `ON DELETE CASCADE` для лотов
+
 ---
 
 ## Фаза 5: Integration-тесты для API Handlers
 
-### ✅ Задача 5.1: Подготовка тестового окружения
-- [ ] Создать `tests/testutil/test_server.go`
-- [ ] Функция создания тестового Gin роутера
-- [ ] Функция создания моков всех сервисов
-- [ ] Хелперы для HTTP запросов (GET, POST, PUT, DELETE)
-- [ ] Хелперы для проверки JSON ответов
+### ✅ Задача 5.1: Подготовка тестового окружения (Выполнено в testutil)
+- [x] Создать `cmd/internal/testutil/test_server.go`
+- [x] Функция создания тестового Gin роутера (`NewTestServer`)
+- [x] Хелперы для HTTP запросов (GET, POST, PUT, DELETE)
+- [x] Хелперы для проверки JSON ответов (`AssertResponse`)
 
 ### ✅ Задача 5.2: Тесты для handlers_auth.go
 - [ ] Создать `cmd/internal/server/handlers_auth_test.go`
