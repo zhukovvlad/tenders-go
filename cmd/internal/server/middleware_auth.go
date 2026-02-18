@@ -7,6 +7,7 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/config"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/auth"
+	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
 // setSameSiteModeFromConfig устанавливает SameSite атрибут на основе конфигурации.
@@ -41,7 +42,7 @@ func clearAccessCookie(c *gin.Context, cfg *config.Config) {
 
 // AuthMiddleware проверяет наличие и валидность JWT access токена из httpOnly cookie
 // При успешной валидации помещает user_id и role в gin.Context
-func AuthMiddleware(cfg *config.Config, store db.Store, logger auth.Logger) gin.HandlerFunc {
+func AuthMiddleware(cfg *config.Config, store db.Store, logger logging.Logger) gin.HandlerFunc {
 	// Создаем auth service для валидации токенов
 	authService := auth.NewService(store, cfg, logger)
 

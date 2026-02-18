@@ -15,11 +15,11 @@ import (
 // MatchingService управляет операциями матчинга позиций
 type MatchingService struct {
 	store  db.Store
-	logger *logging.Logger
+	logger logging.Logger
 }
 
 // NewMatchingService создает новый экземпляр MatchingService
-func NewMatchingService(store db.Store, logger *logging.Logger) *MatchingService {
+func NewMatchingService(store db.Store, logger logging.Logger) *MatchingService {
 	return &MatchingService{
 		store:  store,
 		logger: logger,

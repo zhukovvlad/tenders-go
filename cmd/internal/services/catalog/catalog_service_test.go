@@ -13,6 +13,7 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
+	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
 /*
@@ -94,13 +95,22 @@ SCENARIO 5: buildContextString (helper)
   THEN standardJobTitle is used as fallback
 */
 
-// mockLogger implements a no-op logger for testing
+// mockLogger implements logging.Logger interface for testing (no-op)
 type mockLogger struct{}
 
-func (m *mockLogger) Infof(format string, args ...any)  {}
-func (m *mockLogger) Warnf(format string, args ...any)  {}
-func (m *mockLogger) Errorf(format string, args ...any) {}
-func (m *mockLogger) Warn(args ...any)                  {}
+func (m *mockLogger) WithField(key string, value interface{}) logging.Logger  { return m }
+func (m *mockLogger) WithFields(fields map[string]interface{}) logging.Logger { return m }
+func (m *mockLogger) WithError(err error) logging.Logger                      { return m }
+func (m *mockLogger) Debug(args ...any)                                       {}
+func (m *mockLogger) Debugf(format string, args ...any)                       {}
+func (m *mockLogger) Info(args ...any)                                        {}
+func (m *mockLogger) Infof(format string, args ...any)                        {}
+func (m *mockLogger) Warn(args ...any)                                        {}
+func (m *mockLogger) Warnf(format string, args ...any)                        {}
+func (m *mockLogger) Error(args ...any)                                       {}
+func (m *mockLogger) Errorf(format string, args ...any)                       {}
+func (m *mockLogger) Fatal(args ...any)                                       {}
+func (m *mockLogger) Fatalf(format string, args ...any)                       {}
 
 // setupTestService creates a CatalogService with mock store for unit testing.
 // gomock.NewController registers t.Cleanup(ctrl.Finish) automatically,

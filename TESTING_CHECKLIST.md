@@ -89,11 +89,25 @@
 - [x] **Результат: 24 unit теста, все проходят**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
-- [ ] Создать `cmd/internal/services/lot/service_test.go`
-- [ ] Тесты создания лота
-- [ ] Тесты получения лотов
-- [ ] Тесты фильтрации и поиска
-- [ ] Тесты обновления статуса лота
+- [x] Создать `cmd/internal/services/lot/lot_service_test.go`
+- [x] Введён Logger interface с поддержкой WithField/WithFields для тестируемости (по аналогии с auth/catalog)
+- [x] Создан logrusAdapter для production-кода, обновлён `cmd/main/app.go`
+- [x] Мок ExecTx через go-sqlmock: sqlmock-backed *Queries внутри DoAndReturn для тестирования транзакционной логики
+- [x] Тесты UpdateLotKeyParameters — успешное обновление через tender_etp_id + lot_key
+- [x] Тесты UpdateLotKeyParameters — тендер не найден (NotFoundError)
+- [x] Тесты UpdateLotKeyParameters — лот не найден (NotFoundError)
+- [x] Тесты UpdateLotKeyParameters — ошибки БД при поиске тендера/лота/обновлении (wrapped errors)
+- [x] Тесты UpdateLotKeyParameters — ошибка сериализации JSON (до ExecTx)
+- [x] Тесты UpdateLotKeyParameters — ошибка ExecTx (tx begin failed)
+- [x] Тесты UpdateLotKeyParameters — пустые параметры (корректный JSON: `{}`)
+- [x] Тесты UpdateLotKeyParametersDirectly — успешное обновление по DB ID
+- [x] Тесты UpdateLotKeyParametersDirectly — невалидные lot_id: строка, пустое, float, overflow int64 (ValidationError)
+- [x] Тесты UpdateLotKeyParametersDirectly — лот не найден (NotFoundError)
+- [x] Тесты UpdateLotKeyParametersDirectly — ошибки БД при поиске/обновлении (wrapped errors)
+- [x] Тесты UpdateLotKeyParametersDirectly — граничные значения (max int64, отрицательный ID)
+- [x] Тесты NewLotService (конструктор)
+- [x] Тесты соответствия интерфейсу Logger (mockLogger, logrusAdapter)
+- [x] **Результат: 24 unit теста, все проходят. Добавлена зависимость go-sqlmock для тестирования ExecTx**
 
 ### ✅ Задача 2.4: Тесты для Matching Service
 - [ ] Создать `cmd/internal/services/matching/service_test.go`

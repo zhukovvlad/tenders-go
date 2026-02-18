@@ -19,7 +19,7 @@ import (
 type Server struct {
 	store           db.Store
 	router          *gin.Engine
-	logger          *logging.Logger
+	logger          logging.Logger
 	authService     *auth.Service
 	tenderService   *importer.TenderImportService
 	catalogService  *catalog.CatalogService
@@ -31,7 +31,7 @@ type Server struct {
 
 func NewServer(
 	store db.Store,
-	logger *logging.Logger,
+	logger logging.Logger,
 	tenderService *importer.TenderImportService,
 	catalogService *catalog.CatalogService,
 	lotService *lot.LotService,
