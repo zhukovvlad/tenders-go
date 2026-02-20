@@ -37,79 +37,150 @@ What user problems does this protect us from?
    meaningful wrapped errors
 5. Position catalog matching — positions must correctly interact with matching_cache
 6. Mapper correctness — pure mapping functions must correctly convert API models to DB params
+7. Edge cases — empty/nil inputs, existing entities, header positions
 
 GIVEN / WHEN / THEN Scenarios:
 ================================================================================
 
-SCENARIO 1: ImportFullTender — Successful import with 1 lot
-- GIVEN a valid FullTenderData with 1 lot, 1 baseline proposal, 1 position, 1 summary
-  WHEN ImportFullTender is called
-  THEN all entities are created in sequence, raw JSON is saved, tenderID and lotIDs are returned
+--- Constructor ---
 
-SCENARIO 2: ImportFullTender — Object creation fails
-- GIVEN a valid payload but GetObjectByTitle returns an unexpected DB error
-  WHEN ImportFullTender is called
-  THEN the transaction is aborted and a wrapped error is returned
+SCENARIO 1: NewTenderImportService — valid dependencies → returns initialized service
+- GIVEN valid dependencies (store, logger, entityManager)
+  WHEN NewTenderImportService is called
+  THEN the service is properly initialized with all dependencies
 
-SCENARIO 3: ImportFullTender — Executor creation fails
-- GIVEN a valid payload, object exists, but CreateExecutor returns an error
-  WHEN ImportFullTender is called
-  THEN the transaction is aborted and a wrapped error is returned
+--- Success Paths ---
 
-SCENARIO 4: ImportFullTender — UpsertTender fails
-- GIVEN a valid payload, object and executor exist, but UpsertTender returns an error
-  WHEN ImportFullTender is called
-  THEN the transaction is aborted and a wrapped error is returned
-
-SCENARIO 5: ImportFullTender — UpsertLot fails
-- GIVEN a valid payload but UpsertLot returns an error
-  WHEN ImportFullTender is called
-  THEN the transaction is aborted with a wrapped lot error
-
-SCENARIO 6: ImportFullTender — UpsertProposal fails
-- GIVEN valid tender and lot, but UpsertProposal for baseline returns an error
-  WHEN ImportFullTender is called
-  THEN the transaction is aborted and a wrapped error is returned
-
-SCENARIO 7: ImportFullTender — UpsertTenderRawData fails
-- GIVEN the entire import succeeded but UpsertTenderRawData fails
-  WHEN ImportFullTender is called
-  THEN a wrapped transaction error is returned
-
-SCENARIO 8: ImportFullTender — ExecTx itself fails
-- GIVEN ExecTx returns an error before calling the callback
-  WHEN ImportFullTender is called
-  THEN a wrapped transaction error is returned
-
-SCENARIO 9: ImportFullTender — Tender with no lots
+SCENARIO 2: ImportFullTender — no lots → succeeds with empty lotIDs
 - GIVEN a valid payload with LotsData as empty map
   WHEN ImportFullTender is called
   THEN the tender is created, raw JSON is saved, and empty lotIDs map is returned
 
-SCENARIO 10: ImportFullTender — Position with cache hit
+SCENARIO 3: ImportFullTender — one lot with position and summary → succeeds
+- GIVEN a valid FullTenderData with 1 lot, 1 baseline proposal, 1 position, 1 summary
+  WHEN ImportFullTender is called
+  THEN all entities are created in sequence, raw JSON is saved, tenderID and lotIDs are returned
+
+SCENARIO 4: ImportFullTender — matching cache hit → uses cached catalog position
 - GIVEN a position where matching_cache returns a cached catalog_position_id
   WHEN ImportFullTender is called
   THEN the cached catalog_position_id is used for the position item
 
-SCENARIO 11: ImportFullTender — Contractor proposal with additional info
+SCENARIO 5: ImportFullTender — contractor proposal with additional info → saves info
 - GIVEN a lot with a contractor proposal containing additional_info
   WHEN ImportFullTender is called
   THEN DeleteAllAdditionalInfoForProposal + UpsertProposalAdditionalInfo are called
 
-SCENARIO 12: mapApiPositionToDbParams — pure mapper
-- GIVEN an API PositionItem with various fields
+SCENARIO 6: ImportFullTender — header position (isChapter=true) → skips matching cache
+- GIVEN a position that is a chapter header (isChapter=true)
+  WHEN ImportFullTender is called
+  THEN catalog position is created with kind=HEADER and matching_cache is skipped
+
+--- Error Paths ---
+
+SCENARIO 7: ImportFullTender — ExecTx fails → returns wrapped transaction error
+- GIVEN ExecTx returns an error before calling the callback
+  WHEN ImportFullTender is called
+  THEN a wrapped transaction error is returned with tenderID=0
+
+SCENARIO 8: ImportFullTender — object creation fails → returns error
+- GIVEN a valid payload but GetObjectByTitle returns an unexpected DB error
+  WHEN ImportFullTender is called
+  THEN the transaction is aborted and a wrapped error is returned
+
+SCENARIO 9: ImportFullTender — executor creation fails → returns error
+- GIVEN a valid payload, object exists, but CreateExecutor returns an error
+  WHEN ImportFullTender is called
+  THEN the transaction is aborted and a wrapped error is returned
+
+SCENARIO 10: ImportFullTender — UpsertTender fails → returns error
+- GIVEN a valid payload, object and executor exist, but UpsertTender returns an error
+  WHEN ImportFullTender is called
+  THEN the transaction is aborted and a wrapped error is returned
+
+SCENARIO 11: ImportFullTender — UpsertLot fails → returns error
+- GIVEN a valid payload but UpsertLot returns an error
+  WHEN ImportFullTender is called
+  THEN the transaction is aborted with a wrapped lot error
+
+SCENARIO 12: ImportFullTender — UpsertProposal fails → returns error
+- GIVEN valid tender and lot, but UpsertProposal for baseline returns an error
+  WHEN ImportFullTender is called
+  THEN the transaction is aborted and a wrapped error is returned
+
+SCENARIO 13: ImportFullTender — UpsertPositionItem fails → returns error
+- GIVEN proposals created but UpsertPositionItem returns an error
+  WHEN ImportFullTender is called
+  THEN the transaction is aborted and a wrapped error is returned
+
+SCENARIO 14: ImportFullTender — UpsertTenderRawData fails → returns error
+- GIVEN the entire import succeeded but UpsertTenderRawData fails
+  WHEN ImportFullTender is called
+  THEN a wrapped transaction error is returned
+
+SCENARIO 15: ImportFullTender — unit creation fails → returns error
+- GIVEN unit of measurement creation and retry lookup both fail
+  WHEN ImportFullTender is called
+  THEN a wrapped error about unit creation is returned
+
+SCENARIO 16: ImportFullTender — catalog position creation fails → returns error
+- GIVEN catalog position not found and CreateCatalogPosition returns an error
+  WHEN ImportFullTender is called
+  THEN a wrapped error about catalog position is returned
+
+SCENARIO 17: ImportFullTender — matching cache unexpected DB error → returns error
+- GIVEN GetMatchingCache returns a real DB error (not sql.ErrNoRows)
+  WHEN ImportFullTender is called
+  THEN a wrapped matching_cache error is returned
+
+SCENARIO 18: ImportFullTender — summary line upsert fails → returns error
+- GIVEN position succeeds but summary line upsert fails
+  WHEN ImportFullTender is called
+  THEN a wrapped error about summary line is returned
+
+SCENARIO 19: ImportFullTender — additional info delete fails → returns error
+- GIVEN contractor proposal with additional info, but delete old info fails
+  WHEN ImportFullTender is called
+  THEN a wrapped error about additional info is returned
+
+--- Pure Mapper Functions ---
+
+SCENARIO 20: mapApiPositionToDbParams — full fields → maps correctly
+- GIVEN an API PositionItem with all fields populated
   WHEN mapApiPositionToDbParams is called
-  THEN the resulting DB params have correctly mapped fields
+  THEN the resulting DB params have correctly mapped non-nil fields
 
-SCENARIO 13: mapApiSummaryToDbParams — pure mapper
-- GIVEN an API SummaryLine with various fields
+SCENARIO 21: mapApiPositionToDbParams — nil fields → returns invalid nulls
+- GIVEN an API PositionItem with all optional fields nil
+  WHEN mapApiPositionToDbParams is called
+  THEN all nullable DB params have Valid=false
+
+SCENARIO 22: mapApiSummaryToDbParams — full fields → maps correctly
+- GIVEN an API SummaryLine with all cost fields populated
   WHEN mapApiSummaryToDbParams is called
-  THEN the resulting DB params have correctly mapped fields
+  THEN the resulting DB params have correctly mapped cost fields
 
-SCENARIO 14: NewTenderImportService — constructor
-- GIVEN valid dependencies (store, logger, entityManager)
-  WHEN NewTenderImportService is called
-  THEN the service is properly initialized with all dependencies
+SCENARIO 23: mapApiSummaryToDbParams — nil costs → returns invalid nulls
+- GIVEN an API SummaryLine with nil cost fields
+  WHEN mapApiSummaryToDbParams is called
+  THEN all cost DB params have Valid=false
+
+--- Edge Cases ---
+
+SCENARIO 24: ImportFullTender — empty job title → skips position processing
+- GIVEN a position with empty job_title
+  WHEN ImportFullTender is called
+  THEN the position is skipped and the tender is saved successfully
+
+SCENARIO 25: ImportFullTender — nil positions and summary maps → succeeds with no items
+- GIVEN a proposal with nil Positions and nil Summary maps
+  WHEN ImportFullTender is called
+  THEN the tender and lot are created, no positions or summaries are processed
+
+SCENARIO 26: ImportFullTender — existing entities → reuses without creation
+- GIVEN object and executor already exist in DB
+  WHEN ImportFullTender is called
+  THEN existing entities are reused without calling Create methods
 */
 
 // ============================================================================
@@ -350,7 +421,7 @@ func setupRawDataExpectations(mock sqlmock.Sqlmock, tenderDBID int64) {
 // NewTenderImportService TESTS
 // ============================================================================
 
-func TestNewTenderImportService(t *testing.T) {
+func TestNewTenderImportService_ValidDeps_ReturnsService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := db.NewMockStore(ctrl)
 	logger := testutil.NewMockLogger()
@@ -609,7 +680,7 @@ func TestImportFullTender_Success_ContractorProposalWithAdditionalInfo(t *testin
 // Error Scenarios
 // ============================================================================
 
-func TestImportFullTender_ExecTxFails(t *testing.T) {
+func TestImportFullTender_ExecTxFails_ReturnsWrappedError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -632,7 +703,7 @@ func TestImportFullTender_ExecTxFails(t *testing.T) {
 	assert.False(t, anyNewPending)
 }
 
-func TestImportFullTender_ObjectCreationFails(t *testing.T) {
+func TestImportFullTender_ObjectCreationFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -657,7 +728,7 @@ func TestImportFullTender_ObjectCreationFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_ExecutorCreationFails(t *testing.T) {
+func TestImportFullTender_ExecutorCreationFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -690,7 +761,7 @@ func TestImportFullTender_ExecutorCreationFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_UpsertTenderFails(t *testing.T) {
+func TestImportFullTender_UpsertTenderFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -725,7 +796,7 @@ func TestImportFullTender_UpsertTenderFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_UpsertLotFails(t *testing.T) {
+func TestImportFullTender_UpsertLotFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -751,7 +822,7 @@ func TestImportFullTender_UpsertLotFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_UpsertProposalFails(t *testing.T) {
+func TestImportFullTender_UpsertProposalFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -787,7 +858,7 @@ func TestImportFullTender_UpsertProposalFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_UpsertPositionItemFails(t *testing.T) {
+func TestImportFullTender_UpsertPositionItemFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -832,7 +903,7 @@ func TestImportFullTender_UpsertPositionItemFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_UpsertTenderRawDataFails(t *testing.T) {
+func TestImportFullTender_UpsertTenderRawDataFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -867,7 +938,7 @@ func TestImportFullTender_UpsertTenderRawDataFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_UnitCreationFails(t *testing.T) {
+func TestImportFullTender_UnitCreationFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -906,7 +977,7 @@ func TestImportFullTender_UnitCreationFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_CatalogPositionCreationFails(t *testing.T) {
+func TestImportFullTender_CatalogPositionCreationFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -945,7 +1016,7 @@ func TestImportFullTender_CatalogPositionCreationFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_MatchingCacheDBError(t *testing.T) {
+func TestImportFullTender_MatchingCacheDBError_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -985,7 +1056,7 @@ func TestImportFullTender_MatchingCacheDBError(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_SummaryLineFails(t *testing.T) {
+func TestImportFullTender_SummaryLineFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -1017,7 +1088,7 @@ func TestImportFullTender_SummaryLineFails(t *testing.T) {
 	assert.Equal(t, int64(0), tenderID)
 }
 
-func TestImportFullTender_AdditionalInfoDeleteFails(t *testing.T) {
+func TestImportFullTender_AdditionalInfoDeleteFails_ReturnsError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -1171,7 +1242,7 @@ func TestImportFullTender_HeaderPosition_SkipsCache(t *testing.T) {
 // Pure Mapper Functions TESTS
 // ============================================================================
 
-func TestMapApiPositionToDbParams(t *testing.T) {
+func TestMapApiPositionToDbParams_FullFields_MapsCorrectly(t *testing.T) {
 	// GIVEN a fully populated API PositionItem
 	quantity := 10.5
 	suggestedQty := 12.0
@@ -1256,7 +1327,7 @@ func TestMapApiPositionToDbParams(t *testing.T) {
 	assert.True(t, result.TotalCostTotal.Valid)
 }
 
-func TestMapApiPositionToDbParams_NilFields(t *testing.T) {
+func TestMapApiPositionToDbParams_NilFields_ReturnsInvalidNulls(t *testing.T) {
 	// GIVEN a PositionItem with all nil optional fields
 	posAPI := api_models.PositionItem{
 		Number:   "1",
@@ -1289,7 +1360,7 @@ func TestMapApiPositionToDbParams_NilFields(t *testing.T) {
 	assert.False(t, result.UnitCostMaterials.Valid)
 }
 
-func TestMapApiSummaryToDbParams(t *testing.T) {
+func TestMapApiSummaryToDbParams_FullFields_MapsCorrectly(t *testing.T) {
 	// GIVEN a fully populated SummaryLine
 	materials := 1000.0
 	works := 2000.0
@@ -1322,7 +1393,7 @@ func TestMapApiSummaryToDbParams(t *testing.T) {
 	assert.True(t, result.TotalCost.Valid)
 }
 
-func TestMapApiSummaryToDbParams_NilCosts(t *testing.T) {
+func TestMapApiSummaryToDbParams_NilCosts_ReturnsInvalidNulls(t *testing.T) {
 	// GIVEN a SummaryLine with nil cost fields
 	sumAPI := api_models.SummaryLine{
 		JobTitle:  "Пустой итог",
@@ -1344,7 +1415,7 @@ func TestMapApiSummaryToDbParams_NilCosts(t *testing.T) {
 // Edge Cases
 // ============================================================================
 
-func TestImportFullTender_PositionWithEmptyJobTitle(t *testing.T) {
+func TestImportFullTender_EmptyJobTitle_SkipsPosition(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -1394,7 +1465,7 @@ func TestImportFullTender_PositionWithEmptyJobTitle(t *testing.T) {
 	assert.Equal(t, map[string]int64{"lot-1": lotDBID}, lotIDs)
 }
 
-func TestImportFullTender_NilPositionsAndSummary(t *testing.T) {
+func TestImportFullTender_NilPositionsAndSummary_SucceedsEmpty(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
@@ -1436,7 +1507,7 @@ func TestImportFullTender_NilPositionsAndSummary(t *testing.T) {
 	assert.False(t, anyNewPending)
 }
 
-func TestImportFullTender_ExistingEntitiesReused(t *testing.T) {
+func TestImportFullTender_ExistingEntities_ReusesWithoutCreation(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
