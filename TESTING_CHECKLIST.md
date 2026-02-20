@@ -156,12 +156,19 @@
 
 ## Фаза 3: Unit-тесты для Converters
 
-### Задача 3.1: Тесты для converters.go
-- [ ] Создать `cmd/internal/server/converters_test.go`
-- [ ] Тесты всех функций преобразования моделей
-- [ ] Проверка корректности маппинга полей
-- [ ] Тесты с nil значениями
-- [ ] Тесты с частично заполненными структурами
+### ✅ Задача 3.1: Тесты для converters.go
+- [x] Создать `cmd/internal/server/converters_test.go`
+- [x] Тесты parseKeyParameters: Valid JSON, NULL, empty bytes, "null" string, invalid JSON + warning log
+- [x] Тесты parseKeyParameters: nested JSON, array JSON, boolean/number types preservation, empty object
+- [x] Тесты parseKeyParameters: Valid=false with data (DB NULL), whitespace-only JSON, Unicode JSON
+- [x] Тесты newLotResponse: все поля корректно маппятся (ID, LotKey, LotTitle, TenderID, KeyParameters)
+- [x] Тесты newLotResponse: timestamps форматируются в RFC3339 (UTC, non-UTC timezone — table-driven)
+- [x] Тесты newLotResponse: Proposals/Winners инициализируются пустыми слайсами (не nil)
+- [x] Тесты newLotResponse: JSON-сериализация → `"proposals":[]` и `"winners":[]` (не null)
+- [x] Тесты newLotResponse: fallback на `{}` при невалидных key_parameters + warning log
+- [x] Тесты newLotResponse: zero-value db.Lot (граничный случай)
+- [x] Тесты newLotResponse: полный маппинг полей с разными CreatedAt/UpdatedAt
+- [x] **Результат: 19 тестов (22 включая sub-tests), все проходят. Покрытие converters.go: 100%**
 
 ---
 
