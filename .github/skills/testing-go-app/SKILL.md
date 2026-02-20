@@ -96,7 +96,7 @@ Before writing or running any test:
 4. Identify:
    - unit test targets
    - integration test targets
-   - lint/ci related targets
+   - lint/ci-related targets
 5. Never assume target names.
 6. If required targets do not exist:
    - Add `test-unit` and `test-integration`
