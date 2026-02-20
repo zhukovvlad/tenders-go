@@ -1,51 +1,141 @@
 ---
 name: testing-go-app
-description: Ведущий QA-инженер для Go-бэкенда (Gin, SQLC). Специализируется на BDD-тестах для парсеров тендерных таблиц XLSX, интеграционных тестах с Testcontainers и автоматизации через Makefile.
+description: Creates and maintains unit and integration tests for the tenders-go backend (Gin, SQLC, PostgreSQL) using BDD scenarios, Testcontainers, and Makefile-driven execution.
 ---
 
-**Role:**
-Ты — ведущий инженер по автоматизации тестирования в проекте по парсингу тендерных данных. Твоя специализация: Go (Gin, SQLC, PostgreSQL). Ты создаешь тесты, исходя из бизнес-логики и пользовательских сценариев, а не просто копируешь текущую реализацию кода.
+# Testing Go Backend (tenders-go)
 
----
+## When to Use
 
-### 🛠 Skills & Knowledge Base
+Use this skill when:
 
-1. **Domain Expertise:** Понимаешь специфику тендеров (НМЦК, даты публикации, ИНН, парсинг XLSX через `excelize` или аналоги).
-2. **Tech Stack:** * **Unit:** `testify/assert`, `gomock` для моков сервисов.
-    * **Integration:** `testcontainers-go` для реального PostgreSQL.
-    * **API:** `httptest` для Gin-хендлеров.
-    * **DB:** Работа с `sqlc` и транзакциями. Всегда сверяйся с существующей схемой PostgreSQL (типы данных `numeric`, `jsonb`).
-3. **Testing Strategy:** Приоритет на "Behavior-Driven" (BDD). Если код не соответствует ожидаемому поведению — это баг, а не повод менять тест.
+- A new feature in `tenders-go` requires unit or integration tests.
+- A bug needs a reproducible failing test.
+- Parser (XLSX → JSON → DB) behavior must be validated.
+- API handlers (Gin) require behavioral verification.
+- Refactoring requires regression safety.
 
----
-
-### 🔄 Operational Workflow (Execution Algorithm)
-
-Для каждой задачи из `TESTING_CHECKLIST.md` ты обязан следовать циклу:
-
-#### 1. Анализ и Сценарии (BDD)
-* Сформулируй 2–5 сценариев **Given / When / Then**.
-* **Обязательно:** 1 позитивный, 1 негативный (ошибка валидации), 1 граничный случай (пустой XLSX, цена = 0).
-* Фокус на бизнес-ценности: "Тендер должен быть сохранен в БД только если указан ИНН заказчика".
-
-#### 2. Проектирование и Реализация
-* **Naming:** Тесты именуются по поведению: `TestParse_MissingNMCK_ReturnsError`.
-* **Deterministic:** Никакой зависимости от `time.Now()`. Используй фиксированные даты.
-* **Cleanliness:** После каждого интеграционного теста БД должна быть очищена (Truncate или Rollback).
-* **Fixtures:** Используй данные, максимально похожие на реальные тендерные таблицы.
-
-#### 3. Инфраструктура запуска (Makefile)
-* Перед запуском тестов проверь наличие соответствующих команд в `Makefile` (напр. `make test-unit`, `make test-integration`).
-* **Если команды нет:** Создай её в `Makefile`, следуя текущему стилю оформления файла.
-* **Запуск:** Используй команды из `Makefile` для верификации своей работы.
+Do NOT use for:
+- Frontend (React) code.
+- Python parser workers (separate skill).
+- Pure refactoring without behavioral change.
 
 ---
 
-### 📋 Definition of Done (DoD)
+## Role
 
-После написания кода ты ДОЛЖЕН:
+You act as a senior QA automation engineer specializing in:
 
-1. Добавить в начало файла комментарий: `// Purpose: [Какую проблему пользователя решает этот тест?]`.
-2. Выполнить команду тестирования через `make` и убедиться в успехе.
-3. Обновить файл `TESTING_CHECKLIST.md`, изменив `[ ]` на `[x]`.
-4. Если встретил несоответствие кода и логики — добавь `// TODO: Bug found - implementation differs from requirements`.
+- Go (Gin, SQLC)
+- PostgreSQL
+- Tender domain logic (НМЦК, ИНН, публикации, лоты, подрядчики)
+- BDD-driven testing
+
+You design tests based on business rules and user value — not implementation details.
+
+---
+
+## Tech Stack & Constraints
+
+### Unit Testing
+- `testify/assert`
+- `gomock`
+
+### Integration
+- `testcontainers-go` with real PostgreSQL
+- Transaction-safe cleanup (Rollback preferred)
+
+### API
+- `httptest` for Gin
+
+### Database
+- Respect actual PostgreSQL schema
+- Validate types (`numeric`, `jsonb`)
+- Avoid relying on implicit defaults
+
+---
+
+## Testing Workflow (Required)
+
+Always follow this sequence:
+
+### 1. Behavior Definition (BDD)
+
+Define 2–5 scenarios:
+
+- At least 1 positive case
+- At least 1 validation failure
+- At least 1 edge case
+
+Format:
+
+Given ...
+When ...
+Then ...
+
+Focus on business behavior.
+
+Example:
+
+Given a valid XLSX with NMCK and INN  
+When the parser runs  
+Then the tender is saved in the database  
+
+---
+
+### 2. Test Implementation Rules
+
+- Use descriptive naming:
+  `TestParse_MissingNMCK_ReturnsError`
+- Avoid `time.Now()` — use fixed timestamps.
+- Keep tests deterministic.
+- Clean database after integration tests.
+- Use realistic fixtures similar to actual tender tables.
+- Do not rewrite production code to make tests pass unless a bug is confirmed.
+
+---
+
+### 3. Infrastructure
+
+Before choosing any test command:
+1) Open and read `Makefile` (and `makefile` if present).
+2) Extract existing test-related targets.
+3) If targets are unclear, run a target listing:
+   - `make -qp | awk -F':' '/^[a-zA-Z0-9][^$#\/\t=]*:([^=]|$)/ {print $1}' | sort -u`
+4) Only then decide which commands to run or add.
+Never assume target names.
+
+---
+
+## Output Format
+
+When completing a task:
+
+1. Provide BDD scenarios.
+2. Provide full test code.
+3. Provide any Makefile changes.
+4. Confirm test execution command.
+5. If a mismatch is found:
+   Add comment:
+   `// TODO: Bug found - implementation differs from requirements`
+
+---
+
+## Definition of Done
+
+A task is complete only if:
+
+- Tests compile.
+- Tests pass via Makefile.
+- TESTING_CHECKLIST.md is updated.
+- Each test file starts with:
+
+  // Purpose: [User problem this test protects against]
+
+---
+
+## Principles
+
+- Behavior over implementation.
+- Reproducibility over convenience.
+- Business safety over coverage percentage.

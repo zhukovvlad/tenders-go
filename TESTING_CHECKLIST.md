@@ -138,13 +138,19 @@
 - [x] Тест MaxUnmatchedPositionsLimit константа (документированный контракт = 1000)
 - [x] **Результат: 29 unit тестов (включая sub-tests), все проходят. Покрытие: GetUnmatchedPositions + MatchPosition + валидация + транзакции + edge cases**
 
-### Задача 2.5: Тесты для Importer Service
-- [ ] Создать `cmd/internal/services/importer/service_test.go`
-- [ ] Мок HTTP клиента для внешних API
-- [ ] Тест успешного импорта тендера
-- [ ] Тест обработки ошибок API
-- [ ] Тест парсинга данных
-- [ ] Тест валидации импортированных данных
+### ✅ Задача 2.5: Тесты для Importer Service (Выполнено)
+- [x] Создать `cmd/internal/services/importer/import_service_test.go`
+- [x] Мок Store (gomock MockStore) + sqlmock для ExecTx callback
+- [x] Тест успешного импорта тендера без лотов
+- [x] Тест успешного импорта тендера с 1 лотом (baseline + позиции + итоги)
+- [x] Тест matching_cache hit (кэшированная позиция каталога)
+- [x] Тест contractor proposal с additional_info (delete + upsert)
+- [x] Тест обработки ошибок: ExecTx fails, Object/Executor/Tender/Lot/Proposal/PositionItem/RawData creation fails
+- [x] Тест ошибок: Unit creation fails, CatalogPosition creation fails, MatchingCache DB error, Summary line fails, AdditionalInfo delete fails
+- [x] Тест HEADER позиции (пропуск matching_cache)
+- [x] Тесты чистых маппер-функций: mapApiPositionToDbParams, mapApiSummaryToDbParams (заполненные + nil поля)
+- [x] Edge cases: пустой job_title, nil Positions/Summary, повторное использование существующих сущностей
+- [x] **Результат: 25 unit тестов, все проходят. Покрытие: ImportFullTender pipeline + error propagation + pure mappers + edge cases**
 
 ---
 
