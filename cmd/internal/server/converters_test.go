@@ -167,7 +167,7 @@ func TestParseKeyParameters_EmptyObject_ReturnsEmptyObject(t *testing.T) {
 	assert.Empty(t, logger.Records())
 }
 
-func TestParseKeyParameters_ValidFalsWithData_ReturnsEmptyObject(t *testing.T) {
+func TestParseKeyParameters_ValidFalseWithData_ReturnsEmptyObject(t *testing.T) {
 	// Even if RawMessage contains data, Valid=false means it's NULL in DB
 	logger := testutil.NewMockLogger()
 	input := pqtype.NullRawMessage{
@@ -290,8 +290,6 @@ func TestNewLotResponse_NullKeyParameters(t *testing.T) {
 }
 
 func TestNewLotResponse_TimestampFormatting(t *testing.T) {
-	logger := testutil.NewMockLogger()
-
 	tests := []struct {
 		name      string
 		inputTime time.Time
@@ -316,6 +314,7 @@ func TestNewLotResponse_TimestampFormatting(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			logger := testutil.NewMockLogger()
 			lot := db.Lot{
 				ID:               1,
 				LotKey:           "K",
@@ -330,6 +329,7 @@ func TestNewLotResponse_TimestampFormatting(t *testing.T) {
 
 			assert.Equal(t, tc.expected, resp.CreatedAt)
 			assert.Equal(t, tc.expected, resp.UpdatedAt)
+			assert.Empty(t, logger.Records())
 		})
 	}
 }
@@ -432,6 +432,8 @@ func TestNewLotResponse_ZeroValueLot(t *testing.T) {
 	assert.Equal(t, "", resp.LotTitle)
 	assert.Equal(t, int64(0), resp.TenderID)
 	assert.JSONEq(t, `{}`, string(resp.KeyParameters)) // Valid=false → empty object
+	assert.Equal(t, time.Time{}.Format(time.RFC3339), resp.CreatedAt, "zero-value CreatedAt must format as RFC3339")
+	assert.Equal(t, time.Time{}.Format(time.RFC3339), resp.UpdatedAt, "zero-value UpdatedAt must format as RFC3339")
 	assert.NotNil(t, resp.Proposals)
 	assert.NotNil(t, resp.Winners)
 }
