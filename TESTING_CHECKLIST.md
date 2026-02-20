@@ -113,11 +113,30 @@
 - [x] Тесты соответствия интерфейсу Logger (mockLogger, logrusAdapter)
 - [x] **Результат: 24 unit теста, все проходят. Добавлена зависимость go-sqlmock для тестирования ExecTx**
 
-### Задача 2.4: Тесты для Matching Service
-- [ ] Создать `cmd/internal/services/matching/service_test.go`
-- [ ] Тесты алгоритма сопоставления
-- [ ] Тесты scoring/ranking
-- [ ] Граничные случаи (пустые данные, некорректные входные параметры)
+### ✅ Задача 2.4: Тесты для Matching Service
+- [x] Создать `cmd/internal/services/matching/matching_service_test.go`
+- [x] Мок для database queries (gomock MockStore, go-sqlmock для *Queries внутри ExecTx)
+- [x] Тесты GetUnmatchedPositions — успешное получение позиций с breadcrumbs (rich_context_string)
+- [x] Тесты GetUnmatchedPositions — позиции без breadcrumbs (root positions → "Позиция: ...")
+- [x] Тесты GetUnmatchedPositions — позиции с draft_catalog_id (pending_indexing)
+- [x] Тесты GetUnmatchedPositions — множественные позиции (mixed: breadcrumbs + root + draft)
+- [x] Тесты GetUnmatchedPositions — пустой результат (empty slice, not nil)
+- [x] Тесты GetUnmatchedPositions — валидация limit (zero, negative, min int32 → ValidationError)
+- [x] Тесты GetUnmatchedPositions — capping limit до MaxUnmatchedPositionsLimit (1000)
+- [x] Тесты GetUnmatchedPositions — граничные значения limit (just below, exactly at, just above max)
+- [x] Тесты GetUnmatchedPositions — ошибка БД (wrapped error)
+- [x] Тесты GetUnmatchedPositions — table-driven: построение context string (single/nested breadcrumbs, root)
+- [x] Тесты MatchPosition — успешное сопоставление (SetCatalogPositionID + UpsertMatchingCache в транзакции)
+- [x] Тесты MatchPosition — norm_version по умолчанию (0 → 1)
+- [x] Тесты MatchPosition — явный norm_version (table-driven: 0→1, 1, 2, 5)
+- [x] Тесты MatchPosition — ошибка SetCatalogPositionID (deadlock → wrapped error)
+- [x] Тесты MatchPosition — GetPositionItemByID fails (non-critical, continues с пустым job_title_text)
+- [x] Тесты MatchPosition — ошибка UpsertMatchingCache (constraint violation → wrapped error)
+- [x] Тесты MatchPosition — ошибка ExecTx (tx begin failed)
+- [x] Тесты MatchPosition — позиция с пустым job_title (NullString{Valid: false})
+- [x] Тесты NewMatchingService (конструктор)
+- [x] Тест MaxUnmatchedPositionsLimit константа (документированный контракт = 1000)
+- [x] **Результат: 29 unit тестов (включая sub-tests), все проходят. Покрытие: GetUnmatchedPositions + MatchPosition + валидация + транзакции + edge cases**
 
 ### Задача 2.5: Тесты для Importer Service
 - [ ] Создать `cmd/internal/services/importer/service_test.go`
