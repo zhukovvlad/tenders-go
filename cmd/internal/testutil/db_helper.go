@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,7 +27,15 @@ type PostgresContainer struct {
 // SetupTestDatabase создает и запускает PostgreSQL контейнер для тестов
 func SetupTestDatabase(t *testing.T) (*sql.DB, *PostgresContainer, error) {
 	t.Helper()
+	return setupTestDatabaseCore()
+}
 
+// SetupTestDatabaseNoT создает PostgreSQL контейнер без *testing.T (для TestMain).
+func SetupTestDatabaseNoT() (*sql.DB, *PostgresContainer, error) {
+	return setupTestDatabaseCore()
+}
+
+func setupTestDatabaseCore() (*sql.DB, *PostgresContainer, error) {
 	ctx := context.Background()
 
 	// Настройка контейнера PostgreSQL с pgvector
@@ -100,34 +109,51 @@ func SetupTestDatabase(t *testing.T) (*sql.DB, *PostgresContainer, error) {
 // TeardownTestDatabase останавливает и удаляет контейнер PostgreSQL
 func TeardownTestDatabase(t *testing.T, db *sql.DB, container *PostgresContainer) {
 	t.Helper()
+	if err := TeardownTestDatabaseNoT(db, container); err != nil {
+		t.Errorf("teardown error: %v", err)
+	}
+}
 
+// TeardownTestDatabaseNoT останавливает контейнер без *testing.T (для TestMain).
+func TeardownTestDatabaseNoT(db *sql.DB, container *PostgresContainer) error {
+	var lastErr error
 	if db != nil {
 		if err := db.Close(); err != nil {
-			t.Errorf("failed to close database: %v", err)
+			lastErr = fmt.Errorf("failed to close database: %w", err)
 		}
 	}
 
 	if container != nil && container.Container != nil {
 		ctx := context.Background()
 		if err := container.Container.Terminate(ctx); err != nil {
-			t.Errorf("failed to terminate container: %v", err)
+			lastErr = fmt.Errorf("failed to terminate container: %w", err)
 		}
 	}
+	return lastErr
 }
 
 // RunMigrations применяет SQL миграции к тестовой БД
 func RunMigrations(t *testing.T, db *sql.DB) error {
 	t.Helper()
+	return RunMigrationsNoT(db)
+}
 
+// RunMigrationsNoT применяет миграции без *testing.T (для TestMain).
+func RunMigrationsNoT(db *sql.DB) error {
 	// Получаем путь к директории с миграциями
+	// db_helper.go is at cmd/internal/testutil/db_helper.go
+	// migrations are at cmd/internal/db/migration/
+	// So from db_helper.go's dir: ../db/migration
 	_, filename, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
-	migrationsPath := filepath.Join(projectRoot, "cmd", "internal", "db", "migration")
+	migrationsPath := filepath.Join(filepath.Dir(filename), "..", "db", "migration")
 
 	// Читаем файлы миграций
 	files, err := filepath.Glob(filepath.Join(migrationsPath, "*.up.sql"))
 	if err != nil {
 		return fmt.Errorf("failed to read migration files: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no migration files found in %s", migrationsPath)
 	}
 
 	// Сортируем миграции для правильного порядка выполнения
@@ -144,7 +170,7 @@ func RunMigrations(t *testing.T, db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to execute migration %s: %w", file, err)
 		}
-		t.Logf("Applied migration: %s", file)
+		log.Printf("Applied migration: %s", file)
 	}
 
 	return nil

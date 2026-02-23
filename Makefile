@@ -83,7 +83,7 @@ test-unit: ## Запуск только unit-тестов
 
 test-integration: ## Запуск интеграционных тестов (требуется Docker)
 	@echo "Running integration tests..."
-	@go test -v -race -timeout 5m ./tests/integration/...
+	@go test -v -race -timeout 5m -tags integration ./cmd/internal/db/dbtest/... ./tests/integration/...
 
 test-e2e: ## Запуск E2E тестов (требуется Docker)
 	@echo "Running E2E tests..."
