@@ -942,11 +942,27 @@ func TestIntegration_RevokeSessionByID_AlreadyRevoked(t *testing.T) {
 	err = queries.RevokeSessionByID(context.Background(), session.ID)
 	require.NoError(t, err)
 
+	// Capture the original revoked_at timestamp
+	var originalRevokedAt sql.NullTime
+	err = testDB.QueryRowContext(context.Background(),
+		"SELECT revoked_at FROM user_sessions WHERE id = $1", session.ID).Scan(&originalRevokedAt)
+	require.NoError(t, err)
+	require.True(t, originalRevokedAt.Valid, "revoked_at should be set after first revocation")
+
 	// When: revoking again (idempotent — WHERE revoked_at IS NULL won't match)
 	err = queries.RevokeSessionByID(context.Background(), session.ID)
 
 	// Then: no error (no rows affected, but exec doesn't fail)
 	assert.NoError(t, err)
+
+	// And: revoked_at timestamp is unchanged (WHERE guard prevented overwrite)
+	var afterSecondRevoke sql.NullTime
+	err = testDB.QueryRowContext(context.Background(),
+		"SELECT revoked_at FROM user_sessions WHERE id = $1", session.ID).Scan(&afterSecondRevoke)
+	require.NoError(t, err)
+	assert.True(t, afterSecondRevoke.Valid)
+	assert.Equal(t, originalRevokedAt.Time, afterSecondRevoke.Time,
+		"revoked_at must not change on second revocation")
 }
 
 func TestIntegration_RevokeSessionByRefreshHash(t *testing.T) {

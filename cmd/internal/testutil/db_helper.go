@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -210,13 +209,8 @@ func CleanupTables(t *testing.T, db *sql.DB) error {
 	defer tx.Rollback()
 
 	for _, table := range tables {
-		query := fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table)
+		query := fmt.Sprintf("TRUNCATE TABLE IF EXISTS %s CASCADE", table)
 		if _, err := tx.ExecContext(ctx, query); err != nil {
-			// PostgreSQL error code 42P01 = undefined_table
-			if strings.Contains(err.Error(), "42P01") || strings.Contains(err.Error(), "does not exist") {
-				t.Logf("Skipping non-existent table: %s", table)
-				continue
-			}
 			return fmt.Errorf("failed to truncate table %s: %w", table, err)
 		}
 	}
