@@ -3,12 +3,13 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +27,15 @@ type PostgresContainer struct {
 // SetupTestDatabase создает и запускает PostgreSQL контейнер для тестов
 func SetupTestDatabase(t *testing.T) (*sql.DB, *PostgresContainer, error) {
 	t.Helper()
+	return setupTestDatabaseCore()
+}
 
+// SetupTestDatabaseNoT создает PostgreSQL контейнер без *testing.T (для TestMain).
+func SetupTestDatabaseNoT() (*sql.DB, *PostgresContainer, error) {
+	return setupTestDatabaseCore()
+}
+
+func setupTestDatabaseCore() (*sql.DB, *PostgresContainer, error) {
 	ctx := context.Background()
 
 	// Настройка контейнера PostgreSQL с pgvector
@@ -100,34 +109,61 @@ func SetupTestDatabase(t *testing.T) (*sql.DB, *PostgresContainer, error) {
 // TeardownTestDatabase останавливает и удаляет контейнер PostgreSQL
 func TeardownTestDatabase(t *testing.T, db *sql.DB, container *PostgresContainer) {
 	t.Helper()
+	if err := TeardownTestDatabaseNoT(db, container); err != nil {
+		t.Errorf("teardown error: %v", err)
+	}
+}
 
+// TeardownTestDatabaseNoT останавливает контейнер без *testing.T (для TestMain).
+func TeardownTestDatabaseNoT(db *sql.DB, container *PostgresContainer) error {
+	var errs []error
 	if db != nil {
 		if err := db.Close(); err != nil {
-			t.Errorf("failed to close database: %v", err)
+			errs = append(errs, fmt.Errorf("failed to close database: %w", err))
 		}
 	}
 
 	if container != nil && container.Container != nil {
 		ctx := context.Background()
 		if err := container.Container.Terminate(ctx); err != nil {
-			t.Errorf("failed to terminate container: %v", err)
+			errs = append(errs, fmt.Errorf("failed to terminate container: %w", err))
 		}
 	}
+	return errors.Join(errs...)
 }
 
-// RunMigrations применяет SQL миграции к тестовой БД
+// LogFunc is a function signature for logging (compatible with both t.Logf and log.Printf).
+type LogFunc func(format string, args ...any)
+
+// RunMigrations применяет SQL миграции к тестовой БД с логированием в тестовый вывод.
 func RunMigrations(t *testing.T, db *sql.DB) error {
 	t.Helper()
+	return runMigrationsCore(db, t.Logf)
+}
 
-	// Получаем путь к директории с миграциями
-	_, filename, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
-	migrationsPath := filepath.Join(projectRoot, "cmd", "internal", "db", "migration")
+// RunMigrationsNoT применяет миграции без *testing.T (для TestMain).
+func RunMigrationsNoT(db *sql.DB) error {
+	return runMigrationsCore(db, log.Printf)
+}
+
+// runMigrationsCore — общая реализация применения миграций с настраиваемым логгером.
+func runMigrationsCore(db *sql.DB, logf LogFunc) error {
+	// Получаем путь к директории с миграциями через runtime.Caller(0).
+	// This works because the project does not use -trimpath, so the absolute
+	// source path is preserved at runtime and ../db/migration resolves correctly.
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return fmt.Errorf("runtime.Caller(0) failed: unable to determine db_helper.go location")
+	}
+	migrationsPath := filepath.Join(filepath.Dir(filename), "..", "db", "migration")
 
 	// Читаем файлы миграций
 	files, err := filepath.Glob(filepath.Join(migrationsPath, "*.up.sql"))
 	if err != nil {
 		return fmt.Errorf("failed to read migration files: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no migration files found in %s", migrationsPath)
 	}
 
 	// Сортируем миграции для правильного порядка выполнения
@@ -144,7 +180,7 @@ func RunMigrations(t *testing.T, db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to execute migration %s: %w", file, err)
 		}
-		t.Logf("Applied migration: %s", file)
+		logf("Applied migration: %s", file)
 	}
 
 	return nil
@@ -173,13 +209,8 @@ func CleanupTables(t *testing.T, db *sql.DB) error {
 	defer tx.Rollback()
 
 	for _, table := range tables {
-		query := fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table)
+		query := fmt.Sprintf("TRUNCATE TABLE IF EXISTS %s CASCADE", table)
 		if _, err := tx.ExecContext(ctx, query); err != nil {
-			// PostgreSQL error code 42P01 = undefined_table
-			if strings.Contains(err.Error(), "42P01") || strings.Contains(err.Error(), "does not exist") {
-				t.Logf("Skipping non-existent table: %s", table)
-				continue
-			}
 			return fmt.Errorf("failed to truncate table %s: %w", table, err)
 		}
 	}
