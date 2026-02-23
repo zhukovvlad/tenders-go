@@ -60,7 +60,9 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup
-	testutil.TeardownTestDatabaseNoT(testDB, testContainer)
+	if err := testutil.TeardownTestDatabaseNoT(testDB, testContainer); err != nil {
+		log.Printf("WARNING: teardown failed: %v", err)
+	}
 	os.Exit(code)
 }
 
@@ -85,6 +87,18 @@ func createTestUserInDB(t *testing.T, queries *db.Queries, email, role string, i
 	})
 	require.NoError(t, err)
 	return user
+}
+
+// createTestUserWithTimestamp inserts a user via raw SQL with an explicit created_at,
+// allowing deterministic ordering in tests without relying on time.Sleep.
+func createTestUserWithTimestamp(t *testing.T, database *sql.DB, email, passwordHash, role string, isActive bool, createdAt time.Time) {
+	t.Helper()
+	_, err := database.ExecContext(context.Background(),
+		`INSERT INTO users (email, password_hash, role, is_active, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $5)`,
+		email, passwordHash, role, isActive, createdAt,
+	)
+	require.NoError(t, err)
 }
 
 // validRefreshTokenHash generates a valid 64-char hex hash string for testing.
@@ -335,12 +349,13 @@ func TestIntegration_ListUsers_Pagination(t *testing.T) {
 	cleanupUsers(t)
 	queries := testQueries
 
-	// Given: 5 users created (ordered by created_at DESC in output)
+	// Given: 5 users with explicit created_at timestamps for deterministic ordering.
+	// ListUsers sorts by created_at DESC, so user5 (newest) comes first.
+	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i := 1; i <= 5; i++ {
 		email := fmt.Sprintf("user%d@example.com", i)
-		createTestUserInDB(t, queries, email, "viewer", true)
-		// Small delay to ensure distinct created_at for ordering
-		time.Sleep(10 * time.Millisecond)
+		ts := baseTime.Add(time.Duration(i) * time.Hour) // user1=13:00, user2=14:00, ..., user5=17:00
+		createTestUserWithTimestamp(t, testDB, email, testutil.TestPasswordHash, "viewer", true, ts)
 	}
 
 	// When: listing first page (limit=2, offset=0)
@@ -1084,7 +1099,7 @@ func TestIntegration_ExecTx_RollbackOnError(t *testing.T) {
 
 	// When: transaction fails midway (user created, session fails)
 	err := store.ExecTx(context.Background(), func(q *db.Queries) error {
-		_, err := q.CreateUser(context.Background(), db.CreateUserParams{
+		user, err := q.CreateUser(context.Background(), db.CreateUserParams{
 			Email:        "rollback@example.com",
 			PasswordHash: testutil.TestPasswordHash,
 			Role:         "operator",
@@ -1094,9 +1109,10 @@ func TestIntegration_ExecTx_RollbackOnError(t *testing.T) {
 			return err
 		}
 
-		// Force failure: invalid token hash format
+		// Force failure: "invalid-hash-format" violates CHECK constraint
+		// chk_user_sessions_refresh_hash_hex which requires '^[0-9a-f]{64}$'
 		_, err = q.CreateUserSession(context.Background(), db.CreateUserSessionParams{
-			UserID:           999999, // Will reference user created above but wrong ID
+			UserID:           user.ID,
 			RefreshTokenHash: "invalid-hash-format",
 			UserAgent:        sql.NullString{Valid: false},
 			ExpiresAt:        time.Now().Add(24 * time.Hour),

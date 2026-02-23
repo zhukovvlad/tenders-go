@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -116,30 +117,38 @@ func TeardownTestDatabase(t *testing.T, db *sql.DB, container *PostgresContainer
 
 // TeardownTestDatabaseNoT останавливает контейнер без *testing.T (для TestMain).
 func TeardownTestDatabaseNoT(db *sql.DB, container *PostgresContainer) error {
-	var lastErr error
+	var errs []error
 	if db != nil {
 		if err := db.Close(); err != nil {
-			lastErr = fmt.Errorf("failed to close database: %w", err)
+			errs = append(errs, fmt.Errorf("failed to close database: %w", err))
 		}
 	}
 
 	if container != nil && container.Container != nil {
 		ctx := context.Background()
 		if err := container.Container.Terminate(ctx); err != nil {
-			lastErr = fmt.Errorf("failed to terminate container: %w", err)
+			errs = append(errs, fmt.Errorf("failed to terminate container: %w", err))
 		}
 	}
-	return lastErr
+	return errors.Join(errs...)
 }
 
-// RunMigrations применяет SQL миграции к тестовой БД
+// LogFunc is a function signature for logging (compatible with both t.Logf and log.Printf).
+type LogFunc func(format string, args ...interface{})
+
+// RunMigrations применяет SQL миграции к тестовой БД с логированием в тестовый вывод.
 func RunMigrations(t *testing.T, db *sql.DB) error {
 	t.Helper()
-	return RunMigrationsNoT(db)
+	return runMigrationsCore(db, t.Logf)
 }
 
 // RunMigrationsNoT применяет миграции без *testing.T (для TestMain).
 func RunMigrationsNoT(db *sql.DB) error {
+	return runMigrationsCore(db, log.Printf)
+}
+
+// runMigrationsCore — общая реализация применения миграций с настраиваемым логгером.
+func runMigrationsCore(db *sql.DB, logf LogFunc) error {
 	// Получаем путь к директории с миграциями
 	// db_helper.go is at cmd/internal/testutil/db_helper.go
 	// migrations are at cmd/internal/db/migration/
@@ -170,7 +179,7 @@ func RunMigrationsNoT(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to execute migration %s: %w", file, err)
 		}
-		log.Printf("Applied migration: %s", file)
+		logf("Applied migration: %s", file)
 	}
 
 	return nil
