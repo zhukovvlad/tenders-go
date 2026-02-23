@@ -118,7 +118,9 @@ func testInet(t *testing.T, ip string) pqtype.Inet {
 	parsed := net.ParseIP(ip)
 	require.NotNilf(t, parsed, "testInet: invalid IP address %q", ip)
 	bits := 128
-	if parsed.To4() != nil {
+	if v4 := parsed.To4(); v4 != nil {
+		// Use 4-byte form so IP length matches the 4-byte CIDRMask.
+		parsed = v4
 		bits = 32
 	}
 	return pqtype.Inet{

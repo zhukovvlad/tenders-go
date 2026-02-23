@@ -149,10 +149,9 @@ func RunMigrationsNoT(db *sql.DB) error {
 
 // runMigrationsCore — общая реализация применения миграций с настраиваемым логгером.
 func runMigrationsCore(db *sql.DB, logf LogFunc) error {
-	// Получаем путь к директории с миграциями
-	// db_helper.go is at cmd/internal/testutil/db_helper.go
-	// migrations are at cmd/internal/db/migration/
-	// So from db_helper.go's dir: ../db/migration
+	// Получаем путь к директории с миграциями через runtime.Caller(0).
+	// This works because the project does not use -trimpath, so the absolute
+	// source path is preserved at runtime and ../db/migration resolves correctly.
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		return fmt.Errorf("runtime.Caller(0) failed: unable to determine db_helper.go location")
