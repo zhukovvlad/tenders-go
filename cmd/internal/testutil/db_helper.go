@@ -134,7 +134,7 @@ func TeardownTestDatabaseNoT(db *sql.DB, container *PostgresContainer) error {
 }
 
 // LogFunc is a function signature for logging (compatible with both t.Logf and log.Printf).
-type LogFunc func(format string, args ...interface{})
+type LogFunc func(format string, args ...any)
 
 // RunMigrations применяет SQL миграции к тестовой БД с логированием в тестовый вывод.
 func RunMigrations(t *testing.T, db *sql.DB) error {
@@ -153,7 +153,10 @@ func runMigrationsCore(db *sql.DB, logf LogFunc) error {
 	// db_helper.go is at cmd/internal/testutil/db_helper.go
 	// migrations are at cmd/internal/db/migration/
 	// So from db_helper.go's dir: ../db/migration
-	_, filename, _, _ := runtime.Caller(0)
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return fmt.Errorf("runtime.Caller(0) failed: unable to determine db_helper.go location")
+	}
 	migrationsPath := filepath.Join(filepath.Dir(filename), "..", "db", "migration")
 
 	// Читаем файлы миграций

@@ -32,6 +32,10 @@ import (
 
 // testDB holds shared database resources for all integration tests.
 // Initialized once in TestMain, reused across all test functions.
+//
+// WARNING: These package-level vars are shared mutable state.
+// Tests in this package must NOT use t.Parallel() or parallel subtests,
+// as the shared DB connection and cleanupUsers calls are not concurrency-safe.
 var (
 	testDB        *sql.DB
 	testContainer *testutil.PostgresContainer
@@ -108,11 +112,11 @@ func validRefreshTokenHash(seed string) string {
 }
 
 // testInet creates a valid pqtype.Inet for testing.
-func testInet(ip string) pqtype.Inet {
+// Fails the test immediately if ip is not a valid IP address.
+func testInet(t *testing.T, ip string) pqtype.Inet {
+	t.Helper()
 	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return pqtype.Inet{}
-	}
+	require.NotNilf(t, parsed, "testInet: invalid IP address %q", ip)
 	bits := 128
 	if parsed.To4() != nil {
 		bits = 32
@@ -402,6 +406,7 @@ func TestIntegration_ListUsers_EmptyResult(t *testing.T) {
 
 	// Then: empty slice, not nil
 	require.NoError(t, err)
+	assert.NotNil(t, users)
 	assert.Empty(t, users)
 }
 
@@ -447,8 +452,8 @@ func TestIntegration_UpdateUserLastLogin(t *testing.T) {
 	afterUpdate, err := queries.GetUserByID(context.Background(), created.ID)
 	require.NoError(t, err)
 	assert.True(t, afterUpdate.LastLoginAt.Valid, "last_login_at should be set after update")
-	assert.True(t, afterUpdate.UpdatedAt.After(beforeUpdate.UpdatedAt) || afterUpdate.UpdatedAt.Equal(beforeUpdate.UpdatedAt),
-		"updated_at should be refreshed")
+	assert.True(t, afterUpdate.UpdatedAt.After(beforeUpdate.UpdatedAt),
+		"updated_at must be strictly later after UpdateUserLastLogin")
 }
 
 func TestIntegration_UpdateUserRole(t *testing.T) {
@@ -560,7 +565,7 @@ func TestIntegration_CreateUserSession_Success(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{String: "Mozilla/5.0 TestBrowser", Valid: true},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("192.168.1.1"),
+		IpAddress:        testInet(t, "192.168.1.1"),
 	})
 
 	// Then: session is created with correct fields
@@ -585,7 +590,7 @@ func TestIntegration_CreateUserSession_NullUserAgent(t *testing.T) {
 		RefreshTokenHash: validRefreshTokenHash("null-ua-token"),
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 
 	// Then: session is created successfully
@@ -606,7 +611,7 @@ func TestIntegration_CreateUserSession_InvalidTokenHashFormat(t *testing.T) {
 		RefreshTokenHash: "not-a-valid-hash",
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 
 	// Then: check constraint violation
@@ -627,7 +632,7 @@ func TestIntegration_CreateUserSession_DuplicateTokenHash(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -637,7 +642,7 @@ func TestIntegration_CreateUserSession_DuplicateTokenHash(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(48 * time.Hour),
-		IpAddress:        testInet("10.0.0.2"),
+		IpAddress:        testInet(t, "10.0.0.2"),
 	})
 
 	// Then: unique constraint violation
@@ -658,7 +663,7 @@ func TestIntegration_CreateUserSession_ExpiresBeforeCreated(t *testing.T) {
 		RefreshTokenHash: validRefreshTokenHash("past-expiry"),
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(-1 * time.Hour), // in the past
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 
 	// Then: check constraint expires_at > created_at
@@ -679,7 +684,7 @@ func TestIntegration_CreateUserSession_CascadeDeleteOnUser(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -716,7 +721,7 @@ func TestIntegration_GetActiveSessionByRefreshHash_Success(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{String: "TestBrowser", Valid: true},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("192.168.1.100"),
+		IpAddress:        testInet(t, "192.168.1.100"),
 	})
 	require.NoError(t, err)
 
@@ -757,7 +762,7 @@ func TestIntegration_GetActiveSessionByRefreshHash_RevokedSession(t *testing.T) 
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -785,7 +790,7 @@ func TestIntegration_GetActiveSessionByRefreshHashForUpdate(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -808,39 +813,49 @@ func TestIntegration_GetActiveSessionsByUserID(t *testing.T) {
 	queries := testQueries
 
 	// Given: a user with 3 sessions (2 active, 1 revoked)
+	// Sessions are inserted with explicit created_at timestamps via raw SQL
+	// to ensure deterministic ordering (created_at DESC).
 	user := createTestUserInDB(t, queries, "multi-session@example.com", "admin", true)
 
-	s1, err := queries.CreateUserSession(context.Background(), db.CreateUserSessionParams{
-		UserID:           user.ID,
-		RefreshTokenHash: validRefreshTokenHash("session-1"),
-		UserAgent:        sql.NullString{String: "Chrome", Valid: true},
-		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("192.168.1.1"),
-	})
-	require.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	baseTime := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	futureExpiry := time.Now().Add(48 * time.Hour) // expires_at must be > now() for active sessions
 
-	_, err = queries.CreateUserSession(context.Background(), db.CreateUserSessionParams{
-		UserID:           user.ID,
-		RefreshTokenHash: validRefreshTokenHash("session-2"),
-		UserAgent:        sql.NullString{String: "Firefox", Valid: true},
-		ExpiresAt:        time.Now().Add(48 * time.Hour),
-		IpAddress:        testInet("192.168.1.2"),
-	})
+	// Session 1 — oldest, will be revoked
+	_, err := testDB.ExecContext(context.Background(),
+		`INSERT INTO user_sessions (user_id, refresh_token_hash, user_agent, expires_at, ip_address, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		user.ID, validRefreshTokenHash("session-1"), "Chrome",
+		futureExpiry, "192.168.1.1/32", baseTime,
+	)
+	require.NoError(t, err)
+
+	// Get session-1 ID for revocation
+	var s1ID int64
+	err = testDB.QueryRowContext(context.Background(),
+		"SELECT id FROM user_sessions WHERE refresh_token_hash = $1",
+		validRefreshTokenHash("session-1")).Scan(&s1ID)
+	require.NoError(t, err)
+
+	// Session 2 — middle, active
+	_, err = testDB.ExecContext(context.Background(),
+		`INSERT INTO user_sessions (user_id, refresh_token_hash, user_agent, expires_at, ip_address, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		user.ID, validRefreshTokenHash("session-2"), "Firefox",
+		futureExpiry, "192.168.1.2/32", baseTime.Add(1*time.Hour),
+	)
 	require.NoError(t, err)
 
 	// Revoke session 1
-	err = queries.RevokeSessionByID(context.Background(), s1.ID)
+	err = queries.RevokeSessionByID(context.Background(), s1ID)
 	require.NoError(t, err)
 
-	// Session 3 (active)
-	_, err = queries.CreateUserSession(context.Background(), db.CreateUserSessionParams{
-		UserID:           user.ID,
-		RefreshTokenHash: validRefreshTokenHash("session-3"),
-		UserAgent:        sql.NullString{String: "Safari", Valid: true},
-		ExpiresAt:        time.Now().Add(72 * time.Hour),
-		IpAddress:        testInet("192.168.1.3"),
-	})
+	// Session 3 — newest, active
+	_, err = testDB.ExecContext(context.Background(),
+		`INSERT INTO user_sessions (user_id, refresh_token_hash, user_agent, expires_at, ip_address, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		user.ID, validRefreshTokenHash("session-3"), "Safari",
+		futureExpiry, "192.168.1.3/32", baseTime.Add(2*time.Hour),
+	)
 	require.NoError(t, err)
 
 	// When: listing active sessions
@@ -886,7 +901,7 @@ func TestIntegration_RevokeSessionByID(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -918,7 +933,7 @@ func TestIntegration_RevokeSessionByID_AlreadyRevoked(t *testing.T) {
 		RefreshTokenHash: validRefreshTokenHash("double-revoke"),
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -945,7 +960,7 @@ func TestIntegration_RevokeSessionByRefreshHash(t *testing.T) {
 		RefreshTokenHash: tokenHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -971,7 +986,7 @@ func TestIntegration_RevokeAllActiveSessionsByUserID(t *testing.T) {
 			RefreshTokenHash: validRefreshTokenHash(fmt.Sprintf("revoke-all-%d", i)),
 			UserAgent:        sql.NullString{Valid: false},
 			ExpiresAt:        time.Now().Add(24 * time.Hour),
-			IpAddress:        testInet("10.0.0.1"),
+			IpAddress:        testInet(t, "10.0.0.1"),
 		})
 		require.NoError(t, err)
 	}
@@ -1009,7 +1024,7 @@ func TestIntegration_DeleteExpiredSessions(t *testing.T) {
 		RefreshTokenHash: activeHash,
 		UserAgent:        sql.NullString{Valid: false},
 		ExpiresAt:        time.Now().Add(24 * time.Hour),
-		IpAddress:        testInet("10.0.0.1"),
+		IpAddress:        testInet(t, "10.0.0.1"),
 	})
 	require.NoError(t, err)
 
@@ -1073,7 +1088,7 @@ func TestIntegration_ExecTx_CreateUserAndSession(t *testing.T) {
 			RefreshTokenHash: tokenHash,
 			UserAgent:        sql.NullString{String: "TxBrowser", Valid: true},
 			ExpiresAt:        time.Now().Add(24 * time.Hour),
-			IpAddress:        testInet("172.16.0.1"),
+			IpAddress:        testInet(t, "172.16.0.1"),
 		})
 		return err
 	})
@@ -1116,7 +1131,7 @@ func TestIntegration_ExecTx_RollbackOnError(t *testing.T) {
 			RefreshTokenHash: "invalid-hash-format",
 			UserAgent:        sql.NullString{Valid: false},
 			ExpiresAt:        time.Now().Add(24 * time.Hour),
-			IpAddress:        testInet("10.0.0.1"),
+			IpAddress:        testInet(t, "10.0.0.1"),
 		})
 		return err
 	})
