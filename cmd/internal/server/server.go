@@ -181,6 +181,9 @@ func NewServer(
 		{
 			admin.GET("/users", server.listUsersHandler)
 			admin.PATCH("/users/:id/role", server.updateUserRoleHandler)
+
+			// Слияние дубликатов каталога
+			admin.POST("/merges/:id/execute", server.ExecuteMergeHandler)
 		}
 	}
 

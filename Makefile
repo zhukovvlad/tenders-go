@@ -25,6 +25,8 @@ run:
 
 sqlc:
 	$(GOPATH)/bin/sqlc generate
+	$(GOPATH)/bin/mockgen -source=cmd/internal/db/sqlc/querier.go -destination=cmd/internal/db/sqlc/mock_querier.go -package=db
+	$(GOPATH)/bin/mockgen -source=cmd/internal/db/sqlc/store.go -destination=cmd/internal/db/sqlc/mock_store.go -package=db
 
 # Генерирует безопасный API ключ в формате GO_SERVER_API_KEY=<key>
 # Скопируйте вывод в ваш .env файл

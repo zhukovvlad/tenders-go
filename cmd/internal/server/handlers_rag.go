@@ -238,3 +238,54 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
+
+// === 7. POST /api/v1/admin/merges/:id/execute ===
+
+// ExecuteMergeHandler выполняет одобренное слияние дубликата в мастер-позицию.
+// Требует роль admin. ID берётся из URL, executedBy — из JWT.
+func (s *Server) ExecuteMergeHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ExecuteMergeHandler")
+
+	// 1. Парсим ID из URL
+	idStr := c.Param("id")
+	mergeID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		logger.Errorf("Некорректный ID слияния: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом")))
+		return
+	}
+
+	// 2. Извлекаем user_id из JWT-контекста (обязателен — роут за RequireRole("admin"))
+	userID, exists := c.Get("user_id")
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	executedBy := strconv.FormatInt(uid, 10)
+
+	// 3. Выполняем слияние через сервис
+	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, executedBy)
+	if err != nil {
+		logger.Errorf("Ошибка ExecuteMerge: %v", err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}

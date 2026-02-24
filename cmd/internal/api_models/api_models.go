@@ -5,6 +5,7 @@ package api_models
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // FullTenderData описывает полную структуру тендера, включая его метаданные,
@@ -227,4 +228,14 @@ type UnmatchedPositionResponse struct {
 	RichContextString  string `json:"rich_context_string"`
 	DraftCatalogID     *int64 `json:"draft_catalog_id,omitempty"` // ID записи catalog_positions со статусом pending (fallback для RAG)
 	StandardJobTitle   string `json:"standard_job_title"`         // Лемматизированная версия для поиска в catalog_positions
+}
+
+// ExecuteMergeResponse - это DTO ответа для POST /api/v1/merges/:id/execute
+// Возвращает информацию о выполненном слиянии.
+type ExecuteMergeResponse struct {
+	MergeID          int64     `json:"merge_id"`           // ID записи suggested_merges
+	MainPositionID   int64     `json:"main_position_id"`   // Мастер-позиция (осталась active)
+	MergedPositionID int64     `json:"merged_position_id"` // Дубликат (стал deprecated)
+	Status           string    `json:"status"`             // Новый статус дубликата ("deprecated")
+	ExecutedAt       time.Time `json:"executed_at"`        // Время выполнения слияния
 }

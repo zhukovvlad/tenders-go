@@ -148,3 +148,30 @@ FULL OUTER JOIN keyword_search k ON s.id = k.id
 JOIN catalog_positions cp ON cp.id = COALESCE(s.id, k.id)
 ORDER BY rrf_score DESC
 LIMIT $3;
+
+-- name: MergeCatalogPosition :one
+-- Выполняет слияние: помечает дубликат как влитый в мастер-позицию.
+-- Устанавливает merged_into_id и меняет статус на 'deprecated'.
+-- Дополнительно проверяет, что мастер-позиция активна и не влита в другую.
+UPDATE catalog_positions dup
+SET
+    merged_into_id = sqlc.arg(master_id),
+    status = 'deprecated',
+    updated_at = NOW()
+WHERE
+    dup.id = sqlc.arg(duplicate_id)
+    AND dup.merged_into_id IS NULL      -- Защита: нельзя повторно влить дубликат
+    AND dup.status != 'deprecated'      -- Явная защита: нельзя влить уже deprecated-позицию
+    AND EXISTS (                        -- Защита: мастер должен быть активен и не влит
+        SELECT 1 FROM catalog_positions master
+        WHERE master.id = sqlc.arg(master_id)
+          AND master.merged_into_id IS NULL
+          AND master.status = 'active'
+    )
+RETURNING dup.*;
+
+-- name: GetMergedPositions :many
+-- Возвращает все позиции, влитые в указанную мастер-позицию.
+SELECT * FROM catalog_positions
+WHERE merged_into_id = $1
+ORDER BY id;

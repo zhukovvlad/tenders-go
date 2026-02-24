@@ -22,6 +22,7 @@
 - [x] Добавить команду `make test-e2e` (e2e тесты)
 - [x] Добавить команду `make test-coverage` (с отчетом покрытия)
 - [x] Добавить команду `make test-watch` (watch mode для разработки)
+- [x] `make sqlc` автоматически перегенерирует mockgen-моки (mock_querier.go, mock_store.go) после sqlc generate
 
 ### ✅ Задача 0.4: Создание тестовых утилит
 - [x] Создать `cmd/internal/testutil/db_helper.go` (хелперы для БД)
@@ -78,6 +79,7 @@
 - [x] Тест `TestErrorConstants` обновлён: проверка уникальности и содержимого `ErrTokenExpired`
 - [x] **Результат: 24 unit теста, все проходят. Покрытие token/validation логики: ~95%**
 - [x] **NOTE: Login/Refresh/Logout требуют транзакций и будут протестированы в integration тестах (Phase 3)**
+
 ### ✅ Задача 2.2: Тесты для Catalog Service
 - [x] Создать `cmd/internal/services/catalog/catalog_service_test.go`
 - [x] Мок для database queries (gomock MockStore, регенерирован для полноты интерфейса)
@@ -90,7 +92,16 @@
 - [x] Тесты валидации параметров (negative limit/offset → ValidationError)
 - [x] Тесты обработки ошибок БД (wrapped errors)
 - [x] Тесты граничных случаев (пустые списки, nil, self-merge)
-- [x] **Результат: 24 unit теста, все проходят**
+- [x] Тесты ExecuteMerge — успешное выполнение одобренного слияния (транзакция: ExecuteApprovedMerge + MergeCatalogPosition)
+- [x] Тесты ExecuteMerge — пустой executedBy (ValidationError)
+- [x] Тесты ExecuteMerge — предложение не найдено (NotFoundError)
+- [x] Тесты ExecuteMerge — статус не APPROVED (ValidationError)
+- [x] Тесты ExecuteMerge — ошибка БД GetSuggestedMergeByID не маскируется (propagated DB error)
+- [x] Тесты ExecuteMerge — дубликат уже влит (ValidationError с указанием дубликата)
+- [x] Тесты ExecuteMerge — мастер-позиция неактивна (ValidationError с указанием мастера)
+- [x] Тесты ExecuteMerge — ошибка БД при MergeCatalogPosition (wrapped DB error)
+- [x] Тесты ExecuteMerge — ошибка БД при ExecuteApprovedMerge (wrapped DB error)
+- [x] **Результат: 32 unit теста, все проходят.**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
@@ -205,6 +216,7 @@
 - [ ] Тест применения миграций с нуля
 - [ ] Тест отката миграций
 - [ ] Тест идемпотентности миграций
+- [ ] Тест миграции 000003: merged_into_id (BIGINT, FK RESTRICT, CHECK self-merge, индекс)
 
 ### Задача 4.6: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)
@@ -289,6 +301,13 @@
 ### Задача 5.8: Тесты для handlers_ai.go & handlers_rag.go
 - [ ] Создать тесты для AI-эндпоинтов
 - [ ] Мокирование AI сервисов
+- [ ] Тесты ExecuteMergeHandler (`POST /api/v1/admin/merges/:id/execute`)
+  - [ ] Успешное выполнение слияния (200 + ExecuteMergeResponse)
+  - [ ] Невалидный ID (400)
+  - [ ] Предложение не найдено (404)
+  - [ ] Статус не APPROVED (400)
+  - [ ] Ошибка БД (500)
+  - [ ] Проверка требования роли admin
 
 ---
 

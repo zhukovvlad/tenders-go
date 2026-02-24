@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -93,6 +95,39 @@ SCENARIO 5: buildContextString (helper)
 - GIVEN an empty/null description
   WHEN context string is built
   THEN standardJobTitle is used as fallback
+
+SCENARIO 6: ExecuteMerge
+- GIVEN empty executedBy
+  WHEN ExecuteMerge is called
+  THEN ValidationError is returned without DB call
+
+- GIVEN an approved merge and valid positions
+  WHEN ExecuteMerge is called
+  THEN merge is executed and response includes status+timestamp
+
+- GIVEN merge ID that doesn't exist
+  WHEN ExecuteMerge is called
+  THEN NotFoundError is returned
+
+- GIVEN merge ID that exists but status != APPROVED
+  WHEN ExecuteMerge is called
+  THEN ValidationError is returned
+
+- GIVEN a DB error from GetSuggestedMergeByID
+  WHEN ExecuteMerge is called
+  THEN wrapped DB error is returned (not masked)
+
+- GIVEN duplicate position already merged
+  WHEN ExecuteMerge is called
+  THEN ValidationError mentions duplicate specifically
+
+- GIVEN master position inactive/merged
+  WHEN ExecuteMerge is called
+  THEN ValidationError mentions master specifically
+
+- GIVEN a DB error from MergeCatalogPosition
+  WHEN ExecuteMerge is called
+  THEN wrapped DB error is returned
 */
 
 // setupTestService creates a CatalogService with mock store for unit testing.
@@ -652,4 +687,363 @@ func TestBuildContextString_DescriptionTakesPriorityOverTitle(t *testing.T) {
 	// THEN description takes priority over lemmatized title
 	assert.Equal(t, "Монтаж систем вентиляции", result)
 	assert.NotEqual(t, title, result, "description should take priority over lemmatized title")
+}
+
+// =============================================================================
+// ExecuteMerge HELPERS
+// =============================================================================
+
+// Column names for sqlmock result sets
+var (
+	suggestedMergeColumns = []string{
+		"id", "main_position_id", "duplicate_position_id", "similarity_score",
+		"status", "created_at", "updated_at", "decided_at", "decided_by",
+		"executed_at", "executed_by",
+	}
+	catalogPositionColumns = []string{
+		"id", "standard_job_title", "description", "embedding", "kind", "status",
+		"unit_id", "created_at", "updated_at", "fts_vector", "merged_into_id",
+	}
+)
+
+// newMockQueries creates a sqlmock-backed *db.Queries for ExecTx tests.
+func newMockQueries(t *testing.T) (sqlmock.Sqlmock, *db.Queries, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	q := db.New(sqlDB)
+	cleanup := func() {
+		err := mock.ExpectationsWereMet()
+		assert.NoError(t, err, "sqlmock: there were unmet expectations")
+		sqlDB.Close()
+	}
+	return mock, q, cleanup
+}
+
+// execTxDoAndReturn returns a DoAndReturn function that executes
+// the ExecTx callback with a sqlmock-backed *Queries.
+func execTxDoAndReturn(t *testing.T, setupFn func(mock sqlmock.Sqlmock)) func(ctx context.Context, fn func(*db.Queries) error) error {
+	t.Helper()
+	return func(ctx context.Context, fn func(*db.Queries) error) error {
+		mock, q, cleanup := newMockQueries(t)
+		defer cleanup()
+		setupFn(mock)
+		return fn(q)
+	}
+}
+
+// =============================================================================
+// ExecuteMerge TESTS
+// =============================================================================
+
+func TestExecuteMerge_EmptyExecutedBy(t *testing.T) {
+	service, _ := setupTestService(t)
+
+	// GIVEN empty executedBy string
+	// WHEN ExecuteMerge is called
+	result, err := service.ExecuteMerge(context.Background(), 1, "")
+
+	// THEN ValidationError is returned without touching DB
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "executedBy")
+}
+
+func TestExecuteMerge_Success(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN an approved merge and valid positions
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteApprovedMerge succeeds
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)). // executed_by, id
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.95),
+						"EXECUTED", now, now, now, "admin", now, "123",
+					))
+
+			// MergeCatalogPosition succeeds
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)). // master_id, duplicate_id
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат работа", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+					))
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "123")
+
+	// THEN success with enriched response
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, int64(42), result.MergeID)
+	assert.Equal(t, int64(100), result.MainPositionID)
+	assert.Equal(t, int64(200), result.MergedPositionID)
+	assert.Equal(t, "deprecated", result.Status)
+	assert.False(t, result.ExecutedAt.IsZero())
+}
+
+func TestExecuteMerge_NotFound(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// GIVEN merge ID that doesn't exist
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteApprovedMerge returns ErrNoRows
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(999)).
+				WillReturnError(sql.ErrNoRows)
+
+			// GetSuggestedMergeByID also returns ErrNoRows → not found
+			mock.ExpectQuery("SELECT .+ FROM suggested_merges WHERE id").
+				WithArgs(int64(999)).
+				WillReturnError(sql.ErrNoRows)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 999, "123")
+
+	// THEN NotFoundError
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var notFoundErr *apierrors.NotFoundError
+	assert.True(t, errors.As(err, &notFoundErr))
+	assert.Contains(t, err.Error(), "999")
+}
+
+func TestExecuteMerge_WrongStatus(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN merge exists but status is REJECTED (not APPROVED)
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteApprovedMerge returns ErrNoRows (status != APPROVED)
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(50)).
+				WillReturnError(sql.ErrNoRows)
+
+			// GetSuggestedMergeByID finds the record (exists but wrong status)
+			mock.ExpectQuery("SELECT .+ FROM suggested_merges WHERE id").
+				WithArgs(int64(50)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(50), int64(10), int64(20), float32(0.90),
+						"REJECTED", now, now, now, "admin", sql.NullTime{Valid: false}, sql.NullString{Valid: false},
+					))
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 50, "123")
+
+	// THEN ValidationError about wrong status
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "не APPROVED")
+}
+
+func TestExecuteMerge_GetSuggestedMergeByID_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// GIVEN ExecuteApprovedMerge returns ErrNoRows, then GetSuggestedMergeByID fails with DB error
+	dbErr := errors.New("connection refused")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(7)).
+				WillReturnError(sql.ErrNoRows)
+
+			mock.ExpectQuery("SELECT .+ FROM suggested_merges WHERE id").
+				WithArgs(int64(7)).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 7, "admin")
+
+	// THEN DB error is propagated (not masked as ValidationError)
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "GetSuggestedMergeByID")
+	// Must NOT be a ValidationError — it's a real DB error
+	var validationErr *apierrors.ValidationError
+	assert.False(t, errors.As(err, &validationErr))
+}
+
+func TestExecuteMerge_DuplicateAlreadyMerged(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN merge is approved, but duplicate position is already merged
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteApprovedMerge succeeds
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.95),
+						"EXECUTED", now, now, now, "admin", now, "123",
+					))
+
+			// MergeCatalogPosition fails (ErrNoRows — WHERE clause excluded it)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnError(sql.ErrNoRows)
+
+			// GetCatalogPositionByID for duplicate — already merged
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(200)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 99, Valid: true},
+					))
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "123")
+
+	// THEN ValidationError specifically mentions duplicate
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "дубликат")
+	assert.Contains(t, err.Error(), "200")
+}
+
+func TestExecuteMerge_MasterInactive(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN merge is approved, but master position is deprecated
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteApprovedMerge succeeds
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.95),
+						"EXECUTED", now, now, now, "admin", now, "123",
+					))
+
+			// MergeCatalogPosition fails (ErrNoRows — master not active)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnError(sql.ErrNoRows)
+
+			// GetCatalogPositionByID for duplicate — OK (not merged yet)
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(200)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
+						"POSITION", "active", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
+			// GetCatalogPositionByID for master — deprecated
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(100)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(100), "мастер", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 50, Valid: true},
+					))
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "123")
+
+	// THEN ValidationError specifically mentions master
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "мастер")
+	assert.Contains(t, err.Error(), "100")
+}
+
+func TestExecuteMerge_MergeCatalogPosition_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN ExecuteApprovedMerge succeeds, MergeCatalogPosition fails with DB error
+	dbErr := errors.New("deadlock detected")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.95),
+						"EXECUTED", now, now, now, "admin", now, "123",
+					))
+
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "123")
+
+	// THEN wrapped DB error
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "MergeCatalogPosition")
+	// Must NOT be a ValidationError
+	var validationErr *apierrors.ValidationError
+	assert.False(t, errors.As(err, &validationErr))
+}
+
+func TestExecuteMerge_ExecuteApprovedMerge_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// GIVEN ExecuteApprovedMerge fails with a real DB error (not ErrNoRows)
+	dbErr := errors.New("connection timeout")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "123")
+
+	// THEN wrapped DB error
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "ExecuteApprovedMerge")
 }
