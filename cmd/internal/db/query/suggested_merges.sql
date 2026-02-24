@@ -50,3 +50,8 @@ SET
 WHERE 
     id = $3
 RETURNING *;
+
+-- name: GetSuggestedMergeByID :one
+-- Получает предложение о слиянии по ID (для валидации перед исполнением).
+SELECT * FROM suggested_merges
+WHERE id = $1;

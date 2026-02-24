@@ -281,6 +281,106 @@ func (s *CatalogService) SuggestMerge(
 	return nil
 }
 
+// ExecuteMerge реализует POST /api/v1/merges/:id/execute.
+//
+// # Назначение
+//
+// Выполняет фактическое слияние дубликата в мастер-позицию.
+// Только одобренные (APPROVED) предложения могут быть выполнены.
+//
+// # Логика выполнения (в транзакции)
+//
+//  1. Получает предложение о слиянии по ID
+//  2. Проверяет, что статус = 'APPROVED' (оператор уже одобрил)
+//  3. Помечает дубликат: merged_into_id = master, status = 'deprecated'
+//  4. Обновляет статус suggested_merge
+//
+// # Параметры
+//
+//   - ctx: контекст выполнения запроса
+//   - mergeID: ID записи в таблице suggested_merges
+//   - decidedBy: имя/ID оператора, выполнившего слияние
+//
+// # Возвращаемое значение
+//
+//   - *api_models.ExecuteMergeResponse: данные о выполненном слиянии
+//   - error: ValidationError, NotFoundError, ConflictError или ошибка БД
+func (s *CatalogService) ExecuteMerge(
+	ctx context.Context,
+	mergeID int64,
+	decidedBy string,
+) (*api_models.ExecuteMergeResponse, error) {
+	logger := s.logger.WithField("method", "ExecuteMerge").WithField("merge_id", mergeID)
+
+	// 1. Получаем предложение о слиянии
+	merge, err := s.store.GetSuggestedMergeByID(ctx, mergeID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logger.Warnf("Предложение о слиянии %d не найдено", mergeID)
+			return nil, apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
+		}
+		logger.Errorf("Ошибка получения предложения о слиянии: %v", err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	// 2. Проверяем статус — только APPROVED можно выполнить
+	if merge.Status != "APPROVED" {
+		logger.Warnf("Попытка выполнить слияние %d со статусом '%s' (ожидается APPROVED)", mergeID, merge.Status)
+		return nil, apierrors.NewValidationError(
+			"слияние %d имеет статус '%s', выполнить можно только со статусом 'APPROVED'",
+			mergeID, merge.Status,
+		)
+	}
+
+	// 3. Выполняем слияние в транзакции
+	var mergedPos db.CatalogPosition
+	err = s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// 3a. Помечаем дубликат: merged_into_id = master, status = 'deprecated'
+		var txErr error
+		mergedPos, txErr = q.MergeCatalogPosition(ctx, db.MergeCatalogPositionParams{
+			MasterID:    sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
+			DuplicateID: merge.DuplicatePositionID,
+		})
+		if txErr != nil {
+			if txErr == sql.ErrNoRows {
+				return apierrors.NewValidationError(
+					"позиция %d уже была влита ранее или не существует",
+					merge.DuplicatePositionID,
+				)
+			}
+			return fmt.Errorf("ошибка MergeCatalogPosition: %w", txErr)
+		}
+
+		// 3b. Обновляем статус предложения (маркируем как выполненное)
+		// Используем тот же UpdateMergeStatus, но теперь статус = APPROVED (уже стоит)
+		// decidedBy фиксирует кто именно выполнил
+		_, txErr = q.UpdateMergeStatus(ctx, db.UpdateMergeStatusParams{
+			Status:    "APPROVED",
+			DecidedBy: sql.NullString{String: decidedBy, Valid: decidedBy != ""},
+			ID:        mergeID,
+		})
+		if txErr != nil {
+			return fmt.Errorf("ошибка UpdateMergeStatus: %w", txErr)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("Ошибка выполнения слияния: %v", err)
+		return nil, err
+	}
+
+	logger.Infof("Слияние выполнено: позиция %d влита в %d",
+		merge.DuplicatePositionID, merge.MainPositionID)
+
+	return &api_models.ExecuteMergeResponse{
+		MergeID:          mergeID,
+		MainPositionID:   merge.MainPositionID,
+		MergedPositionID: mergedPos.ID,
+	}, nil
+}
+
 // GetAllActiveCatalogItems реализует GET /api/v1/catalog/active.
 //
 // # Назначение
