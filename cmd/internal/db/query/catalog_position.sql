@@ -152,15 +152,22 @@ LIMIT $3;
 -- name: MergeCatalogPosition :one
 -- Выполняет слияние: помечает дубликат как влитый в мастер-позицию.
 -- Устанавливает merged_into_id и меняет статус на 'deprecated'.
-UPDATE catalog_positions
+-- Дополнительно проверяет, что мастер-позиция активна и не влита в другую.
+UPDATE catalog_positions dup
 SET
     merged_into_id = sqlc.arg(master_id),
     status = 'deprecated',
     updated_at = NOW()
 WHERE
-    id = sqlc.arg(duplicate_id)
-    AND merged_into_id IS NULL  -- Защита: нельзя повторно влить
-RETURNING *;
+    dup.id = sqlc.arg(duplicate_id)
+    AND dup.merged_into_id IS NULL  -- Защита: нельзя повторно влить дубликат
+    AND EXISTS (                    -- Защита: мастер должен быть активен и не влит
+        SELECT 1 FROM catalog_positions master
+        WHERE master.id = sqlc.arg(master_id)
+          AND master.merged_into_id IS NULL
+          AND master.status != 'deprecated'
+    )
+RETURNING dup.*;
 
 -- name: GetMergedPositions :many
 -- Возвращает все позиции, влитые в указанную мастер-позицию.

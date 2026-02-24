@@ -346,8 +346,8 @@ func (s *CatalogService) ExecuteMerge(
 		if txErr != nil {
 			if txErr == sql.ErrNoRows {
 				return apierrors.NewValidationError(
-					"позиция %d уже была влита ранее или не существует",
-					merge.DuplicatePositionID,
+					"слияние невозможно: дубликат %d уже влит, или мастер-позиция %d неактивна/влита в другую",
+					merge.DuplicatePositionID, merge.MainPositionID,
 				)
 			}
 			return fmt.Errorf("ошибка MergeCatalogPosition: %w", txErr)
