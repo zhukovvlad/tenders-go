@@ -288,55 +288,57 @@ func (s *CatalogService) SuggestMerge(
 // Выполняет фактическое слияние дубликата в мастер-позицию.
 // Только одобренные (APPROVED) предложения могут быть выполнены.
 //
-// # Логика выполнения (в транзакции)
+// # Логика выполнения (целиком в транзакции)
 //
-//  1. Получает предложение о слиянии по ID
-//  2. Проверяет, что статус = 'APPROVED' (оператор уже одобрил)
-//  3. Помечает дубликат: merged_into_id = master, status = 'deprecated'
-//  4. Обновляет статус suggested_merge
+//  1. Атомарно переводит suggested_merge из APPROVED в EXECUTED (защита от race condition)
+//  2. Помечает дубликат: merged_into_id = master, status = 'deprecated'
 //
 // # Параметры
 //
 //   - ctx: контекст выполнения запроса
 //   - mergeID: ID записи в таблице suggested_merges
-//   - decidedBy: имя/ID оператора, выполнившего слияние
+//   - executedBy: ID оператора, выполнившего слияние
 //
 // # Возвращаемое значение
 //
 //   - *api_models.ExecuteMergeResponse: данные о выполненном слиянии
-//   - error: ValidationError, NotFoundError, ConflictError или ошибка БД
+//   - error: ValidationError, NotFoundError или ошибка БД
 func (s *CatalogService) ExecuteMerge(
 	ctx context.Context,
 	mergeID int64,
-	decidedBy string,
+	executedBy string,
 ) (*api_models.ExecuteMergeResponse, error) {
 	logger := s.logger.WithField("method", "ExecuteMerge").WithField("merge_id", mergeID)
 
-	// 1. Получаем предложение о слиянии
-	merge, err := s.store.GetSuggestedMergeByID(ctx, mergeID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			logger.Warnf("Предложение о слиянии %d не найдено", mergeID)
-			return nil, apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
-		}
-		logger.Errorf("Ошибка получения предложения о слиянии: %v", err)
-		return nil, fmt.Errorf("ошибка БД: %w", err)
-	}
-
-	// 2. Проверяем статус — только APPROVED можно выполнить
-	if merge.Status != "APPROVED" {
-		logger.Warnf("Попытка выполнить слияние %d со статусом '%s' (ожидается APPROVED)", mergeID, merge.Status)
-		return nil, apierrors.NewValidationError(
-			"слияние %d имеет статус '%s', выполнить можно только со статусом 'APPROVED'",
-			mergeID, merge.Status,
-		)
-	}
-
-	// 3. Выполняем слияние в транзакции
+	// Вся логика внутри транзакции для защиты от race condition
 	var mergedPos db.CatalogPosition
-	err = s.store.ExecTx(ctx, func(q *db.Queries) error {
-		// 3a. Помечаем дубликат: merged_into_id = master, status = 'deprecated'
+	var merge db.SuggestedMerge
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// 1. Атомарно переводим APPROVED → EXECUTED
+		// Если статус != APPROVED, UPDATE не затронет строк → sql.ErrNoRows
 		var txErr error
+		merge, txErr = q.ExecuteApprovedMerge(ctx, db.ExecuteApprovedMergeParams{
+			ExecutedBy: sql.NullString{String: executedBy, Valid: executedBy != ""},
+			ID:         mergeID,
+		})
+		if txErr != nil {
+			if txErr == sql.ErrNoRows {
+				// Нужно определить причину: не найдено или неверный статус
+				_, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
+				if checkErr == sql.ErrNoRows {
+					return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
+				}
+				// Запись существует, но статус != APPROVED
+				return apierrors.NewValidationError(
+					"слияние %d не может быть выполнено: статус не APPROVED (возможно, уже выполнено или отклонено)",
+					mergeID,
+				)
+			}
+			return fmt.Errorf("ошибка ExecuteApprovedMerge: %w", txErr)
+		}
+
+		// 2. Помечаем дубликат: merged_into_id = master, status = 'deprecated'
 		mergedPos, txErr = q.MergeCatalogPosition(ctx, db.MergeCatalogPositionParams{
 			MasterID:    sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
 			DuplicateID: merge.DuplicatePositionID,
@@ -349,18 +351,6 @@ func (s *CatalogService) ExecuteMerge(
 				)
 			}
 			return fmt.Errorf("ошибка MergeCatalogPosition: %w", txErr)
-		}
-
-		// 3b. Обновляем статус предложения (маркируем как выполненное)
-		// Используем тот же UpdateMergeStatus, но теперь статус = APPROVED (уже стоит)
-		// decidedBy фиксирует кто именно выполнил
-		_, txErr = q.UpdateMergeStatus(ctx, db.UpdateMergeStatusParams{
-			Status:    "APPROVED",
-			DecidedBy: sql.NullString{String: decidedBy, Valid: decidedBy != ""},
-			ID:        mergeID,
-		})
-		if txErr != nil {
-			return fmt.Errorf("ошибка UpdateMergeStatus: %w", txErr)
 		}
 
 		return nil

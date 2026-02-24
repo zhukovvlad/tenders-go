@@ -255,17 +255,23 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 		return
 	}
 
-	// 2. Извлекаем user_id из JWT-контекста
+	// 2. Извлекаем user_id из JWT-контекста (обязателен — роут за RequireRole("admin"))
 	userID, exists := c.Get("user_id")
-	decidedBy := "unknown"
-	if exists {
-		if uid, ok := userID.(int64); ok {
-			decidedBy = strconv.FormatInt(uid, 10)
-		}
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
 	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	executedBy := strconv.FormatInt(uid, 10)
 
 	// 3. Выполняем слияние через сервис
-	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, decidedBy)
+	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, executedBy)
 	if err != nil {
 		logger.Errorf("Ошибка ExecuteMerge: %v", err)
 		var validationErr *apierrors.ValidationError
