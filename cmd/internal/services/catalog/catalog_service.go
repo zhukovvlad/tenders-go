@@ -326,8 +326,12 @@ func (s *CatalogService) ExecuteMerge(
 			if txErr == sql.ErrNoRows {
 				// Нужно определить причину: не найдено или неверный статус
 				_, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
-				if checkErr == sql.ErrNoRows {
-					return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
+				if checkErr != nil {
+					if checkErr == sql.ErrNoRows {
+						return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
+					}
+					// Реальная ошибка БД — пробрасываем
+					return fmt.Errorf("ошибка GetSuggestedMergeByID: %w", checkErr)
 				}
 				// Запись существует, но статус != APPROVED
 				return apierrors.NewValidationError(

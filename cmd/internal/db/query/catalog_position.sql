@@ -165,7 +165,7 @@ WHERE
         SELECT 1 FROM catalog_positions master
         WHERE master.id = sqlc.arg(master_id)
           AND master.merged_into_id IS NULL
-          AND master.status != 'deprecated'
+          AND master.status = 'active'
     )
 RETURNING dup.*;
 
