@@ -160,8 +160,9 @@ SET
     updated_at = NOW()
 WHERE
     dup.id = sqlc.arg(duplicate_id)
-    AND dup.merged_into_id IS NULL  -- Защита: нельзя повторно влить дубликат
-    AND EXISTS (                    -- Защита: мастер должен быть активен и не влит
+    AND dup.merged_into_id IS NULL      -- Защита: нельзя повторно влить дубликат
+    AND dup.status != 'deprecated'      -- Явная защита: нельзя влить уже deprecated-позицию
+    AND EXISTS (                        -- Защита: мастер должен быть активен и не влит
         SELECT 1 FROM catalog_positions master
         WHERE master.id = sqlc.arg(master_id)
           AND master.merged_into_id IS NULL

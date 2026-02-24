@@ -242,7 +242,7 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 // === 7. POST /api/v1/admin/merges/:id/execute ===
 
 // ExecuteMergeHandler выполняет одобренное слияние дубликата в мастер-позицию.
-// Требует роль admin. ID берётся из URL, decidedBy — из JWT.
+// Требует роль admin. ID берётся из URL, executedBy — из JWT.
 func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ExecuteMergeHandler")
 

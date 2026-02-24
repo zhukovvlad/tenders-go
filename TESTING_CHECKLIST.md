@@ -92,13 +92,16 @@
 - [x] Тесты валидации параметров (negative limit/offset → ValidationError)
 - [x] Тесты обработки ошибок БД (wrapped errors)
 - [x] Тесты граничных случаев (пустые списки, nil, self-merge)
-- [ ] Тесты ExecuteMerge — успешное выполнение одобренного слияния (транзакция: MergeCatalogPosition + UpdateMergeStatus)
-- [ ] Тесты ExecuteMerge — предложение не найдено (NotFoundError)
-- [ ] Тесты ExecuteMerge — статус не APPROVED (ValidationError)
-- [ ] Тесты ExecuteMerge — дубликат уже влит (повторное слияние → ValidationError)
-- [ ] Тесты ExecuteMerge — ошибка БД при MergeCatalogPosition / UpdateMergeStatus (rollback)
-- [ ] Тесты GetMergedPositions — получение всех влитых позиций для мастера
-- [x] **Результат: 24 unit теста, все проходят. TODO: +6 тестов для ExecuteMerge/GetMergedPositions**
+- [x] Тесты ExecuteMerge — успешное выполнение одобренного слияния (транзакция: ExecuteApprovedMerge + MergeCatalogPosition)
+- [x] Тесты ExecuteMerge — пустой executedBy (ValidationError)
+- [x] Тесты ExecuteMerge — предложение не найдено (NotFoundError)
+- [x] Тесты ExecuteMerge — статус не APPROVED (ValidationError)
+- [x] Тесты ExecuteMerge — ошибка БД GetSuggestedMergeByID не маскируется (propagated DB error)
+- [x] Тесты ExecuteMerge — дубликат уже влит (ValidationError с указанием дубликата)
+- [x] Тесты ExecuteMerge — мастер-позиция неактивна (ValidationError с указанием мастера)
+- [x] Тесты ExecuteMerge — ошибка БД при MergeCatalogPosition (wrapped DB error)
+- [x] Тесты ExecuteMerge — ошибка БД при ExecuteApprovedMerge (wrapped DB error)
+- [x] **Результат: 32 unit теста, все проходят.**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`

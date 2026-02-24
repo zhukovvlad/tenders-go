@@ -310,6 +310,11 @@ func (s *CatalogService) ExecuteMerge(
 ) (*api_models.ExecuteMergeResponse, error) {
 	logger := s.logger.WithField("method", "ExecuteMerge").WithField("merge_id", mergeID)
 
+	// Валидация: executedBy обязателен (гарантируется JWT-middleware, но проверяем для безопасности)
+	if executedBy == "" {
+		return nil, apierrors.NewValidationError("executedBy не может быть пустым")
+	}
+
 	// Вся логика внутри транзакции для защиты от race condition
 	var mergedPos db.CatalogPosition
 	var merge db.SuggestedMerge
@@ -319,7 +324,7 @@ func (s *CatalogService) ExecuteMerge(
 		// Если статус != APPROVED, UPDATE не затронет строк → sql.ErrNoRows
 		var txErr error
 		merge, txErr = q.ExecuteApprovedMerge(ctx, db.ExecuteApprovedMergeParams{
-			ExecutedBy: sql.NullString{String: executedBy, Valid: executedBy != ""},
+			ExecutedBy: sql.NullString{String: executedBy, Valid: true},
 			ID:         mergeID,
 		})
 		if txErr != nil {
@@ -349,8 +354,24 @@ func (s *CatalogService) ExecuteMerge(
 		})
 		if txErr != nil {
 			if txErr == sql.ErrNoRows {
+				// Определяем конкретную причину отказа для информативной ошибки
+				dup, dupErr := q.GetCatalogPositionByID(ctx, merge.DuplicatePositionID)
+				if dupErr == nil && (dup.MergedIntoID.Valid || dup.Status == "deprecated") {
+					return apierrors.NewValidationError(
+						"слияние невозможно: дубликат %d уже влит в другую позицию",
+						merge.DuplicatePositionID,
+					)
+				}
+				master, masterErr := q.GetCatalogPositionByID(ctx, merge.MainPositionID)
+				if masterErr == nil && (master.MergedIntoID.Valid || master.Status != "active") {
+					return apierrors.NewValidationError(
+						"слияние невозможно: мастер-позиция %d неактивна или влита в другую",
+						merge.MainPositionID,
+					)
+				}
+				// Не удалось определить конкретную причину — общее сообщение
 				return apierrors.NewValidationError(
-					"слияние невозможно: дубликат %d уже влит, или мастер-позиция %d неактивна/влита в другую",
+					"слияние невозможно: дубликат %d или мастер-позиция %d не удовлетворяют условиям",
 					merge.DuplicatePositionID, merge.MainPositionID,
 				)
 			}
@@ -372,6 +393,8 @@ func (s *CatalogService) ExecuteMerge(
 		MergeID:          mergeID,
 		MainPositionID:   merge.MainPositionID,
 		MergedPositionID: mergedPos.ID,
+		Status:           mergedPos.Status,
+		ExecutedAt:       merge.ExecutedAt.Time,
 	}, nil
 }
 
