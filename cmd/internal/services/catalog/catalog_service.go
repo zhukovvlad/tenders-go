@@ -460,26 +460,37 @@ func (s *CatalogService) ExecuteMerge(
 }
 
 // diagnoseMergeFailure определяет конкретную причину отказа MergeCatalogPosition
-// при получении sql.ErrNoRows. Возвращает информативную ValidationError.
+// при получении sql.ErrNoRows. Возвращает информативную ValidationError
+// или пробрасывает реальную ошибку БД.
 func diagnoseMergeFailure(
 	ctx context.Context,
 	q *db.Queries,
 	merge db.SuggestedMerge,
 ) error {
 	dup, dupErr := q.GetCatalogPositionByID(ctx, merge.DuplicatePositionID)
+	if dupErr != nil && !errors.Is(dupErr, sql.ErrNoRows) {
+		// Реальная ошибка БД — пробрасываем
+		return fmt.Errorf("ошибка GetCatalogPositionByID (dup=%d): %w", merge.DuplicatePositionID, dupErr)
+	}
 	if dupErr == nil && (dup.MergedIntoID.Valid || dup.Status == "deprecated") {
 		return apierrors.NewValidationError(
 			"слияние невозможно: дубликат %d уже влит в другую позицию",
 			merge.DuplicatePositionID,
 		)
 	}
+
 	master, masterErr := q.GetCatalogPositionByID(ctx, merge.MainPositionID)
+	if masterErr != nil && !errors.Is(masterErr, sql.ErrNoRows) {
+		// Реальная ошибка БД — пробрасываем
+		return fmt.Errorf("ошибка GetCatalogPositionByID (master=%d): %w", merge.MainPositionID, masterErr)
+	}
 	if masterErr == nil && (master.MergedIntoID.Valid || master.Status != "active") {
 		return apierrors.NewValidationError(
 			"слияние невозможно: мастер-позиция %d неактивна или влита в другую",
 			merge.MainPositionID,
 		)
 	}
+
 	return apierrors.NewValidationError(
 		"слияние невозможно: дубликат %d или мастер-позиция %d не удовлетворяют условиям",
 		merge.DuplicatePositionID, merge.MainPositionID,
