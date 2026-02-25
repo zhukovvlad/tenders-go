@@ -40,6 +40,7 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -286,11 +287,11 @@ func (s *CatalogService) SuggestMerge(
 // # Назначение
 //
 // Выполняет фактическое слияние дубликата в мастер-позицию.
-// Только одобренные (APPROVED) предложения могут быть выполнены.
+// Предложения в статусе PENDING или APPROVED могут быть выполнены (one-click merge).
 //
 // # Логика выполнения (целиком в транзакции)
 //
-//  1. Атомарно переводит suggested_merge из APPROVED в EXECUTED (защита от race condition)
+//  1. Атомарно переводит suggested_merge из PENDING/APPROVED в EXECUTED (one-click merge)
 //  2. Помечает дубликат: merged_into_id = master, status = 'deprecated'
 //
 // # Параметры
@@ -320,31 +321,31 @@ func (s *CatalogService) ExecuteMerge(
 	var merge db.SuggestedMerge
 
 	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
-		// 1. Атомарно переводим APPROVED → EXECUTED
-		// Если статус != APPROVED, UPDATE не затронет строк → sql.ErrNoRows
+		// 1. Атомарно переводим PENDING/APPROVED → EXECUTED (one-click merge)
+		// Если статус не PENDING/APPROVED, UPDATE не затронет строк → sql.ErrNoRows
 		var txErr error
-		merge, txErr = q.ExecuteApprovedMerge(ctx, db.ExecuteApprovedMergeParams{
+		merge, txErr = q.ExecuteMerge(ctx, db.ExecuteMergeParams{
 			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
 			ID:         mergeID,
 		})
 		if txErr != nil {
-			if txErr == sql.ErrNoRows {
+			if errors.Is(txErr, sql.ErrNoRows) {
 				// Нужно определить причину: не найдено или неверный статус
-				_, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
+				existing, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
 				if checkErr != nil {
-					if checkErr == sql.ErrNoRows {
+					if errors.Is(checkErr, sql.ErrNoRows) {
 						return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
 					}
 					// Реальная ошибка БД — пробрасываем
 					return fmt.Errorf("ошибка GetSuggestedMergeByID: %w", checkErr)
 				}
-				// Запись существует, но статус != APPROVED
+				// Запись существует, но статус не PENDING/APPROVED
 				return apierrors.NewValidationError(
-					"слияние %d не может быть выполнено: статус не APPROVED (возможно, уже выполнено или отклонено)",
-					mergeID,
+					"слияние %d не может быть выполнено: текущий статус=%s (ожидается PENDING/APPROVED)",
+					mergeID, existing.Status,
 				)
 			}
-			return fmt.Errorf("ошибка ExecuteApprovedMerge: %w", txErr)
+			return fmt.Errorf("ошибка ExecuteMerge: %w", txErr)
 		}
 
 		// 2. Помечаем дубликат: merged_into_id = master, status = 'deprecated'
@@ -353,7 +354,7 @@ func (s *CatalogService) ExecuteMerge(
 			DuplicateID: merge.DuplicatePositionID,
 		})
 		if txErr != nil {
-			if txErr == sql.ErrNoRows {
+			if errors.Is(txErr, sql.ErrNoRows) {
 				// Определяем конкретную причину отказа для информативной ошибки
 				dup, dupErr := q.GetCatalogPositionByID(ctx, merge.DuplicatePositionID)
 				if dupErr == nil && (dup.MergedIntoID.Valid || dup.Status == "deprecated") {
