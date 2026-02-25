@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -258,9 +259,15 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 
 	// 2. Парсим опциональное тело запроса
 	var req api_models.ExecuteMergeRequest
-	// Bind только если тело непустое — пустой body = Сценарий 1
-	if c.Request.ContentLength > 0 {
-		if err := c.ShouldBindJSON(&req); err != nil {
+	// Читаем body целиком — ContentLength может быть -1 при chunked transfer
+	body, readErr := c.GetRawData()
+	if readErr != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", readErr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", readErr)))
+		return
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
 			logger.Errorf("Ошибка парсинга тела запроса: %v", err)
 			c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
 			return

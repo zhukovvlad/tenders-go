@@ -76,7 +76,7 @@
 
 ## API контракт
 
-```
+```http
 POST /api/v1/admin/merges/:id/execute
 
 # Сценарий 1 — пустой body или {}

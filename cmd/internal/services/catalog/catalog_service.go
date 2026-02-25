@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
@@ -364,7 +365,7 @@ func (s *CatalogService) ExecuteMerge(
 
 		if !isRename {
 			// ===== Сценарий 1: Default Merge (B → A) =====
-			scenario = "default"
+			scenario = api_models.MergeScenarioDefault
 
 			mergedPos, mergeErr := q.MergeCatalogPosition(ctx, db.MergeCatalogPositionParams{
 				MasterID:    sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
@@ -372,7 +373,7 @@ func (s *CatalogService) ExecuteMerge(
 			})
 			if mergeErr != nil {
 				if errors.Is(mergeErr, sql.ErrNoRows) {
-					return s.diagnoseMergeFailure(ctx, q, merge)
+					return diagnoseMergeFailure(ctx, q, merge)
 				}
 				return fmt.Errorf("ошибка MergeCatalogPosition: %w", mergeErr)
 			}
@@ -382,11 +383,17 @@ func (s *CatalogService) ExecuteMerge(
 			mergedStatus = mergedPos.Status
 		} else {
 			// ===== Сценарий 2: Merge to New (A,B → C) =====
-			scenario = "merge_to_new"
+			scenario = api_models.MergeScenarioMergeToNew
 
 			// 2a. Создаём новую позицию C
 			newPos, createErr := q.CreateSimpleCatalogPosition(ctx, newMainTitle)
 			if createErr != nil {
+				var pqErr *pq.Error
+				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
+					return apierrors.NewValidationError(
+						"позиция с названием %q уже существует в каталоге", newMainTitle,
+					)
+				}
 				return fmt.Errorf("ошибка CreateSimpleCatalogPosition: %w", createErr)
 			}
 			resultingPositionID = newPos.ID
@@ -454,7 +461,7 @@ func (s *CatalogService) ExecuteMerge(
 
 // diagnoseMergeFailure определяет конкретную причину отказа MergeCatalogPosition
 // при получении sql.ErrNoRows. Возвращает информативную ValidationError.
-func (s *CatalogService) diagnoseMergeFailure(
+func diagnoseMergeFailure(
 	ctx context.Context,
 	q *db.Queries,
 	merge db.SuggestedMerge,
