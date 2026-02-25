@@ -290,7 +290,7 @@ func (s *CatalogService) SuggestMerge(
 //
 // # Логика выполнения (целиком в транзакции)
 //
-//  1. Атомарно переводит suggested_merge из APPROVED в EXECUTED (защита от race condition)
+//  1. Атомарно переводит suggested_merge из PENDING/APPROVED в EXECUTED (one-click merge)
 //  2. Помечает дубликат: merged_into_id = master, status = 'deprecated'
 //
 // # Параметры
@@ -320,10 +320,10 @@ func (s *CatalogService) ExecuteMerge(
 	var merge db.SuggestedMerge
 
 	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
-		// 1. Атомарно переводим APPROVED → EXECUTED
-		// Если статус != APPROVED, UPDATE не затронет строк → sql.ErrNoRows
+		// 1. Атомарно переводим PENDING/APPROVED → EXECUTED (one-click merge)
+		// Если статус не PENDING/APPROVED, UPDATE не затронет строк → sql.ErrNoRows
 		var txErr error
-		merge, txErr = q.ExecuteApprovedMerge(ctx, db.ExecuteApprovedMergeParams{
+		merge, txErr = q.ExecuteMerge(ctx, db.ExecuteMergeParams{
 			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
 			ID:         mergeID,
 		})
@@ -338,13 +338,13 @@ func (s *CatalogService) ExecuteMerge(
 					// Реальная ошибка БД — пробрасываем
 					return fmt.Errorf("ошибка GetSuggestedMergeByID: %w", checkErr)
 				}
-				// Запись существует, но статус != APPROVED
+				// Запись существует, но статус не PENDING/APPROVED
 				return apierrors.NewValidationError(
-					"слияние %d не может быть выполнено: статус не APPROVED (возможно, уже выполнено или отклонено)",
+					"слияние %d не может быть выполнено: статус не PENDING/APPROVED (возможно, уже выполнено или отклонено)",
 					mergeID,
 				)
 			}
-			return fmt.Errorf("ошибка ExecuteApprovedMerge: %w", txErr)
+			return fmt.Errorf("ошибка ExecuteMerge: %w", txErr)
 		}
 
 		// 2. Помечаем дубликат: merged_into_id = master, status = 'deprecated'

@@ -827,10 +827,10 @@ func TestExecuteMerge_WrongStatus(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// GIVEN merge exists but status is REJECTED (not APPROVED)
+	// GIVEN merge exists but status is REJECTED (not PENDING/APPROVED)
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			// ExecuteApprovedMerge returns ErrNoRows (status != APPROVED)
+			// ExecuteMerge returns ErrNoRows (status not in PENDING/APPROVED)
 			mock.ExpectQuery("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg(), int64(50)).
 				WillReturnError(sql.ErrNoRows)
@@ -854,7 +854,7 @@ func TestExecuteMerge_WrongStatus(t *testing.T) {
 	assert.Nil(t, result)
 	var validationErr *apierrors.ValidationError
 	assert.True(t, errors.As(err, &validationErr))
-	assert.Contains(t, err.Error(), "не APPROVED")
+	assert.Contains(t, err.Error(), "не PENDING/APPROVED")
 }
 
 func TestExecuteMerge_GetSuggestedMergeByID_DBError(t *testing.T) {
@@ -1044,5 +1044,5 @@ func TestExecuteMerge_ExecuteApprovedMerge_DBError(t *testing.T) {
 	// THEN wrapped DB error
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "ExecuteApprovedMerge")
+	assert.Contains(t, err.Error(), "ExecuteMerge")
 }

@@ -56,9 +56,9 @@ RETURNING *;
 SELECT * FROM suggested_merges
 WHERE id = $1;
 
--- name: ExecuteApprovedMerge :one
--- Атомарно переводит предложение из APPROVED в EXECUTED.
--- Возвращает строку ТОЛЬКО если текущий статус = 'APPROVED' (защита от race condition).
+-- name: ExecuteMerge :one
+-- Атомарно переводит предложение из PENDING или APPROVED в EXECUTED (one-click merge).
+-- Возвращает строку ТОЛЬКО если текущий статус позволяет исполнение (защита от race condition).
 -- Используется внутри транзакции вместе с MergeCatalogPosition.
 UPDATE suggested_merges
 SET 
@@ -67,5 +67,5 @@ SET
     resolved_by = $1
 WHERE 
     id = $2
-    AND status = 'APPROVED'
+    AND status IN ('PENDING', 'APPROVED')
 RETURNING *;
