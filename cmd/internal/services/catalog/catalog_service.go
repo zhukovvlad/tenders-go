@@ -40,6 +40,7 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -328,11 +329,11 @@ func (s *CatalogService) ExecuteMerge(
 			ID:         mergeID,
 		})
 		if txErr != nil {
-			if txErr == sql.ErrNoRows {
+			if errors.Is(txErr, sql.ErrNoRows) {
 				// Нужно определить причину: не найдено или неверный статус
-				_, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
+				existing, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
 				if checkErr != nil {
-					if checkErr == sql.ErrNoRows {
+					if errors.Is(checkErr, sql.ErrNoRows) {
 						return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
 					}
 					// Реальная ошибка БД — пробрасываем
@@ -340,8 +341,8 @@ func (s *CatalogService) ExecuteMerge(
 				}
 				// Запись существует, но статус не PENDING/APPROVED
 				return apierrors.NewValidationError(
-					"слияние %d не может быть выполнено: статус не PENDING/APPROVED (возможно, уже выполнено или отклонено)",
-					mergeID,
+					"слияние %d не может быть выполнено: текущий статус=%s (ожидается PENDING/APPROVED)",
+					mergeID, existing.Status,
 				)
 			}
 			return fmt.Errorf("ошибка ExecuteMerge: %w", txErr)
@@ -353,7 +354,7 @@ func (s *CatalogService) ExecuteMerge(
 			DuplicateID: merge.DuplicatePositionID,
 		})
 		if txErr != nil {
-			if txErr == sql.ErrNoRows {
+			if errors.Is(txErr, sql.ErrNoRows) {
 				// Определяем конкретную причину отказа для информативной ошибки
 				dup, dupErr := q.GetCatalogPositionByID(ctx, merge.DuplicatePositionID)
 				if dupErr == nil && (dup.MergedIntoID.Valid || dup.Status == "deprecated") {

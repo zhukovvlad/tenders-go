@@ -758,7 +758,7 @@ func TestExecuteMerge_Success(t *testing.T) {
 	// GIVEN an approved merge and valid positions
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			// ExecuteApprovedMerge succeeds
+			// ExecuteMerge succeeds
 			mock.ExpectQuery("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg(), int64(42)). // resolved_by, id
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
@@ -799,7 +799,7 @@ func TestExecuteMerge_NotFound(t *testing.T) {
 	// GIVEN merge ID that doesn't exist
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			// ExecuteApprovedMerge returns ErrNoRows
+			// ExecuteMerge returns ErrNoRows
 			mock.ExpectQuery("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg(), int64(999)).
 				WillReturnError(sql.ErrNoRows)
@@ -854,14 +854,14 @@ func TestExecuteMerge_WrongStatus(t *testing.T) {
 	assert.Nil(t, result)
 	var validationErr *apierrors.ValidationError
 	assert.True(t, errors.As(err, &validationErr))
-	assert.Contains(t, err.Error(), "не PENDING/APPROVED")
+	assert.Contains(t, err.Error(), "текущий статус=REJECTED (ожидается PENDING/APPROVED)")
 }
 
 func TestExecuteMerge_GetSuggestedMergeByID_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
-	// GIVEN ExecuteApprovedMerge returns ErrNoRows, then GetSuggestedMergeByID fails with DB error
+	// GIVEN ExecuteMerge returns ErrNoRows, then GetSuggestedMergeByID fails with DB error
 	dbErr := errors.New("connection refused")
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
@@ -895,7 +895,7 @@ func TestExecuteMerge_DuplicateAlreadyMerged(t *testing.T) {
 	// GIVEN merge is approved, but duplicate position is already merged
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			// ExecuteApprovedMerge succeeds
+			// ExecuteMerge succeeds
 			mock.ExpectQuery("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg(), int64(42)).
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
@@ -941,7 +941,7 @@ func TestExecuteMerge_MasterInactive(t *testing.T) {
 	// GIVEN merge is approved, but master position is deprecated
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
-			// ExecuteApprovedMerge succeeds
+			// ExecuteMerge succeeds
 			mock.ExpectQuery("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg(), int64(42)).
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
@@ -994,7 +994,7 @@ func TestExecuteMerge_MergeCatalogPosition_DBError(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	// GIVEN ExecuteApprovedMerge succeeds, MergeCatalogPosition fails with DB error
+	// GIVEN ExecuteMerge succeeds, MergeCatalogPosition fails with DB error
 	dbErr := errors.New("deadlock detected")
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
@@ -1028,7 +1028,7 @@ func TestExecuteMerge_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
-	// GIVEN ExecuteApprovedMerge fails with a real DB error (not ErrNoRows)
+	// GIVEN ExecuteMerge fails with a real DB error (not ErrNoRows)
 	dbErr := errors.New("connection timeout")
 	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
