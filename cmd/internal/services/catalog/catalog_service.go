@@ -324,7 +324,7 @@ func (s *CatalogService) ExecuteMerge(
 		// Если статус != APPROVED, UPDATE не затронет строк → sql.ErrNoRows
 		var txErr error
 		merge, txErr = q.ExecuteApprovedMerge(ctx, db.ExecuteApprovedMergeParams{
-			ExecutedBy: sql.NullString{String: executedBy, Valid: true},
+			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
 			ID:         mergeID,
 		})
 		if txErr != nil {
@@ -394,7 +394,7 @@ func (s *CatalogService) ExecuteMerge(
 		MainPositionID:   merge.MainPositionID,
 		MergedPositionID: mergedPos.ID,
 		Status:           mergedPos.Status,
-		ExecutedAt:       merge.ExecutedAt.Time,
+		ResolvedAt:       merge.ResolvedAt.Time,
 	}, nil
 }
 

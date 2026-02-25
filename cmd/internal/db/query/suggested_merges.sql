@@ -45,8 +45,8 @@ OFFSET $2;
 UPDATE suggested_merges
 SET 
     status = $1,
-    decided_at = NOW(),
-    decided_by = $2
+    resolved_at = NOW(),
+    resolved_by = $2
 WHERE 
     id = $3
 RETURNING *;
@@ -63,8 +63,8 @@ WHERE id = $1;
 UPDATE suggested_merges
 SET 
     status = 'EXECUTED',
-    executed_at = NOW(),
-    executed_by = $1
+    resolved_at = NOW(),
+    resolved_by = $1
 WHERE 
     id = $2
     AND status = 'APPROVED'

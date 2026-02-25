@@ -697,8 +697,7 @@ func TestBuildContextString_DescriptionTakesPriorityOverTitle(t *testing.T) {
 var (
 	suggestedMergeColumns = []string{
 		"id", "main_position_id", "duplicate_position_id", "similarity_score",
-		"status", "created_at", "updated_at", "decided_at", "decided_by",
-		"executed_at", "executed_by",
+		"status", "created_at", "updated_at", "resolved_at", "resolved_by",
 	}
 	catalogPositionColumns = []string{
 		"id", "standard_job_title", "description", "embedding", "kind", "status",
@@ -761,11 +760,11 @@ func TestExecuteMerge_Success(t *testing.T) {
 		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
 			// ExecuteApprovedMerge succeeds
 			mock.ExpectQuery("UPDATE suggested_merges").
-				WithArgs(sqlmock.AnyArg(), int64(42)). // executed_by, id
+				WithArgs(sqlmock.AnyArg(), int64(42)). // resolved_by, id
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
 					AddRow(
 						int64(42), int64(100), int64(200), float32(0.95),
-						"EXECUTED", now, now, now, "admin", now, "123",
+						"EXECUTED", now, now, now, "123",
 					))
 
 			// MergeCatalogPosition succeeds
@@ -790,7 +789,7 @@ func TestExecuteMerge_Success(t *testing.T) {
 	assert.Equal(t, int64(100), result.MainPositionID)
 	assert.Equal(t, int64(200), result.MergedPositionID)
 	assert.Equal(t, "deprecated", result.Status)
-	assert.False(t, result.ExecutedAt.IsZero())
+	assert.False(t, result.ResolvedAt.IsZero())
 }
 
 func TestExecuteMerge_NotFound(t *testing.T) {
@@ -842,7 +841,7 @@ func TestExecuteMerge_WrongStatus(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
 					AddRow(
 						int64(50), int64(10), int64(20), float32(0.90),
-						"REJECTED", now, now, now, "admin", sql.NullTime{Valid: false}, sql.NullString{Valid: false},
+						"REJECTED", now, now, now, "admin",
 					))
 		}),
 	)
@@ -902,7 +901,7 @@ func TestExecuteMerge_DuplicateAlreadyMerged(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
 					AddRow(
 						int64(42), int64(100), int64(200), float32(0.95),
-						"EXECUTED", now, now, now, "admin", now, "123",
+						"EXECUTED", now, now, now, "123",
 					))
 
 			// MergeCatalogPosition fails (ErrNoRows — WHERE clause excluded it)
@@ -948,7 +947,7 @@ func TestExecuteMerge_MasterInactive(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
 					AddRow(
 						int64(42), int64(100), int64(200), float32(0.95),
-						"EXECUTED", now, now, now, "admin", now, "123",
+						"EXECUTED", now, now, now, "123",
 					))
 
 			// MergeCatalogPosition fails (ErrNoRows — master not active)
@@ -1004,7 +1003,7 @@ func TestExecuteMerge_MergeCatalogPosition_DBError(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
 					AddRow(
 						int64(42), int64(100), int64(200), float32(0.95),
-						"EXECUTED", now, now, now, "admin", now, "123",
+						"EXECUTED", now, now, now, "123",
 					))
 
 			mock.ExpectQuery("UPDATE catalog_positions").
