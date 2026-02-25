@@ -597,7 +597,7 @@ func (s *CatalogService) ExecuteBatchMerge(
 				}
 				return fmt.Errorf("ошибка проверки target_position_id=%d: %w", req.TargetPositionID, targetErr)
 			}
-			if targetPos.Status == "deprecated" || targetPos.MergedIntoID.Valid {
+			if targetPos.Status != "active" || targetPos.MergedIntoID.Valid {
 				return apierrors.NewValidationError(
 					"target_position_id=%d имеет невалидный статус %q (merged_into_id=%v)",
 					req.TargetPositionID, targetPos.Status, targetPos.MergedIntoID,
