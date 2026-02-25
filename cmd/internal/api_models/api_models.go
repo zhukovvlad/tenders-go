@@ -230,12 +230,56 @@ type UnmatchedPositionResponse struct {
 	StandardJobTitle   string `json:"standard_job_title"`         // Лемматизированная версия для поиска в catalog_positions
 }
 
+// MergeScenario — тип сценария слияния.
+type MergeScenario = string
+
+const (
+	// MergeScenarioDefault — B вливается в A (Default Merge).
+	MergeScenarioDefault MergeScenario = "default"
+	// MergeScenarioMergeToNew — создаётся C, A и B вливаются в C (Merge to New).
+	MergeScenarioMergeToNew MergeScenario = "merge_to_new"
+)
+
+// ExecuteMergeRequest - это DTO запроса для POST /api/v1/merges/:id/execute
+// Если NewMainTitle пуст — Сценарий 1 (Default Merge): B вливается в A.
+// Если NewMainTitle задан — Сценарий 2 (Merge to New): создаётся C, A и B вливаются в C.
+type ExecuteMergeRequest struct {
+	NewMainTitle string `json:"new_main_title,omitempty"`
+}
+
 // ExecuteMergeResponse - это DTO ответа для POST /api/v1/merges/:id/execute
 // Возвращает информацию о выполненном слиянии.
 type ExecuteMergeResponse struct {
-	MergeID          int64     `json:"merge_id"`           // ID записи suggested_merges
-	MainPositionID   int64     `json:"main_position_id"`   // Мастер-позиция (осталась active)
-	MergedPositionID int64     `json:"merged_position_id"` // Дубликат (стал deprecated)
-	Status           string    `json:"status"`             // Новый статус дубликата ("deprecated")
-	ResolvedAt       time.Time `json:"resolved_at"`        // Время выполнения слияния (approve + execute)
+	MergeID                 int64         `json:"merge_id"`                  // ID записи suggested_merges
+	MainPositionID          int64         `json:"main_position_id"`          // Исходная мастер-позиция (A)
+	MergedPositionID        int64         `json:"merged_position_id"`        // Дубликат (B), стал deprecated
+	ResultingPositionID     int64         `json:"resulting_position_id"`     // Итоговая позиция: A (Scenario 1) или C (Scenario 2)
+	ResultingPositionStatus string        `json:"resulting_position_status"` // Статус итоговой позиции: "active" (S1) или "pending_indexing" (S2)
+	DeprecatedPositionIDs   []int64       `json:"deprecated_position_ids"`   // ID всех deprecated-позиций: [B] (S1) или [A,B] (S2)
+	Scenario                MergeScenario `json:"scenario"`                  // MergeScenarioDefault или MergeScenarioMergeToNew
+	Status                  string        `json:"status"`                    // Новый статус дубликата ("deprecated")
+	ResolvedAt              time.Time     `json:"resolved_at"`               // Время выполнения слияния
+}
+
+// ExecuteBatchMergeRequest - это DTO запроса для POST /api/v1/admin/merges/execute-batch
+//
+// Выбор сценария:
+//   - NewMainTitle задан → Scenario 2: все позиции → deprecated, создаётся C.
+//   - NewMainTitle пуст  → Scenario 1: TargetPositionID остаётся active, остальные → deprecated.
+//     RenameTitle позволяет переименовать выжившую позицию.
+type ExecuteBatchMergeRequest struct {
+	MergeIDs         []int64 `json:"merge_ids" binding:"required"` // ID записей suggested_merges
+	TargetPositionID int64   `json:"target_position_id,omitempty"` // Scenario 1: кто выживает
+	RenameTitle      string  `json:"rename_title,omitempty"`       // Scenario 1: переименовать выжившую
+	NewMainTitle     string  `json:"new_main_title,omitempty"`     // Scenario 2: имя новой позиции C
+}
+
+// ExecuteBatchMergeResponse - это DTO ответа для POST /api/v1/admin/merges/execute-batch
+type ExecuteBatchMergeResponse struct {
+	MergeIDs                []int64       `json:"merge_ids"`                 // Обработанные merge ID
+	ResultingPositionID     int64         `json:"resulting_position_id"`     // Итоговая позиция: target (S1) или C (S2)
+	ResultingPositionStatus string        `json:"resulting_position_status"` // Статус итоговой: "active"/"pending_indexing"
+	DeprecatedPositionIDs   []int64       `json:"deprecated_position_ids"`   // Все deprecated-позиции
+	Scenario                MergeScenario `json:"scenario"`                  // "default" или "merge_to_new"
+	ResolvedAt              time.Time     `json:"resolved_at"`               // Время выполнения
 }

@@ -92,16 +92,37 @@
 - [x] Тесты валидации параметров (negative limit/offset → ValidationError)
 - [x] Тесты обработки ошибок БД (wrapped errors)
 - [x] Тесты граничных случаев (пустые списки, nil, self-merge)
-- [x] Тесты ExecuteMerge — успешное выполнение одобренного слияния (транзакция: ExecuteApprovedMerge + MergeCatalogPosition)
+- [x] Тесты ExecuteMerge Сценарий 1 (Default) — успешное выполнение (транзакция: ExecuteMerge + MergeCatalogPosition)
 - [x] Тесты ExecuteMerge — пустой executedBy (ValidationError)
 - [x] Тесты ExecuteMerge — предложение не найдено (NotFoundError)
-- [x] Тесты ExecuteMerge — статус не APPROVED (ValidationError)
+- [x] Тесты ExecuteMerge — статус не PENDING/APPROVED (ValidationError)
 - [x] Тесты ExecuteMerge — ошибка БД GetSuggestedMergeByID не маскируется (propagated DB error)
 - [x] Тесты ExecuteMerge — дубликат уже влит (ValidationError с указанием дубликата)
 - [x] Тесты ExecuteMerge — мастер-позиция неактивна (ValidationError с указанием мастера)
 - [x] Тесты ExecuteMerge — ошибка БД при MergeCatalogPosition (wrapped DB error)
-- [x] Тесты ExecuteMerge — ошибка БД при ExecuteApprovedMerge (wrapped DB error)
-- [x] **Результат: 32 unit теста, все проходят.**
+- [x] Тесты ExecuteMerge — ошибка БД при ExecuteMerge (wrapped DB error)
+- [x] Тесты ExecuteMerge Сценарий 2 (Merge-to-New) — успешное создание C, A→C, B→C (транзакция: CreateSimpleCatalogPosition + 2× SetPositionMerged)
+- [x] Тесты ExecuteMerge Сценарий 2 — response содержит ResultingPositionID=C, Scenario="merge_to_new", ResultingPositionStatus, DeprecatedPositionIDs
+- [x] Тесты ExecuteMerge Сценарий 2 — ошибка CreateSimpleCatalogPosition (wrapped DB error)
+- [x] Тесты ExecuteMerge Сценарий 2 — A уже deprecated (ValidationError при SetPositionMerged A)
+- [x] Тесты ExecuteMerge Сценарий 2 — B уже deprecated (ValidationError при SetPositionMerged B)
+- [x] Тесты ExecuteMerge Сценарий 2 — ошибка БД при SetPositionMerged (wrapped DB error)
+- [x] Тесты ExecuteMerge Сценарий 2 — newMainTitle с пробелами (trim → пустая строка = Сценарий 1)
+- [x] Тесты ExecuteMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
+- [x] **Результат: 16 ExecuteMerge-тестов (9 Scenario 1 + 7 Scenario 2), все проходят.**
+- [x] Тесты ExecuteBatchMerge — пустой executedBy (ValidationError)
+- [x] Тесты ExecuteBatchMerge — пустые merge_ids (ValidationError)
+- [x] Тесты ExecuteBatchMerge — дубликат merge_id (ValidationError с указанием ID)
+- [x] Тесты ExecuteBatchMerge — отсутствие target_position_id без new_main_title (ValidationError)
+- [x] Тесты ExecuteBatchMerge Сценарий 1 (Default Batch) — успешное выполнение (3 merge-записи, 3 deprecated)
+- [x] Тесты ExecuteBatchMerge Сценарий 1 — переименование target (status=pending_indexing)
+- [x] Тесты ExecuteBatchMerge Сценарий 1 — target_position_id не в группе позиций (ValidationError)
+- [x] Тесты ExecuteBatchMerge — частичный отказ (не все merge_ids обновились → rollback)
+- [x] Тесты ExecuteBatchMerge Сценарий 1 — позиция уже deprecated (ValidationError)
+- [x] Тесты ExecuteBatchMerge Сценарий 2 (Batch Merge-to-New) — создание C, все позиции deprecated
+- [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
+- [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
+- [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
@@ -303,12 +324,15 @@
 - [ ] Создать тесты для AI-эндпоинтов
 - [ ] Мокирование AI сервисов
 - [ ] Тесты ExecuteMergeHandler (`POST /api/v1/admin/merges/:id/execute`)
-  - [ ] Успешное выполнение слияния (200 + ExecuteMergeResponse)
+  - [ ] Сценарий 1 (Default): пустой body → 200 + ExecuteMergeResponse (Scenario="default", ResultingPositionID=A)
+  - [ ] Сценарий 2 (Merge-to-New): `{"new_main_title": "Новое имя"}` → 200 + ExecuteMergeResponse (Scenario="merge_to_new", ResultingPositionID=C)
   - [ ] Невалидный ID (400)
+  - [ ] Невалидный JSON body (400)
   - [ ] Предложение не найдено (404)
-  - [ ] Статус не APPROVED (400)
+  - [ ] Статус не PENDING/APPROVED (400)
   - [ ] Ошибка БД (500)
   - [ ] Проверка требования роли admin
+  - [ ] Проверка user_id из JWT передаётся как executedBy
 
 ---
 

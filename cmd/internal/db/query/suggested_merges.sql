@@ -59,7 +59,9 @@ WHERE id = $1;
 -- name: ExecuteMerge :one
 -- Атомарно переводит предложение из PENDING или APPROVED в EXECUTED (one-click merge).
 -- Возвращает строку ТОЛЬКО если текущий статус позволяет исполнение (защита от race condition).
--- Используется внутри транзакции вместе с MergeCatalogPosition.
+-- Используется внутри транзакции:
+--   • Default Merge (Сценарий 1): в паре с MergeCatalogPosition
+--   • Merge-to-New (Сценарий 2): в паре с CreateSimpleCatalogPosition + SetPositionMerged
 UPDATE suggested_merges
 SET 
     status = 'EXECUTED',
@@ -67,5 +69,20 @@ SET
     resolved_by = $1
 WHERE 
     id = $2
+    AND status IN ('PENDING', 'APPROVED')
+RETURNING *;
+
+-- name: ExecuteMergeBatch :many
+-- Атомарно переводит несколько предложений из PENDING/APPROVED в EXECUTED (batch merge).
+-- Возвращает ВСЕ строки, успешно обновлённые. Если len(returned) < len(ids) — часть
+-- merge'ей не прошла (неверный статус или не найдены).
+-- Используется внутри транзакции execute-batch.
+UPDATE suggested_merges
+SET
+    status = 'EXECUTED',
+    resolved_at = NOW(),
+    resolved_by = @resolved_by
+WHERE
+    id = ANY(@ids::bigint[])
     AND status IN ('PENDING', 'APPROVED')
 RETURNING *;

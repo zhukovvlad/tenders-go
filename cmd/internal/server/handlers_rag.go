@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -241,8 +243,9 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 
 // === 7. POST /api/v1/admin/merges/:id/execute ===
 
-// ExecuteMergeHandler выполняет одобренное слияние дубликата в мастер-позицию.
+// ExecuteMergeHandler выполняет слияние дубликата в мастер-позицию.
 // Требует роль admin. ID берётся из URL, executedBy — из JWT.
+// Принимает опциональное JSON-тело с полем new_main_title (Сценарий 2: Merge-to-New).
 func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ExecuteMergeHandler")
 
@@ -255,7 +258,26 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 		return
 	}
 
-	// 2. Извлекаем user_id из JWT-контекста (обязателен — роут за RequireRole("admin"))
+	// 2. Парсим опциональное тело запроса
+	var req api_models.ExecuteMergeRequest
+	// Читаем body целиком — ContentLength может быть -1 при chunked transfer
+	body, readErr := c.GetRawData()
+	if readErr != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", readErr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", readErr)))
+		return
+	}
+	if len(body) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			logger.Errorf("Ошибка парсинга тела запроса: %v", err)
+			c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
+			return
+		}
+	}
+
+	// 3. Извлекаем user_id из JWT-контекста (обязателен — роут за RequireRole("admin"))
 	userID, exists := c.Get("user_id")
 	if !exists {
 		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
@@ -270,10 +292,73 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 	}
 	executedBy := strconv.FormatInt(uid, 10)
 
-	// 3. Выполняем слияние через сервис
-	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, executedBy)
+	// 4. Выполняем слияние через сервис
+	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, executedBy, req.NewMainTitle)
 	if err != nil {
 		logger.Errorf("Ошибка ExecuteMerge: %v", err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// === 8. POST /api/v1/admin/merges/execute-batch ===
+
+// ExecuteBatchMergeHandler выполняет групповое слияние дубликатов каталога.
+// Требует роль admin. Принимает JSON-тело с merge_ids и параметрами сценария.
+func (s *Server) ExecuteBatchMergeHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ExecuteBatchMergeHandler")
+
+	// 1. Парсим тело запроса (strict: запрещаем неизвестные поля)
+	var req api_models.ExecuteBatchMergeRequest
+	body, readErr := c.GetRawData()
+	if readErr != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", readErr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", readErr)))
+		return
+	}
+	if len(body) == 0 {
+		logger.Errorf("Пустое тело запроса")
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("тело запроса обязательно")))
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		logger.Errorf("Ошибка парсинга тела запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
+		return
+	}
+
+	// 2. Извлекаем user_id из JWT-контекста
+	userID, exists := c.Get("user_id")
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	executedBy := strconv.FormatInt(uid, 10)
+
+	// 3. Выполняем батч-слияние через сервис
+	result, err := s.catalogService.ExecuteBatchMerge(c.Request.Context(), req, executedBy)
+	if err != nil {
+		logger.Errorf("Ошибка ExecuteBatchMerge: %v", err)
 		var validationErr *apierrors.ValidationError
 		var notFoundErr *apierrors.NotFoundError
 		switch {

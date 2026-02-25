@@ -42,8 +42,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/api_models"
 	db "github.com/zhukovvlad/tenders-go/cmd/internal/db/sqlc"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/apierrors"
@@ -289,16 +291,25 @@ func (s *CatalogService) SuggestMerge(
 // Выполняет фактическое слияние дубликата в мастер-позицию.
 // Предложения в статусе PENDING или APPROVED могут быть выполнены (one-click merge).
 //
+// # Сценарии
+//
+//   - Сценарий 1 (Default Merge): newMainTitle == "" → B вливается в A.
+//     A остаётся active. B получает merged_into_id = A, status = 'deprecated'.
+//
+//   - Сценарий 2 (Merge to New): newMainTitle != "" → Создаётся новая позиция C.
+//     A и B получают merged_into_id = C, status = 'deprecated'.
+//
 // # Логика выполнения (целиком в транзакции)
 //
-//  1. Атомарно переводит suggested_merge из PENDING/APPROVED в EXECUTED (one-click merge)
-//  2. Помечает дубликат: merged_into_id = master, status = 'deprecated'
+//  1. Атомарно переводит suggested_merge из PENDING/APPROVED в EXECUTED
+//  2. В зависимости от сценария: помечает дубликат(ы) как deprecated
 //
 // # Параметры
 //
 //   - ctx: контекст выполнения запроса
 //   - mergeID: ID записи в таблице suggested_merges
 //   - executedBy: ID оператора, выполнившего слияние
+//   - newMainTitle: новое имя (пустая строка = Сценарий 1)
 //
 // # Возвращаемое значение
 //
@@ -308,6 +319,7 @@ func (s *CatalogService) ExecuteMerge(
 	ctx context.Context,
 	mergeID int64,
 	executedBy string,
+	newMainTitle string,
 ) (*api_models.ExecuteMergeResponse, error) {
 	logger := s.logger.WithField("method", "ExecuteMerge").WithField("merge_id", mergeID)
 
@@ -316,13 +328,21 @@ func (s *CatalogService) ExecuteMerge(
 		return nil, apierrors.NewValidationError("executedBy не может быть пустым")
 	}
 
+	// Определяем сценарий
+	newMainTitle = strings.TrimSpace(newMainTitle)
+	isRename := newMainTitle != ""
+
 	// Вся логика внутри транзакции для защиты от race condition
-	var mergedPos db.CatalogPosition
 	var merge db.SuggestedMerge
+	var resultingPositionID int64
+	var resultingPositionStatus string
+	var deprecatedPositionIDs []int64
+	var mergedPositionID int64 // B (дубликат) — deprecated в обоих сценариях
+	var mergedStatus string
+	var scenario string
 
 	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
 		// 1. Атомарно переводим PENDING/APPROVED → EXECUTED (one-click merge)
-		// Если статус не PENDING/APPROVED, UPDATE не затронет строк → sql.ErrNoRows
 		var txErr error
 		merge, txErr = q.ExecuteMerge(ctx, db.ExecuteMergeParams{
 			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
@@ -336,10 +356,8 @@ func (s *CatalogService) ExecuteMerge(
 					if errors.Is(checkErr, sql.ErrNoRows) {
 						return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
 					}
-					// Реальная ошибка БД — пробрасываем
 					return fmt.Errorf("ошибка GetSuggestedMergeByID: %w", checkErr)
 				}
-				// Запись существует, но статус не PENDING/APPROVED
 				return apierrors.NewValidationError(
 					"слияние %d не может быть выполнено: текущий статус=%s (ожидается PENDING/APPROVED)",
 					mergeID, existing.Status,
@@ -348,35 +366,77 @@ func (s *CatalogService) ExecuteMerge(
 			return fmt.Errorf("ошибка ExecuteMerge: %w", txErr)
 		}
 
-		// 2. Помечаем дубликат: merged_into_id = master, status = 'deprecated'
-		mergedPos, txErr = q.MergeCatalogPosition(ctx, db.MergeCatalogPositionParams{
-			MasterID:    sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
-			DuplicateID: merge.DuplicatePositionID,
-		})
-		if txErr != nil {
-			if errors.Is(txErr, sql.ErrNoRows) {
-				// Определяем конкретную причину отказа для информативной ошибки
-				dup, dupErr := q.GetCatalogPositionByID(ctx, merge.DuplicatePositionID)
-				if dupErr == nil && (dup.MergedIntoID.Valid || dup.Status == "deprecated") {
+		if !isRename {
+			// ===== Сценарий 1: Default Merge (B → A) =====
+			scenario = api_models.MergeScenarioDefault
+
+			mergedPos, mergeErr := q.MergeCatalogPosition(ctx, db.MergeCatalogPositionParams{
+				MasterID:    sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
+				DuplicateID: merge.DuplicatePositionID,
+			})
+			if mergeErr != nil {
+				if errors.Is(mergeErr, sql.ErrNoRows) {
+					return diagnoseMergeFailure(ctx, q, merge)
+				}
+				return fmt.Errorf("ошибка MergeCatalogPosition: %w", mergeErr)
+			}
+
+			resultingPositionID = merge.MainPositionID // A остаётся активной
+			resultingPositionStatus = "active"         // WHERE clause гарантирует: master.status = 'active'
+			deprecatedPositionIDs = []int64{mergedPos.ID}
+			mergedPositionID = mergedPos.ID
+			mergedStatus = mergedPos.Status
+		} else {
+			// ===== Сценарий 2: Merge to New (A,B → C) =====
+			scenario = api_models.MergeScenarioMergeToNew
+
+			// 2a. Создаём новую позицию C
+			newPos, createErr := q.CreateSimpleCatalogPosition(ctx, newMainTitle)
+			if createErr != nil {
+				var pqErr *pq.Error
+				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
 					return apierrors.NewValidationError(
-						"слияние невозможно: дубликат %d уже влит в другую позицию",
-						merge.DuplicatePositionID,
+						"позиция с названием %q уже существует в каталоге", newMainTitle,
 					)
 				}
-				master, masterErr := q.GetCatalogPositionByID(ctx, merge.MainPositionID)
-				if masterErr == nil && (master.MergedIntoID.Valid || master.Status != "active") {
+				return fmt.Errorf("ошибка CreateSimpleCatalogPosition: %w", createErr)
+			}
+			resultingPositionID = newPos.ID
+
+			// 2b. A → deprecated, merged_into_id = C
+			mergedA, mergeAErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
+				TargetID:   sql.NullInt64{Int64: newPos.ID, Valid: true},
+				PositionID: merge.MainPositionID,
+			})
+			if mergeAErr != nil {
+				if errors.Is(mergeAErr, sql.ErrNoRows) {
 					return apierrors.NewValidationError(
-						"слияние невозможно: мастер-позиция %d неактивна или влита в другую",
+						"слияние невозможно: мастер-позиция %d уже deprecated или влита",
 						merge.MainPositionID,
 					)
 				}
-				// Не удалось определить конкретную причину — общее сообщение
-				return apierrors.NewValidationError(
-					"слияние невозможно: дубликат %d или мастер-позиция %d не удовлетворяют условиям",
-					merge.DuplicatePositionID, merge.MainPositionID,
-				)
+				return fmt.Errorf("ошибка SetPositionMerged (A=%d): %w", merge.MainPositionID, mergeAErr)
 			}
-			return fmt.Errorf("ошибка MergeCatalogPosition: %w", txErr)
+
+			// 2c. B → deprecated, merged_into_id = C
+			mergedB, mergeBErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
+				TargetID:   sql.NullInt64{Int64: newPos.ID, Valid: true},
+				PositionID: merge.DuplicatePositionID,
+			})
+			if mergeBErr != nil {
+				if errors.Is(mergeBErr, sql.ErrNoRows) {
+					return apierrors.NewValidationError(
+						"слияние невозможно: дубликат %d уже deprecated или влит",
+						merge.DuplicatePositionID,
+					)
+				}
+				return fmt.Errorf("ошибка SetPositionMerged (B=%d): %w", merge.DuplicatePositionID, mergeBErr)
+			}
+
+			resultingPositionStatus = newPos.Status // "pending_indexing" для C
+			deprecatedPositionIDs = []int64{mergedA.ID, mergedB.ID}
+			mergedPositionID = mergedB.ID
+			mergedStatus = mergedB.Status
 		}
 
 		return nil
@@ -387,16 +447,306 @@ func (s *CatalogService) ExecuteMerge(
 		return nil, err
 	}
 
-	logger.Infof("Слияние выполнено: позиция %d влита в %d",
-		merge.DuplicatePositionID, merge.MainPositionID)
+	if isRename {
+		logger.Infof("Merge-to-New: позиции %d и %d влиты в новую %d (%q)",
+			merge.MainPositionID, merge.DuplicatePositionID, resultingPositionID, newMainTitle)
+	} else {
+		logger.Infof("Default Merge: позиция %d влита в %d",
+			merge.DuplicatePositionID, merge.MainPositionID)
+	}
 
 	return &api_models.ExecuteMergeResponse{
-		MergeID:          mergeID,
-		MainPositionID:   merge.MainPositionID,
-		MergedPositionID: mergedPos.ID,
-		Status:           mergedPos.Status,
-		ResolvedAt:       merge.ResolvedAt.Time,
+		MergeID:                 mergeID,
+		MainPositionID:          merge.MainPositionID,
+		MergedPositionID:        mergedPositionID,
+		ResultingPositionID:     resultingPositionID,
+		ResultingPositionStatus: resultingPositionStatus,
+		DeprecatedPositionIDs:   deprecatedPositionIDs,
+		Scenario:                scenario,
+		Status:                  mergedStatus,
+		ResolvedAt:              merge.ResolvedAt.Time,
 	}, nil
+}
+
+// ExecuteBatchMerge реализует POST /api/v1/admin/merges/execute-batch.
+//
+// # Назначение
+//
+// Выполняет групповое слияние дубликатов каталога в одной транзакции.
+// Решает проблему связных компонентов — когда позиция одновременно является
+// мастером в одних merge-записях и дубликатом в других.
+//
+// # Сценарии
+//
+//   - Сценарий 1 (Default Batch): NewMainTitle == "" → TargetPositionID остаётся active,
+//     все остальные позиции deprecated. RenameTitle позволяет переименовать выжившую.
+//
+//   - Сценарий 2 (Batch Merge-to-New): NewMainTitle != "" → создаётся C,
+//     все позиции из группы deprecated.
+//
+// # Параметры
+//
+//   - ctx: контекст выполнения запроса
+//   - req: ExecuteBatchMergeRequest с merge ID, target, rename и new_main_title
+//   - executedBy: ID оператора
+//
+// # Возвращаемое значение
+//
+//   - *api_models.ExecuteBatchMergeResponse: результат батча
+//   - error: ValidationError, NotFoundError или ошибка БД
+func (s *CatalogService) ExecuteBatchMerge(
+	ctx context.Context,
+	req api_models.ExecuteBatchMergeRequest,
+	executedBy string,
+) (*api_models.ExecuteBatchMergeResponse, error) {
+	logger := s.logger.WithField("method", "ExecuteBatchMerge").
+		WithField("merge_ids_count", len(req.MergeIDs))
+
+	// === Валидация входных данных ===
+	if executedBy == "" {
+		return nil, apierrors.NewValidationError("executedBy не может быть пустым")
+	}
+	if len(req.MergeIDs) == 0 {
+		return nil, apierrors.NewValidationError("merge_ids не может быть пустым")
+	}
+
+	// Проверка на дубликаты в merge_ids
+	seen := make(map[int64]struct{}, len(req.MergeIDs))
+	for _, id := range req.MergeIDs {
+		if _, exists := seen[id]; exists {
+			return nil, apierrors.NewValidationError("дубликат merge_id: %d", id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	// Определяем сценарий
+	newMainTitle := strings.TrimSpace(req.NewMainTitle)
+	renameTitle := strings.TrimSpace(req.RenameTitle)
+	isMergeToNew := newMainTitle != ""
+
+	if !isMergeToNew && req.TargetPositionID == 0 {
+		return nil, apierrors.NewValidationError(
+			"target_position_id обязателен для Сценария 1 (без new_main_title)")
+	}
+
+	// === Транзакция ===
+	var resultingPositionID int64
+	var resultingPositionStatus string
+	var deprecatedPositionIDs []int64
+	var scenario string
+	var resolvedAt sql.NullTime
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// 1. Bulk-переводим PENDING/APPROVED → EXECUTED
+		executedMerges, txErr := q.ExecuteMergeBatch(ctx, db.ExecuteMergeBatchParams{
+			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
+			Ids:        req.MergeIDs,
+		})
+		if txErr != nil {
+			return fmt.Errorf("ошибка ExecuteMergeBatch: %w", txErr)
+		}
+
+		// Проверяем что ВСЕ merge_ids были обновлены
+		if len(executedMerges) != len(req.MergeIDs) {
+			// Определяем какие merge_ids не прошли
+			executedSet := make(map[int64]struct{}, len(executedMerges))
+			for _, m := range executedMerges {
+				executedSet[m.ID] = struct{}{}
+			}
+			var failedIDs []int64
+			for _, id := range req.MergeIDs {
+				if _, ok := executedSet[id]; !ok {
+					failedIDs = append(failedIDs, id)
+				}
+			}
+			return apierrors.NewValidationError(
+				"не удалось выполнить merge_ids %v: не найдены или имеют неверный статус",
+				failedIDs,
+			)
+		}
+
+		// Сохраняем resolved_at из первого merge
+		resolvedAt = executedMerges[0].ResolvedAt
+
+		// 2. Собираем уникальные position ID из всех merge-записей
+		positionSet := make(map[int64]struct{})
+		for _, m := range executedMerges {
+			positionSet[m.MainPositionID] = struct{}{}
+			positionSet[m.DuplicatePositionID] = struct{}{}
+		}
+
+		if !isMergeToNew {
+			// ===== Сценарий 1: Default Batch Merge =====
+			scenario = api_models.MergeScenarioDefault
+
+			// Проверяем что target входит в собранные позиции
+			if _, ok := positionSet[req.TargetPositionID]; !ok {
+				return apierrors.NewValidationError(
+					"target_position_id=%d не входит в позиции группы merge-записей",
+					req.TargetPositionID,
+				)
+			}
+
+			// Проверяем что target-позиция активна и не deprecated/merged
+			targetPos, targetErr := q.GetCatalogPositionByID(ctx, req.TargetPositionID)
+			if targetErr != nil {
+				if errors.Is(targetErr, sql.ErrNoRows) {
+					return apierrors.NewValidationError(
+						"target_position_id=%d не найден в каталоге", req.TargetPositionID,
+					)
+				}
+				return fmt.Errorf("ошибка проверки target_position_id=%d: %w", req.TargetPositionID, targetErr)
+			}
+			if targetPos.Status != "active" || targetPos.MergedIntoID.Valid {
+				return apierrors.NewValidationError(
+					"target_position_id=%d имеет невалидный статус %q (merged_into_id=%v)",
+					req.TargetPositionID, targetPos.Status, targetPos.MergedIntoID,
+				)
+			}
+
+			// Deprecate все позиции, кроме target
+			for posID := range positionSet {
+				if posID == req.TargetPositionID {
+					continue
+				}
+				_, mergeErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
+					TargetID:   sql.NullInt64{Int64: req.TargetPositionID, Valid: true},
+					PositionID: posID,
+				})
+				if mergeErr != nil {
+					if errors.Is(mergeErr, sql.ErrNoRows) {
+						return apierrors.NewValidationError(
+							"позиция %d уже deprecated или влита", posID,
+						)
+					}
+					return fmt.Errorf("ошибка SetPositionMerged (pos=%d): %w", posID, mergeErr)
+				}
+				deprecatedPositionIDs = append(deprecatedPositionIDs, posID)
+			}
+
+			resultingPositionID = req.TargetPositionID
+
+			// Опциональное переименование target
+			if renameTitle != "" {
+				_, renameErr := q.UpdateCatalogPositionDetails(ctx, db.UpdateCatalogPositionDetailsParams{
+					StandardJobTitle: sql.NullString{String: renameTitle, Valid: true},
+					Description:      sql.NullString{Valid: false},
+					UnitID:           sql.NullInt64{Valid: false},
+					ID:               req.TargetPositionID,
+				})
+				if renameErr != nil {
+					if errors.Is(renameErr, sql.ErrNoRows) {
+						// Если title не изменился — не ошибка (COALESCE + IS DISTINCT FROM → no-op)
+						resultingPositionStatus = "active"
+					} else {
+						return fmt.Errorf("ошибка UpdateCatalogPositionDetails (target=%d): %w",
+							req.TargetPositionID, renameErr)
+					}
+				} else {
+					resultingPositionStatus = "pending_indexing" // rename → нужна переиндексация
+				}
+			} else {
+				resultingPositionStatus = "active"
+			}
+
+		} else {
+			// ===== Сценарий 2: Batch Merge-to-New =====
+			scenario = api_models.MergeScenarioMergeToNew
+
+			// Создаём новую позицию C
+			newPos, createErr := q.CreateSimpleCatalogPosition(ctx, newMainTitle)
+			if createErr != nil {
+				var pqErr *pq.Error
+				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
+					return apierrors.NewValidationError(
+						"позиция с названием %q уже существует в каталоге", newMainTitle,
+					)
+				}
+				return fmt.Errorf("ошибка CreateSimpleCatalogPosition: %w", createErr)
+			}
+			resultingPositionID = newPos.ID
+			resultingPositionStatus = newPos.Status // "pending_indexing"
+
+			// Deprecate все позиции из группы
+			for posID := range positionSet {
+				_, mergeErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
+					TargetID:   sql.NullInt64{Int64: newPos.ID, Valid: true},
+					PositionID: posID,
+				})
+				if mergeErr != nil {
+					if errors.Is(mergeErr, sql.ErrNoRows) {
+						return apierrors.NewValidationError(
+							"позиция %d уже deprecated или влита", posID,
+						)
+					}
+					return fmt.Errorf("ошибка SetPositionMerged (pos=%d): %w", posID, mergeErr)
+				}
+				deprecatedPositionIDs = append(deprecatedPositionIDs, posID)
+			}
+		}
+
+		// Сортируем для детерминированного ответа API
+		sort.Slice(deprecatedPositionIDs, func(i, j int) bool {
+			return deprecatedPositionIDs[i] < deprecatedPositionIDs[j]
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("Ошибка батч-слияния: %v", err)
+		return nil, err
+	}
+
+	logger.Infof("Batch merge выполнен: scenario=%s, resulting=%d, deprecated=%v",
+		scenario, resultingPositionID, deprecatedPositionIDs)
+
+	return &api_models.ExecuteBatchMergeResponse{
+		MergeIDs:                req.MergeIDs,
+		ResultingPositionID:     resultingPositionID,
+		ResultingPositionStatus: resultingPositionStatus,
+		DeprecatedPositionIDs:   deprecatedPositionIDs,
+		Scenario:                scenario,
+		ResolvedAt:              resolvedAt.Time,
+	}, nil
+}
+
+// diagnoseMergeFailure определяет конкретную причину отказа MergeCatalogPosition
+// при получении sql.ErrNoRows. Возвращает информативную ValidationError
+// или пробрасывает реальную ошибку БД.
+func diagnoseMergeFailure(
+	ctx context.Context,
+	q *db.Queries,
+	merge db.SuggestedMerge,
+) error {
+	dup, dupErr := q.GetCatalogPositionByID(ctx, merge.DuplicatePositionID)
+	if dupErr != nil && !errors.Is(dupErr, sql.ErrNoRows) {
+		// Реальная ошибка БД — пробрасываем
+		return fmt.Errorf("ошибка GetCatalogPositionByID (dup=%d): %w", merge.DuplicatePositionID, dupErr)
+	}
+	if dupErr == nil && (dup.MergedIntoID.Valid || dup.Status == "deprecated") {
+		return apierrors.NewValidationError(
+			"слияние невозможно: дубликат %d уже влит в другую позицию",
+			merge.DuplicatePositionID,
+		)
+	}
+
+	master, masterErr := q.GetCatalogPositionByID(ctx, merge.MainPositionID)
+	if masterErr != nil && !errors.Is(masterErr, sql.ErrNoRows) {
+		// Реальная ошибка БД — пробрасываем
+		return fmt.Errorf("ошибка GetCatalogPositionByID (master=%d): %w", merge.MainPositionID, masterErr)
+	}
+	if masterErr == nil && (master.MergedIntoID.Valid || master.Status != "active") {
+		return apierrors.NewValidationError(
+			"слияние невозможно: мастер-позиция %d неактивна или влита в другую",
+			merge.MainPositionID,
+		)
+	}
+
+	return apierrors.NewValidationError(
+		"слияние невозможно: дубликат %d или мастер-позиция %d не удовлетворяют условиям",
+		merge.DuplicatePositionID, merge.MainPositionID,
+	)
 }
 
 // GetAllActiveCatalogItems реализует GET /api/v1/catalog/active.
