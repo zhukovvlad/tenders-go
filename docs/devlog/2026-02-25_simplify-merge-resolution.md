@@ -41,15 +41,19 @@
 
 - `ExecuteApprovedMergeParams` → `ExecuteMergeParams` (автогенерация SQLC)
 - `catalog_service.go`: вызов `q.ExecuteMerge(...)`, обновлены комментарии
-- Сообщение об ошибке: `"не APPROVED"` → `"не PENDING/APPROVED"`
+- Все проверки `== sql.ErrNoRows` → `errors.Is(err, sql.ErrNoRows)` (корректная обработка wrapped errors)
+- Добавлен импорт `"errors"`
+- При неверном статусе — `GetSuggestedMergeByID` теперь сохраняется в `existing`, и `existing.Status` включается в сообщение:
+  `"текущий статус=REJECTED (ожидается PENDING/APPROVED)"`
 - `api_models.go`: `ExecutedAt` → `ResolvedAt` в `ExecuteMergeResponse`
 
 ### 4. Тесты
 
 - `suggestedMergeColumns`: 11 → 9 колонок (убраны `decided_at/by`, `executed_at/by`, добавлены `resolved_at/by`)
 - Все AddRow в тестах обновлены под 9-колоночную схему
-- `TestExecuteMerge_WrongStatus`: проверяет `"не PENDING/APPROVED"` (REJECTED — невалидный)
-- `TestExecuteMerge_ExecuteApprovedMerge_DBError` → проверяет `"ExecuteMerge"` в ошибке
+- `TestExecuteMerge_WrongStatus`: проверяет `"текущий статус=REJECTED (ожидается PENDING/APPROVED)"`
+- `TestExecuteMerge_ExecuteApprovedMerge_DBError` → переименован в `TestExecuteMerge_DBError`
+- Все комментарии `ExecuteApprovedMerge` → `ExecuteMerge` (7 замен)
 
 ## Код-ревью (Copilot + CodeRabbit)
 
@@ -64,9 +68,20 @@
 - **Иммутабельность миграции** — dev-only БД, сознательный rollback + reapply
 - **CASE в `UpdateMergeStatus`** для terminal-only states — APPROVED немедленно перезаписывается EXECUTED, промежуточное значение `resolved_at` не проблема
 
-### Принятое замечание (post-review)
+### Принятое замечание (post-review, PR #51 раунд 1)
 - **One-click merge** — `WHERE status = 'APPROVED'` блокировал исполнение из PENDING.
   Исправлено: `WHERE status IN ('PENDING', 'APPROVED')`, запрос переименован `ExecuteApprovedMerge` → `ExecuteMerge`
+
+### Принятые замечания (PR #51 раунд 2, 4)
+1. **Doc метода `ExecuteMerge`** — "Только одобренные (APPROVED)" → "PENDING или APPROVED" (Copilot + CodeRabbit)
+2. **Номер PR в devlog** — #50 → #50, #51 (CodeRabbit)
+3. **Имя теста** — `TestExecuteMerge_ExecuteApprovedMerge_DBError` → `TestExecuteMerge_DBError` (CodeRabbit)
+4. **Комментарии в тестах** — 7 упоминаний `ExecuteApprovedMerge` → `ExecuteMerge` (Copilot)
+
+### Принятые замечания (PR #51 раунд 3, 3)
+1. **`errors.Is()` вместо `==`** — `== sql.ErrNoRows` → `errors.Is(err, sql.ErrNoRows)` для корректной обработки wrapped errors (CodeRabbit)
+2. **Статус в сообщении ошибки** — `"статус не PENDING/APPROVED"` → `"текущий статус=%s (ожидается PENDING/APPROVED)"` с реальным статусом записи
+3. **Добавлен import `"errors"`** — нужен для `errors.Is()`
 
 ## Жизненный цикл suggested_merge (обновлённый)
 
