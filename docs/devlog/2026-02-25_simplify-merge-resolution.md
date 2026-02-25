@@ -1,4 +1,4 @@
-# 2026-02-25 — Упрощение tracking'а слияний + One-click merge (PR #50)
+# 2026-02-25 — Упрощение tracking'а слияний + One-click merge (PR #50, #51)
 
 ## Контекст
 

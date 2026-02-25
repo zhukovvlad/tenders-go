@@ -1024,7 +1024,7 @@ func TestExecuteMerge_MergeCatalogPosition_DBError(t *testing.T) {
 	assert.False(t, errors.As(err, &validationErr))
 }
 
-func TestExecuteMerge_ExecuteApprovedMerge_DBError(t *testing.T) {
+func TestExecuteMerge_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
 
