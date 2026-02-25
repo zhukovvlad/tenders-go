@@ -183,6 +183,7 @@ func NewServer(
 			admin.PATCH("/users/:id/role", server.updateUserRoleHandler)
 
 			// Слияние дубликатов каталога
+			admin.POST("/merges/execute-batch", server.ExecuteBatchMergeHandler)
 			admin.POST("/merges/:id/execute", server.ExecuteMergeHandler)
 		}
 	}
