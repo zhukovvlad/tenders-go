@@ -188,6 +188,10 @@ SCENARIO 8: ExecuteBatchMerge (Default Batch, Scenario 1)
   WHEN ExecuteBatchMerge is called
   THEN ValidationError, transaction rolled back
 
+- GIVEN target_position_id is already deprecated
+  WHEN ExecuteBatchMerge is called
+  THEN ValidationError about invalid/disabled target, transaction rolled back
+
 SCENARIO 9: ExecuteBatchMerge (Batch Merge-to-New, Scenario 2)
 - GIVEN valid merge_ids and new_main_title
   WHEN ExecuteBatchMerge is called
@@ -1549,6 +1553,16 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 					AddRow(int64(102), int64(89), int64(2), float32(0.85), "EXECUTED", now, now, now, "admin").
 					AddRow(int64(103), int64(2), int64(98), float32(0.80), "EXECUTED", now, now, now, "admin"))
 
+			// GetCatalogPositionByID — target=2 should be active
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
+						"POSITION", "active", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
 			// SetPositionMerged for each position != target (59, 89, 98 → target=2)
 			// Note: map iteration order is non-deterministic, so we use AnyArg for position_id
 			for i := 0; i < 3; i++ {
@@ -1597,6 +1611,16 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
 					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin").
 					AddRow(int64(102), int64(2), int64(98), float32(0.85), "EXECUTED", now, now, now, "admin"))
+
+			// GetCatalogPositionByID — target=2 should be active
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
+						"POSITION", "active", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
 
 			// SetPositionMerged for 59 and 98
 			mock.ExpectQuery("UPDATE catalog_positions").
@@ -1722,6 +1746,16 @@ func TestExecuteBatchMerge_Scenario1_PositionAlreadyDeprecated(t *testing.T) {
 					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin").
 					AddRow(int64(102), int64(2), int64(98), float32(0.85), "EXECUTED", now, now, now, "admin"))
 
+			// GetCatalogPositionByID — target=2 is active
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
+						"POSITION", "active", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
 			// First SetPositionMerged → ErrNoRows (already deprecated)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -1737,6 +1771,49 @@ func TestExecuteBatchMerge_Scenario1_PositionAlreadyDeprecated(t *testing.T) {
 	assert.Nil(t, result)
 	var validationErr *apierrors.ValidationError
 	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "deprecated")
+}
+
+func TestExecuteBatchMerge_TargetAlreadyDeprecated(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN target_position_id=2 is already deprecated in the catalog
+	req := api_models.ExecuteBatchMergeRequest{
+		MergeIDs:         []int64{101, 102},
+		TargetPositionID: 2,
+	}
+
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin").
+					AddRow(int64(102), int64(2), int64(98), float32(0.85), "EXECUTED", now, now, now, "admin"))
+
+			// GetCatalogPositionByID — target=2 is deprecated
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+					))
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteBatchMerge(ctx, req, "admin")
+
+	// THEN ValidationError about invalid target status
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "target_position_id=2")
 	assert.Contains(t, err.Error(), "deprecated")
 }
 

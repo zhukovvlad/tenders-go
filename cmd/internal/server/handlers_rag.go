@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -267,7 +268,9 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 		return
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
 			logger.Errorf("Ошибка парсинга тела запроса: %v", err)
 			c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
 			return
@@ -316,9 +319,22 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 func (s *Server) ExecuteBatchMergeHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ExecuteBatchMergeHandler")
 
-	// 1. Парсим тело запроса
+	// 1. Парсим тело запроса (strict: запрещаем неизвестные поля)
 	var req api_models.ExecuteBatchMergeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	body, readErr := c.GetRawData()
+	if readErr != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", readErr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", readErr)))
+		return
+	}
+	if len(body) == 0 {
+		logger.Errorf("Пустое тело запроса")
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("тело запроса обязательно")))
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		logger.Errorf("Ошибка парсинга тела запроса: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
 		return

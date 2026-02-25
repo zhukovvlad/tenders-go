@@ -42,6 +42,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/lib/pq"
@@ -586,6 +587,23 @@ func (s *CatalogService) ExecuteBatchMerge(
 				)
 			}
 
+			// Проверяем что target-позиция активна и не deprecated/merged
+			targetPos, targetErr := q.GetCatalogPositionByID(ctx, req.TargetPositionID)
+			if targetErr != nil {
+				if errors.Is(targetErr, sql.ErrNoRows) {
+					return apierrors.NewValidationError(
+						"target_position_id=%d не найден в каталоге", req.TargetPositionID,
+					)
+				}
+				return fmt.Errorf("ошибка проверки target_position_id=%d: %w", req.TargetPositionID, targetErr)
+			}
+			if targetPos.Status == "deprecated" || targetPos.MergedIntoID.Valid {
+				return apierrors.NewValidationError(
+					"target_position_id=%d имеет невалидный статус %q (merged_into_id=%v)",
+					req.TargetPositionID, targetPos.Status, targetPos.MergedIntoID,
+				)
+			}
+
 			// Deprecate все позиции, кроме target
 			for posID := range positionSet {
 				if posID == req.TargetPositionID {
@@ -666,6 +684,11 @@ func (s *CatalogService) ExecuteBatchMerge(
 				deprecatedPositionIDs = append(deprecatedPositionIDs, posID)
 			}
 		}
+
+		// Сортируем для детерминированного ответа API
+		sort.Slice(deprecatedPositionIDs, func(i, j int) bool {
+			return deprecatedPositionIDs[i] < deprecatedPositionIDs[j]
+		})
 
 		return nil
 	})
