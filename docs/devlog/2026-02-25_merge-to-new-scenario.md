@@ -132,6 +132,65 @@
 
 Итого: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.
 
+---
+
+## Code Review — улучшения после ревью
+
+### 1. Strict JSON decoding (handlers_rag.go)
+
+Оба хендлера (`ExecuteMergeHandler`, `ExecuteBatchMergeHandler`) переведены
+с `json.Unmarshal` / `ShouldBindJSON` на strict-декодер:
+
+```go
+decoder := json.NewDecoder(bytes.NewReader(body))
+decoder.DisallowUnknownFields()
+decoder.Decode(&req)
+```
+
+**Зачем:** `json.Unmarshal` молча игнорирует неизвестные поля. Если клиент
+отправит `{"merge_ids": [...]}` на single-merge endpoint, это пройдёт без
+ошибки и выполнит Сценарий 1 вместо ожидаемого batch. Strict decoder
+возвращает 400 BadRequest при неизвестных полях.
+
+### 2. Валидация состояния target-позиции (catalog_service.go)
+
+Перед deprecation-циклом в `ExecuteBatchMerge` Сценарий 1 добавлена проверка:
+
+```go
+targetPos, _ := q.GetCatalogPositionByID(ctx, req.TargetPositionID)
+if targetPos.Status != "active" || targetPos.MergedIntoID.Valid {
+    return ValidationError(...)
+}
+```
+
+**Зачем:** предыдущая логика проверяла только membership в positionSet, но
+не состояние позиции. Target в статусе `deprecated` или `pending_indexing`
+не должен быть целью слияния.
+
+### 3. Детерминированный порядок `deprecatedPositionIDs` (catalog_service.go)
+
+Добавлена сортировка перед возвратом:
+
+```go
+sort.Slice(deprecatedPositionIDs, func(i, j int) bool {
+    return deprecatedPositionIDs[i] < deprecatedPositionIDs[j]
+})
+```
+
+**Зачем:** итерация по `map[int64]struct{}` недетерминирована → API-ответы
+были нестабильны между вызовами. Сортировка гарантирует одинаковый результат
+для клиентов и тестов.
+
+### 4. Новый тест `TestExecuteBatchMerge_TargetAlreadyDeprecated`
+
+Покрывает кейс, когда target_position_id уже deprecated в каталоге.
+Проверяет ValidationError с указанием ID и статуса. Транзакция откатывается.
+
+### Итого после ревью
+
+- 29 ExecuteMerge-тестов (16 single + 13 batch), все проходят
+- `go vet`, `go build`, `make test` — clean
+
 ## API контракт
 
 ```http
