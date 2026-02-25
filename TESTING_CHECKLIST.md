@@ -217,6 +217,7 @@
 - [ ] Тест отката миграций
 - [ ] Тест идемпотентности миграций
 - [ ] Тест миграции 000003: merged_into_id (BIGINT, FK RESTRICT, CHECK self-merge, индекс)
+- [ ] Тест миграции 000004: resolved_at/resolved_by (замена decided_at/by + executed_at/by), CHECK constraint с EXECUTED
 
 ### Задача 4.6: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)

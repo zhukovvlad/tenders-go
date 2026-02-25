@@ -237,5 +237,5 @@ type ExecuteMergeResponse struct {
 	MainPositionID   int64     `json:"main_position_id"`   // Мастер-позиция (осталась active)
 	MergedPositionID int64     `json:"merged_position_id"` // Дубликат (стал deprecated)
 	Status           string    `json:"status"`             // Новый статус дубликата ("deprecated")
-	ExecutedAt       time.Time `json:"executed_at"`        // Время выполнения слияния
+	ResolvedAt       time.Time `json:"resolved_at"`        // Время разрешения (approve+execute / reject)
 }
