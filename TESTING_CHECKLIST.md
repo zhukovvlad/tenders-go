@@ -92,16 +92,23 @@
 - [x] Тесты валидации параметров (negative limit/offset → ValidationError)
 - [x] Тесты обработки ошибок БД (wrapped errors)
 - [x] Тесты граничных случаев (пустые списки, nil, self-merge)
-- [x] Тесты ExecuteMerge — успешное выполнение одобренного слияния (транзакция: ExecuteApprovedMerge + MergeCatalogPosition)
+- [x] Тесты ExecuteMerge Сценарий 1 (Default) — успешное выполнение (транзакция: ExecuteMerge + MergeCatalogPosition)
 - [x] Тесты ExecuteMerge — пустой executedBy (ValidationError)
 - [x] Тесты ExecuteMerge — предложение не найдено (NotFoundError)
-- [x] Тесты ExecuteMerge — статус не APPROVED (ValidationError)
+- [x] Тесты ExecuteMerge — статус не PENDING/APPROVED (ValidationError)
 - [x] Тесты ExecuteMerge — ошибка БД GetSuggestedMergeByID не маскируется (propagated DB error)
 - [x] Тесты ExecuteMerge — дубликат уже влит (ValidationError с указанием дубликата)
 - [x] Тесты ExecuteMerge — мастер-позиция неактивна (ValidationError с указанием мастера)
 - [x] Тесты ExecuteMerge — ошибка БД при MergeCatalogPosition (wrapped DB error)
-- [x] Тесты ExecuteMerge — ошибка БД при ExecuteApprovedMerge (wrapped DB error)
-- [x] **Результат: 32 unit теста, все проходят.**
+- [x] Тесты ExecuteMerge — ошибка БД при ExecuteMerge (wrapped DB error)
+- [ ] Тесты ExecuteMerge Сценарий 2 (Merge-to-New) — успешное создание C, A→C, B→C (транзакция: CreateSimpleCatalogPosition + 2× SetPositionMerged)
+- [ ] Тесты ExecuteMerge Сценарий 2 — response содержит ResultingPositionID=C, Scenario="merge_to_new"
+- [ ] Тесты ExecuteMerge Сценарий 2 — ошибка CreateSimpleCatalogPosition (wrapped DB error)
+- [ ] Тесты ExecuteMerge Сценарий 2 — A уже deprecated (ValidationError при SetPositionMerged A)
+- [ ] Тесты ExecuteMerge Сценарий 2 — B уже deprecated (ValidationError при SetPositionMerged B)
+- [ ] Тесты ExecuteMerge Сценарий 2 — ошибка БД при SetPositionMerged (wrapped DB error)
+- [ ] Тесты ExecuteMerge Сценарий 2 — newMainTitle с пробелами (trim → пустая строка = Сценарий 1)
+- [x] **Результат (Сценарий 1): 32 unit теста обновлены под новую сигнатуру (4-й аргумент), все проходят.**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
@@ -303,12 +310,15 @@
 - [ ] Создать тесты для AI-эндпоинтов
 - [ ] Мокирование AI сервисов
 - [ ] Тесты ExecuteMergeHandler (`POST /api/v1/admin/merges/:id/execute`)
-  - [ ] Успешное выполнение слияния (200 + ExecuteMergeResponse)
+  - [ ] Сценарий 1 (Default): пустой body → 200 + ExecuteMergeResponse (Scenario="default", ResultingPositionID=A)
+  - [ ] Сценарий 2 (Merge-to-New): `{"new_main_title": "Новое имя"}` → 200 + ExecuteMergeResponse (Scenario="merge_to_new", ResultingPositionID=C)
   - [ ] Невалидный ID (400)
+  - [ ] Невалидный JSON body (400)
   - [ ] Предложение не найдено (404)
-  - [ ] Статус не APPROVED (400)
+  - [ ] Статус не PENDING/APPROVED (400)
   - [ ] Ошибка БД (500)
   - [ ] Проверка требования роли admin
+  - [ ] Проверка user_id из JWT передаётся как executedBy
 
 ---
 

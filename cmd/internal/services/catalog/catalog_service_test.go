@@ -740,7 +740,7 @@ func TestExecuteMerge_EmptyExecutedBy(t *testing.T) {
 
 	// GIVEN empty executedBy string
 	// WHEN ExecuteMerge is called
-	result, err := service.ExecuteMerge(context.Background(), 1, "")
+	result, err := service.ExecuteMerge(context.Background(), 1, "", "")
 
 	// THEN ValidationError is returned without touching DB
 	require.Error(t, err)
@@ -780,7 +780,7 @@ func TestExecuteMerge_Success(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 42, "123")
+	result, err := service.ExecuteMerge(ctx, 42, "123", "")
 
 	// THEN success with enriched response
 	require.NoError(t, err)
@@ -788,6 +788,8 @@ func TestExecuteMerge_Success(t *testing.T) {
 	assert.Equal(t, int64(42), result.MergeID)
 	assert.Equal(t, int64(100), result.MainPositionID)
 	assert.Equal(t, int64(200), result.MergedPositionID)
+	assert.Equal(t, int64(100), result.ResultingPositionID) // Scenario 1: A remains
+	assert.Equal(t, "default", result.Scenario)
 	assert.Equal(t, "deprecated", result.Status)
 	assert.False(t, result.ResolvedAt.IsZero())
 }
@@ -812,7 +814,7 @@ func TestExecuteMerge_NotFound(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 999, "123")
+	result, err := service.ExecuteMerge(ctx, 999, "123", "")
 
 	// THEN NotFoundError
 	require.Error(t, err)
@@ -847,7 +849,7 @@ func TestExecuteMerge_WrongStatus(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 50, "123")
+	result, err := service.ExecuteMerge(ctx, 50, "123", "")
 
 	// THEN ValidationError about wrong status
 	require.Error(t, err)
@@ -876,7 +878,7 @@ func TestExecuteMerge_GetSuggestedMergeByID_DBError(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 7, "admin")
+	result, err := service.ExecuteMerge(ctx, 7, "admin", "")
 
 	// THEN DB error is propagated (not masked as ValidationError)
 	require.Error(t, err)
@@ -922,7 +924,7 @@ func TestExecuteMerge_DuplicateAlreadyMerged(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 42, "123")
+	result, err := service.ExecuteMerge(ctx, 42, "123", "")
 
 	// THEN ValidationError specifically mentions duplicate
 	require.Error(t, err)
@@ -978,7 +980,7 @@ func TestExecuteMerge_MasterInactive(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 42, "123")
+	result, err := service.ExecuteMerge(ctx, 42, "123", "")
 
 	// THEN ValidationError specifically mentions master
 	require.Error(t, err)
@@ -1013,7 +1015,7 @@ func TestExecuteMerge_MergeCatalogPosition_DBError(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 42, "123")
+	result, err := service.ExecuteMerge(ctx, 42, "123", "")
 
 	// THEN wrapped DB error
 	require.Error(t, err)
@@ -1039,7 +1041,7 @@ func TestExecuteMerge_DBError(t *testing.T) {
 	)
 
 	// WHEN
-	result, err := service.ExecuteMerge(ctx, 42, "123")
+	result, err := service.ExecuteMerge(ctx, 42, "123", "")
 
 	// THEN wrapped DB error
 	require.Error(t, err)

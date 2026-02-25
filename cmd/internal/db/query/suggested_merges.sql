@@ -59,7 +59,7 @@ WHERE id = $1;
 -- name: ExecuteMerge :one
 -- Атомарно переводит предложение из PENDING или APPROVED в EXECUTED (one-click merge).
 -- Возвращает строку ТОЛЬКО если текущий статус позволяет исполнение (защита от race condition).
--- Используется внутри транзакции вместе с MergeCatalogPosition.
+-- Используется внутри транзакции вместе с MergeCatalogPosition / SetPositionMerged.
 UPDATE suggested_merges
 SET 
     status = 'EXECUTED',

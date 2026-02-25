@@ -230,12 +230,21 @@ type UnmatchedPositionResponse struct {
 	StandardJobTitle   string `json:"standard_job_title"`         // Лемматизированная версия для поиска в catalog_positions
 }
 
+// ExecuteMergeRequest - это DTO запроса для POST /api/v1/merges/:id/execute
+// Если NewMainTitle пуст — Сценарий 1 (Default Merge): B вливается в A.
+// Если NewMainTitle задан — Сценарий 2 (Merge to New): создаётся C, A и B вливаются в C.
+type ExecuteMergeRequest struct {
+	NewMainTitle string `json:"new_main_title,omitempty"`
+}
+
 // ExecuteMergeResponse - это DTO ответа для POST /api/v1/merges/:id/execute
 // Возвращает информацию о выполненном слиянии.
 type ExecuteMergeResponse struct {
-	MergeID          int64     `json:"merge_id"`           // ID записи suggested_merges
-	MainPositionID   int64     `json:"main_position_id"`   // Мастер-позиция (осталась active)
-	MergedPositionID int64     `json:"merged_position_id"` // Дубликат (стал deprecated)
-	Status           string    `json:"status"`             // Новый статус дубликата ("deprecated")
-	ResolvedAt       time.Time `json:"resolved_at"`        // Время выполнения слияния (approve + execute)
+	MergeID             int64     `json:"merge_id"`              // ID записи suggested_merges
+	MainPositionID      int64     `json:"main_position_id"`      // Исходная мастер-позиция (A)
+	MergedPositionID    int64     `json:"merged_position_id"`    // Дубликат (B), стал deprecated
+	ResultingPositionID int64     `json:"resulting_position_id"` // Итоговая позиция: A (Scenario 1) или C (Scenario 2)
+	Scenario            string    `json:"scenario"`              // "default" или "merge_to_new"
+	Status              string    `json:"status"`                // Новый статус дубликата ("deprecated")
+	ResolvedAt          time.Time `json:"resolved_at"`           // Время выполнения слияния
 }

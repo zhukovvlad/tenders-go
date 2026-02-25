@@ -241,8 +241,9 @@ func (s *Server) ActiveCatalogItemsHandler(c *gin.Context) {
 
 // === 7. POST /api/v1/admin/merges/:id/execute ===
 
-// ExecuteMergeHandler выполняет одобренное слияние дубликата в мастер-позицию.
+// ExecuteMergeHandler выполняет слияние дубликата в мастер-позицию.
 // Требует роль admin. ID берётся из URL, executedBy — из JWT.
+// Принимает опциональное JSON-тело с полем new_main_title (Сценарий 2: Merge-to-New).
 func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ExecuteMergeHandler")
 
@@ -255,7 +256,18 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 		return
 	}
 
-	// 2. Извлекаем user_id из JWT-контекста (обязателен — роут за RequireRole("admin"))
+	// 2. Парсим опциональное тело запроса
+	var req api_models.ExecuteMergeRequest
+	// Bind только если тело непустое — пустой body = Сценарий 1
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			logger.Errorf("Ошибка парсинга тела запроса: %v", err)
+			c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
+			return
+		}
+	}
+
+	// 3. Извлекаем user_id из JWT-контекста (обязателен — роут за RequireRole("admin"))
 	userID, exists := c.Get("user_id")
 	if !exists {
 		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
@@ -270,8 +282,8 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 	}
 	executedBy := strconv.FormatInt(uid, 10)
 
-	// 3. Выполняем слияние через сервис
-	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, executedBy)
+	// 4. Выполняем слияние через сервис
+	result, err := s.catalogService.ExecuteMerge(c.Request.Context(), mergeID, executedBy, req.NewMainTitle)
 	if err != nil {
 		logger.Errorf("Ошибка ExecuteMerge: %v", err)
 		var validationErr *apierrors.ValidationError

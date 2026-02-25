@@ -175,3 +175,34 @@ RETURNING dup.*;
 SELECT * FROM catalog_positions
 WHERE merged_into_id = $1
 ORDER BY id;
+
+-- name: CreateSimpleCatalogPosition :one
+-- Создает НОВУЮ каталожную позицию с минимальными параметрами (для Merge-to-New).
+-- В отличие от CreateCatalogPosition, не использует UPSERT — создаёт уникальную запись.
+-- Статус 'pending_indexing' — позже RAG-воркер создаст эмбеддинг.
+INSERT INTO catalog_positions (
+    standard_job_title,
+    kind,
+    status
+) VALUES (
+    $1,                  -- standard_job_title (новое имя из оператора)
+    'POSITION',          -- kind: всегда POSITION
+    'pending_indexing'   -- status: в очередь на индексацию
+)
+RETURNING *;
+
+-- name: SetPositionMerged :one
+-- Устанавливает merged_into_id и меняет статус на 'deprecated' (для Merge-to-New).
+-- Упрощённая версия MergeCatalogPosition: не проверяет статус целевой позиции,
+-- т.к. целевая (C) только что создана и может быть в pending_indexing.
+-- Защита: нельзя повторно влить уже deprecated-позицию.
+UPDATE catalog_positions
+SET
+    merged_into_id = sqlc.arg(target_id),
+    status = 'deprecated',
+    updated_at = NOW()
+WHERE
+    id = sqlc.arg(position_id)
+    AND merged_into_id IS NULL
+    AND status != 'deprecated'
+RETURNING *;
