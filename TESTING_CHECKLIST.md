@@ -239,8 +239,23 @@
 - [ ] Тест идемпотентности миграций
 - [ ] Тест миграции 000003: merged_into_id (BIGINT, FK RESTRICT, CHECK self-merge, индекс)
 - [ ] Тест миграции 000004: resolved_at/resolved_by (замена decided_at/by + executed_at/by), CHECK constraint с EXECUTED
+- [ ] Тест миграции 000005: system_settings (PK key, CHECK has_value, trigger updated_at, seed dedup_distance_threshold)
 
-### Задача 4.6: Тесты ограничений целостности (из TODO.md)
+### Задача 4.6: Тесты для system_settings queries
+- [ ] Создать `tests/integration/db_system_settings_test.go`
+- [ ] Тест `GetSystemSettingByKey` — получение seed-значения `dedup_distance_threshold`
+- [ ] Тест `GetSystemSettingByKey` — несуществующий ключ (sql.ErrNoRows)
+- [ ] Тест `ListSystemSettings` — возвращает все настройки (минимум seed)
+- [ ] Тест `UpsertSystemSettingNumeric` — создание новой числовой настройки
+- [ ] Тест `UpsertSystemSettingNumeric` — обновление существующей (сбрасывает string/boolean в NULL)
+- [ ] Тест `UpsertSystemSettingString` — создание + обновление текстовой настройки
+- [ ] Тест `UpsertSystemSettingBoolean` — создание + обновление булевой настройки
+- [ ] Тест `DeleteSystemSetting` — удаление настройки
+- [ ] Тест CHECK constraint `ck_system_settings_has_value` — INSERT с тремя NULL value-колонками → ошибка
+- [ ] Тест trigger `updated_at` — автообновление при UPDATE
+- [ ] Тест `description` preservation — COALESCE при upsert сохраняет description если новый NULL
+
+### Задача 4.7: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)
 - [ ] Тест `ON DELETE RESTRICT` для подрядчиков (наличие персон)
 - [ ] Тест `ON DELETE CASCADE` для типов тендеров
