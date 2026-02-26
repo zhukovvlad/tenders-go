@@ -15,9 +15,9 @@ CREATE TABLE system_settings (
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT (now()),
     updated_by     TEXT,                -- Имя/ID администратора, который последним менял значение
 
-    -- Гарантируем, что хотя бы одна value-колонка заполнена
+    -- Гарантируем, что ровно одна value-колонка заполнена (не ноль и не больше одной)
     CONSTRAINT "ck_system_settings_has_value"
-        CHECK (value_numeric IS NOT NULL OR value_string IS NOT NULL OR value_boolean IS NOT NULL)
+        CHECK (num_nonnulls(value_numeric, value_string, value_boolean) = 1)
 );
 
 -- Триггер автообновления updated_at при любом UPDATE
