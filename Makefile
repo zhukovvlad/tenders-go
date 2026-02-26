@@ -1,4 +1,4 @@
-.PHONY: all postgres createdb dropdb migrateup migratedown dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env createadmin test test-unit test-integration test-e2e test-coverage test-watch
+.PHONY: all postgres createdb dropdb migrateup migratedown migratedown1 dockerstart dockerstop stop-and-remove-db sqlc run setup-db generate-env createadmin test test-unit test-integration test-e2e test-coverage test-watch
 
 # --- Переменные ---
 CONTAINER_NAME = postgres-tender
@@ -68,6 +68,10 @@ migrateup:
 
 migratedown:
 	$(GOPATH)/bin/migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down
+
+migratedown1:
+	$(GOPATH)/bin/migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down 1
+
 # --- CLI команды ---
 
 createadmin:
