@@ -13,7 +13,7 @@ CREATE TABLE system_settings (
     description    TEXT,                -- Описание того, за что отвечает настройка
     created_at     TIMESTAMPTZ NOT NULL DEFAULT (now()),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT (now()),
-    updated_by     TEXT,                -- Имя/ID администратора, который последним менял значение
+    updated_by     TEXT NOT NULL DEFAULT 'system', -- Имя/ID администратора, который последним менял значение
 
     -- Гарантируем, что ровно одна value-колонка заполнена (не ноль и не больше одной)
     CONSTRAINT "ck_system_settings_has_value"
