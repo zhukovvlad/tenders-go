@@ -210,11 +210,11 @@ type CatalogIndexedRequest struct {
 // Поддерживает обновление числовых, строковых и булевых настроек.
 // Ровно одно из полей ValueNumeric / ValueString / ValueBoolean должно быть задано.
 type UpdateSystemSettingRequest struct {
-	Key          string   `json:"key" binding:"required"`             // Ключ настройки (например, "dedup_distance_threshold")
-	ValueNumeric *float64 `json:"value_numeric,omitempty"`            // Числовое значение (опционально)
-	ValueString  *string  `json:"value_string,omitempty"`             // Строковое значение (опционально)
-	ValueBoolean *bool    `json:"value_boolean,omitempty"`            // Булево значение (опционально)
-	Description  string   `json:"description,omitempty"`              // Описание (опционально, сохраняется через COALESCE)
+	Key          string   `json:"key" binding:"required"`  // Ключ настройки (например, "dedup_distance_threshold")
+	ValueNumeric *float64 `json:"value_numeric,omitempty"` // Числовое значение (опционально)
+	ValueString  *string  `json:"value_string,omitempty"`  // Строковое значение (опционально)
+	ValueBoolean *bool    `json:"value_boolean,omitempty"` // Булево значение (опционально)
+	Description  string   `json:"description,omitempty"`   // Описание (опционально, сохраняется через COALESCE)
 }
 
 // SystemSettingResponse - это DTO ответа с данными системной настройки.
