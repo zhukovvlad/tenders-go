@@ -42,6 +42,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -314,7 +315,13 @@ func (s *CatalogService) ListPendingMerges(
 		return nil, apierrors.NewValidationError("page_size должен быть от 1 до 500")
 	}
 
-	offset := (page - 1) * pageSize
+	// Вычисляем offset в int64, чтобы избежать переполнения int32
+	// при больших значениях page (например, page=2_000_000_000, pageSize=500).
+	offset64 := (int64(page) - 1) * int64(pageSize)
+	if offset64 > math.MaxInt32 {
+		return nil, apierrors.NewValidationError("page слишком велик для данного page_size")
+	}
+	offset := int32(offset64)
 
 	// Получаем общее количество PENDING merge-записей и уникальных групп для пагинации
 	totalCount, err := s.store.CountPendingMerges(ctx)
