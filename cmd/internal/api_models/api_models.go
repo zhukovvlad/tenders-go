@@ -204,6 +204,31 @@ type CatalogIndexedRequest struct {
 	CatalogIDs []int64 `json:"catalog_ids" binding:"required"`
 }
 
+// --- System Settings DTOs ---
+
+// UpdateSystemSettingRequest - это DTO запроса для PUT /api/v1/admin/settings.
+// Поддерживает обновление числовых, строковых и булевых настроек.
+// Ровно одно из полей ValueNumeric / ValueString / ValueBoolean должно быть задано.
+type UpdateSystemSettingRequest struct {
+	Key          string   `json:"key" binding:"required"`             // Ключ настройки (например, "dedup_distance_threshold")
+	ValueNumeric *float64 `json:"value_numeric,omitempty"`            // Числовое значение (опционально)
+	ValueString  *string  `json:"value_string,omitempty"`             // Строковое значение (опционально)
+	ValueBoolean *bool    `json:"value_boolean,omitempty"`            // Булево значение (опционально)
+	Description  string   `json:"description,omitempty"`              // Описание (опционально, сохраняется через COALESCE)
+}
+
+// SystemSettingResponse - это DTO ответа с данными системной настройки.
+type SystemSettingResponse struct {
+	Key          string   `json:"key"`
+	ValueNumeric *float64 `json:"value_numeric,omitempty"`
+	ValueString  *string  `json:"value_string,omitempty"`
+	ValueBoolean *bool    `json:"value_boolean,omitempty"`
+	Description  *string  `json:"description,omitempty"`
+	CreatedAt    string   `json:"created_at"`
+	UpdatedAt    string   `json:"updated_at"`
+	UpdatedBy    string   `json:"updated_by"`
+}
+
 // ImportTenderResponse - это DTO ответа для POST /api/v1/import-tender
 // Возвращает информацию о результате импорта тендера.
 type ImportTenderResponse struct {
