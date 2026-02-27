@@ -13,6 +13,7 @@ import (
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/importer"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/lot"
 	"github.com/zhukovvlad/tenders-go/cmd/internal/services/matching"
+	"github.com/zhukovvlad/tenders-go/cmd/internal/services/settings"
 	"github.com/zhukovvlad/tenders-go/cmd/pkg/logging"
 )
 
@@ -25,6 +26,7 @@ type Server struct {
 	catalogService  *catalog.CatalogService
 	lotService      *lot.LotService
 	matchingService *matching.MatchingService
+	settingsService *settings.SettingsService
 	httpClient      *http.Client
 	config          *config.Config
 }
@@ -44,6 +46,8 @@ func NewServer(
 
 	authService := auth.NewService(store, cfg, logger)
 
+	settingsService := settings.NewSettingsService(store, logger)
+
 	server := &Server{
 		store:           store,
 		logger:          logger,
@@ -52,6 +56,7 @@ func NewServer(
 		catalogService:  catalogService,
 		lotService:      lotService,
 		matchingService: matchingService,
+		settingsService: settingsService,
 		httpClient:      httpClient,
 		config:          cfg,
 	}
@@ -181,6 +186,11 @@ func NewServer(
 		{
 			admin.GET("/users", server.listUsersHandler)
 			admin.PATCH("/users/:id/role", server.updateUserRoleHandler)
+
+			// Системные настройки
+			admin.GET("/settings", server.HandleListSystemSettings)
+			admin.GET("/settings/:key", server.HandleGetSystemSetting)
+			admin.PUT("/settings", server.HandleUpdateSystemSetting)
 
 			// Слияние дубликатов каталога
 			admin.POST("/merges/execute-batch", server.ExecuteBatchMergeHandler)

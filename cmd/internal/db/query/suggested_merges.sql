@@ -86,3 +86,12 @@ WHERE
     id = ANY(@ids::bigint[])
     AND status IN ('PENDING', 'APPROVED')
 RETURNING *;
+
+-- name: DeleteOutdatedPendingMerges :exec
+-- Очищает PENDING-заявки на слияние, которые больше не проходят по новому порогу расстояния.
+-- Формула: similarity_score = 1.0 - distance.
+-- Если порог стал строже (distance уменьшился), то (1.0 - distance) растёт,
+-- и все заявки с similarity_score ниже нового порога удаляются.
+DELETE FROM suggested_merges
+WHERE status = 'PENDING'
+  AND similarity_score < (1.0 - sqlc.arg(distance_threshold)::float8);
