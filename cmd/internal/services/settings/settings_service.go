@@ -131,8 +131,8 @@ func (s *SettingsService) UpdateSetting(
 		logger.Infof("Порог дедупликации изменён на %.4f, очищаем устаревшие PENDING merge-заявки", threshold)
 
 		if err := s.store.DeleteOutdatedPendingMerges(ctx, threshold); err != nil {
-			// Логируем, но не фейлим основную операцию: настройка уже сохранена.
-			// Оператор увидит новое значение; заявки можно вычистить повторно.
+			// Настройка уже сохранена, но cleanup не прошёл — возвращаем ошибку,
+			// чтобы клиент знал о частичном сбое и мог повторить операцию.
 			logger.Errorf("Ошибка при очистке устаревших PENDING merges (threshold=%.4f): %v", threshold, err)
 			return nil, fmt.Errorf("настройка сохранена, но ошибка при очистке устаревших merge-заявок: %w", err)
 		}
@@ -140,7 +140,7 @@ func (s *SettingsService) UpdateSetting(
 		logger.Infof("Устаревшие PENDING merge-заявки удалены (threshold=%.4f)", threshold)
 	}
 
-	return settingToResponse(setting), nil
+	return settingToResponse(setting, s.logger), nil
 }
 
 // GetSetting возвращает настройку по ключу.
@@ -157,7 +157,7 @@ func (s *SettingsService) GetSetting(ctx context.Context, key string) (*api_mode
 		return nil, fmt.Errorf("ошибка получения настройки %q: %w", key, err)
 	}
 
-	return settingToResponse(setting), nil
+	return settingToResponse(setting, s.logger), nil
 }
 
 // ListSettings возвращает все системные настройки.
@@ -169,14 +169,15 @@ func (s *SettingsService) ListSettings(ctx context.Context) ([]api_models.System
 
 	result := make([]api_models.SystemSettingResponse, 0, len(settings))
 	for _, setting := range settings {
-		result = append(result, *settingToResponse(setting))
+		result = append(result, *settingToResponse(setting, s.logger))
 	}
 
 	return result, nil
 }
 
 // settingToResponse конвертирует DB-модель в API-ответ.
-func settingToResponse(s db.SystemSetting) *api_models.SystemSettingResponse {
+// logger используется для логирования ошибок парсинга (например, повреждённый value_numeric).
+func settingToResponse(s db.SystemSetting, logger logging.Logger) *api_models.SystemSettingResponse {
 	resp := &api_models.SystemSettingResponse{
 		Key:       s.Key,
 		CreatedAt: s.CreatedAt.Format(time.RFC3339),
@@ -187,6 +188,8 @@ func settingToResponse(s db.SystemSetting) *api_models.SystemSettingResponse {
 	if s.ValueNumeric.Valid {
 		if v, err := strconv.ParseFloat(s.ValueNumeric.String, 64); err == nil {
 			resp.ValueNumeric = &v
+		} else {
+			logger.Errorf("Ошибка парсинга value_numeric для настройки %q: значение=%q, ошибка=%v", s.Key, s.ValueNumeric.String, err)
 		}
 	}
 	if s.ValueString.Valid {

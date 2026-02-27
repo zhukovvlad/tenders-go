@@ -42,8 +42,15 @@ func (s *Server) HandleUpdateSystemSetting(c *gin.Context) {
 	logger := s.logger.WithField("handler", "HandleUpdateSystemSetting")
 
 	// 1. Strict JSON decode (DisallowUnknownFields)
+	body, err := c.GetRawData()
+	if err != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", err)))
+		return
+	}
+
 	var req api_models.UpdateSystemSettingRequest
-	decoder := json.NewDecoder(bytes.NewReader(readBody(c)))
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		logger.Errorf("Ошибка парсинга JSON: %v", err)
@@ -127,11 +134,4 @@ func (s *Server) HandleGetSystemSetting(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, setting)
-}
-
-// readBody читает тело запроса и возвращает его как []byte.
-// Gin буферизует body, поэтому читаем через gin.Context.
-func readBody(c *gin.Context) []byte {
-	body, _ := c.GetRawData()
-	return body
 }
