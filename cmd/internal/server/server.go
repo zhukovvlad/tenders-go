@@ -193,6 +193,7 @@ func NewServer(
 			admin.PUT("/settings", server.HandleUpdateSystemSetting)
 
 			// Слияние дубликатов каталога
+			admin.GET("/suggested_merges", server.ListSuggestedMergesHandler)
 			admin.POST("/merges/execute-batch", server.ExecuteBatchMergeHandler)
 			admin.POST("/merges/:id/execute", server.ExecuteMergeHandler)
 		}

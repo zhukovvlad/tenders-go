@@ -284,6 +284,112 @@ func (s *CatalogService) SuggestMerge(
 	return nil
 }
 
+// ListPendingMerges реализует GET /api/v1/admin/suggested_merges.
+//
+// # Назначение
+//
+// Возвращает список PENDING merge-предложений, сгруппированных по main_position_id.
+// Каждая группа содержит «мастер-позицию» и массив её дубликатов.
+//
+// # Параметры
+//
+//   - ctx: контекст выполнения
+//   - page: номер страницы (>= 1)
+//   - pageSize: размер страницы (1–500)
+//
+// # Возвращаемое значение
+//
+//   - *api_models.ListSuggestedMergesResponse: группированный список
+//   - error: ValidationError при некорректных параметрах, или ошибка БД
+func (s *CatalogService) ListPendingMerges(
+	ctx context.Context,
+	page int32,
+	pageSize int32,
+) (*api_models.ListSuggestedMergesResponse, error) {
+
+	if page < 1 {
+		return nil, apierrors.NewValidationError("page должен быть >= 1")
+	}
+	if pageSize < 1 || pageSize > 500 {
+		return nil, apierrors.NewValidationError("page_size должен быть от 1 до 500")
+	}
+
+	offset := (page - 1) * pageSize
+
+	// Получаем общее количество PENDING merge-записей и уникальных групп для пагинации
+	totalCount, err := s.store.CountPendingMerges(ctx)
+	if err != nil {
+		s.logger.Errorf("Ошибка CountPendingMerges: %v", err)
+		return nil, fmt.Errorf("ошибка БД при подсчёте предложений о слиянии: %w", err)
+	}
+
+	totalGroups, err := s.store.CountPendingMergeGroups(ctx)
+	if err != nil {
+		s.logger.Errorf("Ошибка CountPendingMergeGroups: %v", err)
+		return nil, fmt.Errorf("ошибка БД при подсчёте групп слияния: %w", err)
+	}
+
+	rows, err := s.store.ListPendingMerges(ctx, db.ListPendingMergesParams{
+		Limit:  pageSize,
+		Offset: offset,
+	})
+	if err != nil {
+		s.logger.Errorf("Ошибка ListPendingMerges: %v", err)
+		return nil, fmt.Errorf("ошибка БД при получении предложений о слиянии: %w", err)
+	}
+
+	// Группируем по main_position_id, сохраняя порядок появления
+	groupOrder := []int64{}
+	groupMap := map[int64]*api_models.SuggestedMergeGroup{}
+
+	for _, row := range rows {
+		mainID := row.SuggestedMerge.MainPositionID
+
+		grp, exists := groupMap[mainID]
+		if !exists {
+			grp = &api_models.SuggestedMergeGroup{
+				MainPosition: catalogPositionToSummary(row.CatalogPosition),
+			}
+			groupMap[mainID] = grp
+			groupOrder = append(groupOrder, mainID)
+		}
+
+		grp.Merges = append(grp.Merges, api_models.SuggestedMergeItem{
+			MergeID:         row.SuggestedMerge.ID,
+			SimilarityScore: row.SuggestedMerge.SimilarityScore,
+			Duplicate:       catalogPositionToSummary(row.CatalogPosition_2),
+			CreatedAt:       row.SuggestedMerge.CreatedAt,
+		})
+	}
+
+	groups := make([]api_models.SuggestedMergeGroup, 0, len(groupOrder))
+	for _, id := range groupOrder {
+		groups = append(groups, *groupMap[id])
+	}
+
+	return &api_models.ListSuggestedMergesResponse{
+		Groups:      groups,
+		Total:       int(totalCount),
+		TotalGroups: int(totalGroups),
+	}, nil
+}
+
+// catalogPositionToSummary конвертирует db.CatalogPosition в краткую API-модель.
+func catalogPositionToSummary(pos db.CatalogPosition) api_models.CatalogPositionSummary {
+	var desc *string
+	if pos.Description.Valid && strings.TrimSpace(pos.Description.String) != "" {
+		s := pos.Description.String
+		desc = &s
+	}
+	return api_models.CatalogPositionSummary{
+		ID:               pos.ID,
+		StandardJobTitle: pos.StandardJobTitle,
+		Description:      desc,
+		Kind:             pos.Kind,
+		Status:           pos.Status,
+	}
+}
+
 // ExecuteMerge реализует POST /api/v1/merges/:id/execute.
 //
 // # Назначение

@@ -308,3 +308,35 @@ type ExecuteBatchMergeResponse struct {
 	Scenario                MergeScenario `json:"scenario"`                  // "default" или "merge_to_new"
 	ResolvedAt              time.Time     `json:"resolved_at"`               // Время выполнения
 }
+
+// === Suggested Merges (GET /api/v1/admin/suggested_merges) ===
+
+// CatalogPositionSummary — краткая информация о позиции каталога (без embedding/fts_vector).
+type CatalogPositionSummary struct {
+	ID               int64   `json:"id"`
+	StandardJobTitle string  `json:"standard_job_title"`
+	Description      *string `json:"description,omitempty"`
+	Kind             string  `json:"kind"`
+	Status           string  `json:"status"`
+}
+
+// SuggestedMergeItem — одно предложение о слиянии с краткой информацией о дубликате.
+type SuggestedMergeItem struct {
+	MergeID         int64                  `json:"merge_id"`
+	SimilarityScore float32                `json:"similarity_score"`
+	Duplicate       CatalogPositionSummary `json:"duplicate"`
+	CreatedAt       time.Time              `json:"created_at"`
+}
+
+// SuggestedMergeGroup — группа предложений, объединённых по main_position_id.
+type SuggestedMergeGroup struct {
+	MainPosition CatalogPositionSummary `json:"main_position"`
+	Merges       []SuggestedMergeItem   `json:"merges"`
+}
+
+// ListSuggestedMergesResponse — ответ GET /api/v1/admin/suggested_merges.
+type ListSuggestedMergesResponse struct {
+	Groups      []SuggestedMergeGroup `json:"groups"`
+	Total       int                   `json:"total"`        // Общее количество PENDING merge-записей
+	TotalGroups int                   `json:"total_groups"` // Общее количество уникальных main_position_id
+}
