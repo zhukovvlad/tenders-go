@@ -135,3 +135,48 @@ func (s *Server) HandleGetSystemSetting(c *gin.Context) {
 
 	c.JSON(http.StatusOK, setting)
 }
+
+// ListSuggestedMergesHandler обрабатывает GET /api/v1/admin/suggested_merges.
+// Возвращает список PENDING merge-предложений, сгруппированных по main_position_id.
+//
+// Query-параметры:
+//   - page      (int, default 1):   номер страницы
+//   - page_size (int, default 100): количество merge-записей на странице
+//
+// Response: 200 + ListSuggestedMergesResponse
+// Errors:   400 (невалидные параметры), 500 (ошибка БД)
+func (s *Server) ListSuggestedMergesHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ListSuggestedMergesHandler")
+
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "100")
+
+	page, err := strconv.ParseInt(pageStr, 10, 32)
+	if err != nil {
+		logger.Errorf("Некорректное значение page: %s", pageStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр page должен быть целым числом")))
+		return
+	}
+
+	pageSize, err := strconv.ParseInt(pageSizeStr, 10, 32)
+	if err != nil {
+		logger.Errorf("Некорректное значение page_size: %s", pageSizeStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр page_size должен быть целым числом")))
+		return
+	}
+
+	result, err := s.catalogService.ListPendingMerges(c.Request.Context(), int32(page), int32(pageSize))
+	if err != nil {
+		logger.Errorf("Ошибка ListPendingMerges: %v", err)
+
+		var validationErr *apierrors.ValidationError
+		if errors.As(err, &validationErr) {
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		} else {
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}

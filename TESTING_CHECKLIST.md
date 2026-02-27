@@ -123,6 +123,18 @@
 - [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
 - [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
+- [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
+- [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
+- [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
+- [ ] Тесты ListPendingMerges — валидация page < 1 (ValidationError)
+- [ ] Тесты ListPendingMerges — валидация page_size < 1, > 500 (ValidationError)
+- [ ] Тесты ListPendingMerges — ошибка БД ListPendingMerges (wrapped error)
+- [ ] Тесты ListPendingMerges — ошибка БД CountPendingMerges (wrapped error)
+- [ ] Тесты ListPendingMerges — ошибка БД CountPendingMergeGroups (wrapped error)
+- [ ] Тесты ListPendingMerges — пагинация (page=2, page_size=10 → offset=10)
+- [ ] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
+- [ ] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
+- [ ] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
 
 ### Задача 2.6: Тесты для Settings Service
 - [ ] Создать `cmd/internal/services/settings/settings_service_test.go`
@@ -400,6 +412,14 @@
 - [ ] Тест `GET /api/v1/admin/settings/:key` — успешное получение (200)
 - [ ] Тест `GET /api/v1/admin/settings/:key` — не найден → 404
 - [ ] Тест `GET /api/v1/admin/settings/:key` — ошибка сервиса → 500
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — успешное получение сгруппированных предложений (200 + ListSuggestedMergesResponse)
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — пустой результат (200, empty groups)
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — невалидный page (400)
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — невалидный page_size (400)
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — page_size за пределами 1–500 (400, ValidationError)
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — ошибка сервиса → 500
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — пользователь не admin → 403
+- [ ] Тест `GET /api/v1/admin/suggested_merges` — дефолтные значения page=1, page_size=100
 
 ---
 

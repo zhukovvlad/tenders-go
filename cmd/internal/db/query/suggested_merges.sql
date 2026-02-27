@@ -39,6 +39,14 @@ ORDER BY
 LIMIT $1
 OFFSET $2;
 
+-- name: CountPendingMerges :one
+-- Возвращает общее количество PENDING merge-предложений (для пагинации).
+SELECT COUNT(*) FROM suggested_merges WHERE status = 'PENDING';
+
+-- name: CountPendingMergeGroups :one
+-- Возвращает количество уникальных мастер-позиций среди PENDING merge-предложений (для пагинации).
+SELECT COUNT(DISTINCT main_position_id) FROM suggested_merges WHERE status = 'PENDING';
+
 -- name: UpdateMergeStatus :one
 -- (Для Go-сервера / Админки) Обновляет статус задачи
 -- (APPROVED / REJECTED).
