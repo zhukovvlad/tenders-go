@@ -418,6 +418,7 @@ func (s *CatalogService) RejectMerge(ctx context.Context, mergeID int64, rejecte
 	if mergeID <= 0 {
 		return apierrors.NewValidationError("mergeID должен быть положительным")
 	}
+	rejectedBy = strings.TrimSpace(rejectedBy)
 	if rejectedBy == "" {
 		return apierrors.NewValidationError("rejectedBy не может быть пустым")
 	}

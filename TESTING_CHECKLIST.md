@@ -125,6 +125,7 @@
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
 - [x] Тесты RejectMerge — успешное отклонение PENDING-предложения (RejectPendingMerge с status=REJECTED)
 - [x] Тесты RejectMerge — пустой rejectedBy (ValidationError)
+- [x] Тесты RejectMerge — rejectedBy из пробелов/табов (ValidationError после TrimSpace)
 - [x] Тесты RejectMerge — mergeID <= 0 (ValidationError)
 - [x] Тесты RejectMerge — предложение не найдено (NotFoundError)
 - [x] Тесты RejectMerge — статус не PENDING (APPROVED/REJECTED/EXECUTED → ValidationError)

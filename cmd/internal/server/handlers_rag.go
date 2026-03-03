@@ -327,6 +327,11 @@ func (s *Server) RejectMergeHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом")))
 		return
 	}
+	if mergeID <= 0 {
+		logger.Errorf("Некорректный ID слияния: %d (должен быть > 0)", mergeID)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть положительным числом")))
+		return
+	}
 
 	// 2. Извлекаем user_id из JWT-контекста
 	userID, exists := c.Get("user_id")
@@ -355,7 +360,7 @@ func (s *Server) RejectMergeHandler(c *gin.Context) {
 		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
-			c.JSON(http.StatusInternalServerError, errorResponse(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		}
 		return
 	}

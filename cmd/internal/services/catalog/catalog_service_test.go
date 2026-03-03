@@ -2113,3 +2113,21 @@ func TestRejectMerge_GetSuggestedMergeByID_DBError(t *testing.T) {
 	var notFoundErr *apierrors.NotFoundError
 	assert.False(t, errors.As(err, &notFoundErr))
 }
+
+// TestRejectMerge_WhitespaceRejectedBy проверяет ValidationError при rejectedBy из пробелов.
+func TestRejectMerge_WhitespaceRejectedBy(t *testing.T) {
+	// GIVEN
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	for _, val := range []string{" ", "  ", "\t", " \t "} {
+		// WHEN
+		err := service.RejectMerge(ctx, 100, val)
+
+		// THEN
+		require.Error(t, err, "rejectedBy=%q should fail", val)
+		var validationErr *apierrors.ValidationError
+		assert.True(t, errors.As(err, &validationErr), "rejectedBy=%q should be ValidationError", val)
+		assert.Contains(t, err.Error(), "rejectedBy")
+	}
+}
