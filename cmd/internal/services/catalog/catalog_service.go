@@ -399,7 +399,9 @@ func catalogPositionToSummary(pos db.CatalogPosition) api_models.CatalogPosition
 
 // RejectMerge реализует PATCH /api/v1/admin/merges/:id/reject.
 //
-// Переводит предложение о слиянии из PENDING в REJECTED.
+// Атомарно переводит предложение о слиянии из PENDING в REJECTED.
+// Использует RejectPendingMerge SQL с guard `AND status = 'PENDING'`
+// для защиты от race condition (аналогично ExecuteMerge).
 //
 // Параметры:
 //   - ctx: контекст выполнения запроса
@@ -407,36 +409,37 @@ func catalogPositionToSummary(pos db.CatalogPosition) api_models.CatalogPosition
 //   - rejectedBy: ID оператора, отклонившего предложение
 //
 // Возвращаемое значение:
-//   - error: NotFoundError если запись не найдена, или ошибка БД
+//   - error: ValidationError при некорректных параметрах (пустой rejectedBy) или
+//     если merge уже не в статусе PENDING, NotFoundError если запись не найдена,
+//     или ошибка БД
 func (s *CatalogService) RejectMerge(ctx context.Context, mergeID int64, rejectedBy string) error {
 	logger := s.logger.WithField("method", "RejectMerge").WithField("merge_id", mergeID)
 
 	if rejectedBy == "" {
-		return &apierrors.ValidationError{Message: "rejectedBy обязателен"}
+		return apierrors.NewValidationError("rejectedBy не может быть пустым")
 	}
 
-	// Проверяем, что предложение существует и в статусе PENDING
-	merge, err := s.store.GetSuggestedMergeByID(ctx, mergeID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return apierrors.NewNotFoundError("suggested_merge с id=%d не найден", mergeID)
-		}
-		return fmt.Errorf("ошибка получения merge %d: %w", mergeID, err)
-	}
-
-	if merge.Status != "PENDING" {
-		return &apierrors.ValidationError{
-			Message: fmt.Sprintf("нельзя отклонить merge в статусе %s (ожидается PENDING)", merge.Status),
-		}
-	}
-
-	_, err = s.store.UpdateMergeStatus(ctx, db.UpdateMergeStatusParams{
-		Status:     "REJECTED",
+	// Атомарный UPDATE с guard status = 'PENDING' (защита от race condition).
+	// Если merge не найден или статус != PENDING — возвращает sql.ErrNoRows.
+	_, err := s.store.RejectPendingMerge(ctx, db.RejectPendingMergeParams{
 		ResolvedBy: sql.NullString{String: rejectedBy, Valid: true},
 		ID:         mergeID,
 	})
 	if err != nil {
-		return fmt.Errorf("ошибка UpdateMergeStatus для merge %d: %w", mergeID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Различаем "не найден" и "не в PENDING" для информативного ответа
+			merge, getErr := s.store.GetSuggestedMergeByID(ctx, mergeID)
+			if getErr != nil {
+				if errors.Is(getErr, sql.ErrNoRows) {
+					return apierrors.NewNotFoundError("suggested_merge с id=%d не найден", mergeID)
+				}
+				return fmt.Errorf("ошибка получения merge %d: %w", mergeID, getErr)
+			}
+			return apierrors.NewValidationError(
+				"нельзя отклонить merge в статусе %s (ожидается PENDING)", merge.Status,
+			)
+		}
+		return fmt.Errorf("ошибка RejectPendingMerge для merge %d: %w", mergeID, err)
 	}
 
 	logger.Infof("Merge %d отклонён пользователем %s", mergeID, rejectedBy)
