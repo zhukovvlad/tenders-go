@@ -123,12 +123,12 @@
 - [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
 - [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
-- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedPendingMerges с [B]
-- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedPendingMerges с [A, B]
-- [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedPendingMerges → rollback транзакции (wrapped DB error)
-- [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedPendingMerges с deprecated IDs
-- [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedPendingMerges → rollback транзакции (wrapped DB error)
-- [ ] Тесты InvalidateRelatedPendingMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
+- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
+- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
+- [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
+- [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [ ] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
 - [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
 - [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
 - [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
@@ -302,18 +302,18 @@
 - [ ] Тест trigger `updated_at` — автообновление при UPDATE
 - [ ] Тест `description` preservation — COALESCE при upsert сохраняет description если новый NULL
 
-### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges, InvalidateRelatedPendingMerges)
+### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges, InvalidateRelatedActionableMerges)
 - [ ] Тест `DeleteOutdatedPendingMerges` — удаляет PENDING merges с similarity_score < (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет APPROVED/REJECTED/EXECUTED merges
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет PENDING merges с similarity_score >= (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — threshold=0.0 (удаляет всё, кроме similarity_score=1.0)
 - [ ] Тест `DeleteOutdatedPendingMerges` — threshold=1.0 (ничего не удаляет: score < 0 невозможен)
-- [ ] Тест `InvalidateRelatedPendingMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (main_position_id)
-- [ ] Тест `InvalidateRelatedPendingMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (duplicate_position_id)
-- [ ] Тест `InvalidateRelatedPendingMerges` — отклоняет APPROVED-заявки (не только PENDING)
-- [ ] Тест `InvalidateRelatedPendingMerges` — не трогает REJECTED/EXECUTED заявки
-- [ ] Тест `InvalidateRelatedPendingMerges` — не трогает заявки с другими позициями
-- [ ] Тест `InvalidateRelatedPendingMerges` — resolved_by = 'system', resolved_at заполняется
+- [ ] Тест `InvalidateRelatedActionableMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (main_position_id)
+- [ ] Тест `InvalidateRelatedActionableMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (duplicate_position_id)
+- [ ] Тест `InvalidateRelatedActionableMerges` — отклоняет APPROVED-заявки (не только PENDING)
+- [ ] Тест `InvalidateRelatedActionableMerges` — не трогает REJECTED/EXECUTED заявки
+- [ ] Тест `InvalidateRelatedActionableMerges` — не трогает заявки с другими позициями
+- [ ] Тест `InvalidateRelatedActionableMerges` — resolved_by = 'system', resolved_at заполняется
 
 ### Задача 4.7: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)

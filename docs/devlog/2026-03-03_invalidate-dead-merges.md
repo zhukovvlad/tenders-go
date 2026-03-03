@@ -23,12 +23,12 @@ suggested_merges:
 
 ## Что сделано
 
-### 1. SQL: `InvalidateRelatedPendingMerges` (`suggested_merges.sql`)
+### 1. SQL: `InvalidateRelatedActionableMerges` (`suggested_merges.sql`)
 
 Новый запрос, который атомарно отклоняет все PENDING и APPROVED заявки с участием deprecated-позиций:
 
 ```sql
--- name: InvalidateRelatedPendingMerges :exec
+-- name: InvalidateRelatedActionableMerges :exec
 UPDATE suggested_merges
 SET
     status = 'REJECTED',
@@ -52,7 +52,7 @@ WHERE
 
 ### 2. `ExecuteMerge` — одиночное слияние (`catalog_service.go`)
 
-Вызов `q.InvalidateRelatedPendingMerges(ctx, deprecatedPositionIDs)` добавлен внутрь
+Вызов `q.InvalidateRelatedActionableMerges(ctx, deprecatedPositionIDs)` добавлен внутрь
 транзакции, после формирования `deprecatedPositionIDs` (оба сценария — Default Merge
 и Merge-to-New):
 
@@ -66,7 +66,7 @@ WHERE
 
 ### 4. Миграция 000006: частичные индексы (`add_merge_invalidation_indexes`)
 
-Без индексов `InvalidateRelatedPendingMerges` делал бы seq scan по `suggested_merges`.
+Без индексов `InvalidateRelatedActionableMerges` делал бы seq scan по `suggested_merges`.
 Добавлены два частичных индекса для обоих путей поиска:
 
 ```sql
@@ -95,7 +95,7 @@ WHERE status IN ('PENDING', 'APPROVED');
 
 ## Файлы затронуты
 
-- `cmd/internal/db/query/suggested_merges.sql` — добавлен `InvalidateRelatedPendingMerges`
+- `cmd/internal/db/query/suggested_merges.sql` — добавлен `InvalidateRelatedActionableMerges`
 - `cmd/internal/db/migration/000006_add_merge_invalidation_indexes.{up,down}.sql` — частичные индексы
 - `cmd/internal/db/sqlc/*` — автогенерация (`make sqlc`)
 - `cmd/internal/services/catalog/catalog_service.go` — вызов инвалидации в `ExecuteMerge` и `ExecuteBatchMerge`

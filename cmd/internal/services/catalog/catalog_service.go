@@ -553,11 +553,8 @@ func (s *CatalogService) ExecuteMerge(
 		}
 
 		// Инвалидируем все связанные заявки (PENDING/APPROVED), где участвуют deprecated-позиции
-		// ("мёртвые души"), чтобы оператор не пытался исполнить невалидные слияния.
-		if len(deprecatedPositionIDs) > 0 {
-			if invErr := q.InvalidateRelatedPendingMerges(ctx, deprecatedPositionIDs); invErr != nil {
-				return fmt.Errorf("ошибка InvalidateRelatedPendingMerges: %w", invErr)
-			}
+		if err := invalidateActionableMerges(ctx, q, deprecatedPositionIDs); err != nil {
+			return err
 		}
 
 		return nil
@@ -807,11 +804,8 @@ func (s *CatalogService) ExecuteBatchMerge(
 		}
 
 		// Инвалидируем все связанные заявки (PENDING/APPROVED), где участвуют deprecated-позиции
-		// ("мёртвые души"), чтобы оператор не пытался исполнить невалидные слияния.
-		if len(deprecatedPositionIDs) > 0 {
-			if invErr := q.InvalidateRelatedPendingMerges(ctx, deprecatedPositionIDs); invErr != nil {
-				return fmt.Errorf("ошибка InvalidateRelatedPendingMerges: %w", invErr)
-			}
+		if err := invalidateActionableMerges(ctx, q, deprecatedPositionIDs); err != nil {
+			return err
 		}
 
 		// Сортируем для детерминированного ответа API
@@ -838,6 +832,19 @@ func (s *CatalogService) ExecuteBatchMerge(
 		Scenario:                scenario,
 		ResolvedAt:              resolvedAt.Time,
 	}, nil
+}
+
+// invalidateActionableMerges отклоняет все незавершённые (PENDING/APPROVED) заявки
+// на слияние, где участвует хотя бы одна из deprecated-позиций ("мёртвые души").
+// Вызывается внутри транзакций ExecuteMerge и ExecuteBatchMerge.
+func invalidateActionableMerges(ctx context.Context, q *db.Queries, deprecatedPositionIDs []int64) error {
+	if len(deprecatedPositionIDs) == 0 {
+		return nil
+	}
+	if err := q.InvalidateRelatedActionableMerges(ctx, deprecatedPositionIDs); err != nil {
+		return fmt.Errorf("ошибка InvalidateRelatedActionableMerges: %w", err)
+	}
+	return nil
 }
 
 // diagnoseMergeFailure определяет конкретную причину отказа MergeCatalogPosition
