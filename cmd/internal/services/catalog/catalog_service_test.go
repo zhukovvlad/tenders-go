@@ -1989,6 +1989,24 @@ func TestRejectMerge_EmptyRejectedBy(t *testing.T) {
 	assert.Contains(t, err.Error(), "rejectedBy")
 }
 
+// TestRejectMerge_NonPositiveID проверяет ValidationError при mergeID <= 0.
+func TestRejectMerge_NonPositiveID(t *testing.T) {
+	// GIVEN
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	for _, id := range []int64{0, -1, -100} {
+		// WHEN
+		err := service.RejectMerge(ctx, id, "42")
+
+		// THEN
+		require.Error(t, err, "mergeID=%d should fail", id)
+		var validationErr *apierrors.ValidationError
+		assert.True(t, errors.As(err, &validationErr), "mergeID=%d should be ValidationError", id)
+		assert.Contains(t, err.Error(), "mergeID", "mergeID=%d error should mention mergeID", id)
+	}
+}
+
 // TestRejectMerge_NotFound проверяет NotFoundError когда merge не существует.
 func TestRejectMerge_NotFound(t *testing.T) {
 	// GIVEN

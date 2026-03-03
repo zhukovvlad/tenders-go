@@ -355,7 +355,7 @@ func (s *Server) RejectMergeHandler(c *gin.Context) {
 		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
 		}
 		return
 	}

@@ -415,6 +415,9 @@ func catalogPositionToSummary(pos db.CatalogPosition) api_models.CatalogPosition
 func (s *CatalogService) RejectMerge(ctx context.Context, mergeID int64, rejectedBy string) error {
 	logger := s.logger.WithField("method", "RejectMerge").WithField("merge_id", mergeID)
 
+	if mergeID <= 0 {
+		return apierrors.NewValidationError("mergeID должен быть положительным")
+	}
 	if rejectedBy == "" {
 		return apierrors.NewValidationError("rejectedBy не может быть пустым")
 	}
