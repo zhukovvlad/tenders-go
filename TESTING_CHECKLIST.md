@@ -286,6 +286,7 @@
 - [ ] Тест миграции 000003: merged_into_id (BIGINT, FK RESTRICT, CHECK self-merge, индекс)
 - [ ] Тест миграции 000004: resolved_at/resolved_by (замена decided_at/by + executed_at/by), CHECK constraint с EXECUTED
 - [ ] Тест миграции 000005: system_settings (PK key, CHECK has_value, trigger updated_at, seed dedup_distance_threshold)
+- [ ] Тест миграции 000006: частичные индексы idx_suggested_merges_{main,dup}_pos_actionable (WHERE status IN ('PENDING','APPROVED'))
 
 ### Задача 4.6: Тесты для system_settings queries
 - [ ] Создать `tests/integration/db_system_settings_test.go`
@@ -301,12 +302,18 @@
 - [ ] Тест trigger `updated_at` — автообновление при UPDATE
 - [ ] Тест `description` preservation — COALESCE при upsert сохраняет description если новый NULL
 
-### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges)
+### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges, InvalidateRelatedPendingMerges)
 - [ ] Тест `DeleteOutdatedPendingMerges` — удаляет PENDING merges с similarity_score < (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет APPROVED/REJECTED/EXECUTED merges
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет PENDING merges с similarity_score >= (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — threshold=0.0 (удаляет всё, кроме similarity_score=1.0)
 - [ ] Тест `DeleteOutdatedPendingMerges` — threshold=1.0 (ничего не удаляет: score < 0 невозможен)
+- [ ] Тест `InvalidateRelatedPendingMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (main_position_id)
+- [ ] Тест `InvalidateRelatedPendingMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (duplicate_position_id)
+- [ ] Тест `InvalidateRelatedPendingMerges` — отклоняет APPROVED-заявки (не только PENDING)
+- [ ] Тест `InvalidateRelatedPendingMerges` — не трогает REJECTED/EXECUTED заявки
+- [ ] Тест `InvalidateRelatedPendingMerges` — не трогает заявки с другими позициями
+- [ ] Тест `InvalidateRelatedPendingMerges` — resolved_by = 'system', resolved_at заполняется
 
 ### Задача 4.7: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)

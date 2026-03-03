@@ -64,7 +64,25 @@ WHERE
 Аналогичный вызов добавлен внутрь транзакции батч-слияния, после цикла deprecate
 и перед сортировкой `deprecatedPositionIDs`.
 
-### 4. FOR UPDATE — анализ и решение
+### 4. Миграция 000006: частичные индексы (`add_merge_invalidation_indexes`)
+
+Без индексов `InvalidateRelatedPendingMerges` делал бы seq scan по `suggested_merges`.
+Добавлены два частичных индекса для обоих путей поиска:
+
+```sql
+CREATE INDEX idx_suggested_merges_main_pos_actionable
+ON suggested_merges (main_position_id)
+WHERE status IN ('PENDING', 'APPROVED');
+
+CREATE INDEX idx_suggested_merges_dup_pos_actionable
+ON suggested_merges (duplicate_position_id)
+WHERE status IN ('PENDING', 'APPROVED');
+```
+
+Частичное условие `WHERE status IN ('PENDING', 'APPROVED')` минимизирует размер индекса —
+после исполнения/отклонения записи выпадают из индекса автоматически.
+
+### 5. FOR UPDATE — анализ и решение
 
 Пессимистичные блокировки (`SELECT ... FOR UPDATE`) **не требуются**:
 
@@ -78,6 +96,7 @@ WHERE
 ## Файлы затронуты
 
 - `cmd/internal/db/query/suggested_merges.sql` — добавлен `InvalidateRelatedPendingMerges`
+- `cmd/internal/db/migration/000006_add_merge_invalidation_indexes.{up,down}.sql` — частичные индексы
 - `cmd/internal/db/sqlc/*` — автогенерация (`make sqlc`)
 - `cmd/internal/services/catalog/catalog_service.go` — вызов инвалидации в `ExecuteMerge` и `ExecuteBatchMerge`
 - `docs/devlog/2026-03-03_invalidate-dead-merges.md` — этот файл
