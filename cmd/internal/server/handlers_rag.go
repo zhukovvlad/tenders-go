@@ -360,7 +360,9 @@ func (s *Server) RejectMergeHandler(c *gin.Context) {
 		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			// TODO: заменить на gin.H{"error": "internal server error"} после унификации
+			// всех хендлеров (см. issue «Sanitize 500 error responses across all handlers»).
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
 		}
 		return
 	}
