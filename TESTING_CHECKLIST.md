@@ -128,6 +128,7 @@
 - [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedPendingMerges → rollback транзакции (wrapped DB error)
 - [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedPendingMerges с deprecated IDs
 - [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedPendingMerges → rollback транзакции (wrapped DB error)
+- [ ] Тесты InvalidateRelatedPendingMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
 - [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
 - [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
 - [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)

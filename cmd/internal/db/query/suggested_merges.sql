@@ -96,17 +96,18 @@ WHERE
 RETURNING *;
 
 -- name: InvalidateRelatedPendingMerges :exec
--- Инвалидирует (REJECTED) все PENDING-заявки, где участвует хотя бы одна
+-- Инвалидирует (REJECTED) все PENDING и APPROVED заявки, где участвует хотя бы одна
 -- из deprecated-позиций (после слияния). Решает проблему "мёртвых душ":
--- когда позиция B влита в A, другие PENDING-заявки с участием B
+-- когда позиция B влита в A, другие заявки с участием B
 -- зависают навсегда и вызывают ошибки при попытке исполнения.
+-- Покрывает оба статуса, т.к. ExecuteMerge принимает PENDING и APPROVED.
 UPDATE suggested_merges
 SET
     status = 'REJECTED',
     resolved_at = NOW(),
     resolved_by = 'system'
 WHERE
-    status = 'PENDING'
+    status IN ('PENDING', 'APPROVED')
     AND (
         main_position_id = ANY(@position_ids::bigint[])
         OR duplicate_position_id = ANY(@position_ids::bigint[])
