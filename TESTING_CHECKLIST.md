@@ -123,6 +123,12 @@
 - [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
 - [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
+- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
+- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
+- [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
+- [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [ ] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
 - [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
 - [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
 - [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
@@ -135,34 +141,6 @@
 - [ ] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
 - [ ] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
 - [ ] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
-
-### Задача 2.6: Тесты для Settings Service
-- [ ] Создать `cmd/internal/services/settings/settings_service_test.go`
-- [ ] Мок Store (gomock MockStore)
-- [ ] Тест `UpdateSetting` — успешное обновление числовой настройки (UpsertSystemSettingNumeric)
-- [ ] Тест `UpdateSetting` — успешное обновление строковой настройки (UpsertSystemSettingString)
-- [ ] Тест `UpdateSetting` — успешное обновление булевой настройки (UpsertSystemSettingBoolean)
-- [ ] Тест `UpdateSetting` — пустой ключ (ValidationError)
-- [ ] Тест `UpdateSetting` — нет значения (ни numeric, ни string, ни boolean) (ValidationError)
-- [ ] Тест `UpdateSetting` — несколько значений одновременно (ValidationError)
-- [ ] Тест `UpdateSetting` — ошибка БД при upsert (wrapped DB error)
-- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold обновлён → DeleteOutdatedPendingMerges вызван
-- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold с ValueString (без вызова DeleteOutdatedPendingMerges)
-- [ ] Тест `UpdateSetting` — побочный эффект: другой ключ с ValueNumeric (без вызова DeleteOutdatedPendingMerges)
-- [ ] Тест `UpdateSetting` — побочный эффект: DeleteOutdatedPendingMerges возвращает ошибку → propagated error
-- [ ] Тест `UpdateSetting` — description сохраняется (NullString Valid=true)
-- [ ] Тест `UpdateSetting` — description пустой (NullString Valid=false, COALESCE сохраняет старое)
-- [ ] Тест `GetSetting` — успешное получение настройки
-- [ ] Тест `GetSetting` — пустой ключ (ValidationError)
-- [ ] Тест `GetSetting` — настройка не найдена (NotFoundError)
-- [ ] Тест `GetSetting` — ошибка БД (wrapped error)
-- [ ] Тест `ListSettings` — успешное получение списка
-- [ ] Тест `ListSettings` — пустой список (empty slice)
-- [ ] Тест `ListSettings` — ошибка БД (wrapped error)
-- [ ] Тест `settingToResponse` — конвертация ValueNumeric (sql.NullString → *float64)
-- [ ] Тест `settingToResponse` — конвертация ValueString, ValueBoolean, Description
-- [ ] Тест `settingToResponse` — timestamps в RFC3339
-- [ ] Тест `NewSettingsService` (конструктор)
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
@@ -224,6 +202,34 @@
 - [x] Edge cases: пустой job_title, nil Positions/Summary, повторное использование существующих сущностей
 - [x] **Результат: 25 unit тестов, все проходят. Покрытие: ImportFullTender pipeline + error propagation + pure mappers + edge cases**
 
+### Задача 2.6: Тесты для Settings Service
+- [ ] Создать `cmd/internal/services/settings/settings_service_test.go`
+- [ ] Мок Store (gomock MockStore)
+- [ ] Тест `UpdateSetting` — успешное обновление числовой настройки (UpsertSystemSettingNumeric)
+- [ ] Тест `UpdateSetting` — успешное обновление строковой настройки (UpsertSystemSettingString)
+- [ ] Тест `UpdateSetting` — успешное обновление булевой настройки (UpsertSystemSettingBoolean)
+- [ ] Тест `UpdateSetting` — пустой ключ (ValidationError)
+- [ ] Тест `UpdateSetting` — нет значения (ни numeric, ни string, ни boolean) (ValidationError)
+- [ ] Тест `UpdateSetting` — несколько значений одновременно (ValidationError)
+- [ ] Тест `UpdateSetting` — ошибка БД при upsert (wrapped DB error)
+- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold обновлён → DeleteOutdatedPendingMerges вызван
+- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold с ValueString (без вызова DeleteOutdatedPendingMerges)
+- [ ] Тест `UpdateSetting` — побочный эффект: другой ключ с ValueNumeric (без вызова DeleteOutdatedPendingMerges)
+- [ ] Тест `UpdateSetting` — побочный эффект: DeleteOutdatedPendingMerges возвращает ошибку → propagated error
+- [ ] Тест `UpdateSetting` — description сохраняется (NullString Valid=true)
+- [ ] Тест `UpdateSetting` — description пустой (NullString Valid=false, COALESCE сохраняет старое)
+- [ ] Тест `GetSetting` — успешное получение настройки
+- [ ] Тест `GetSetting` — пустой ключ (ValidationError)
+- [ ] Тест `GetSetting` — настройка не найдена (NotFoundError)
+- [ ] Тест `GetSetting` — ошибка БД (wrapped error)
+- [ ] Тест `ListSettings` — успешное получение списка
+- [ ] Тест `ListSettings` — пустой список (empty slice)
+- [ ] Тест `ListSettings` — ошибка БД (wrapped error)
+- [ ] Тест `settingToResponse` — конвертация ValueNumeric (sql.NullString → *float64)
+- [ ] Тест `settingToResponse` — конвертация ValueString, ValueBoolean, Description
+- [ ] Тест `settingToResponse` — timestamps в RFC3339
+- [ ] Тест `NewSettingsService` (конструктор)
+
 ---
 
 ## Фаза 3: Unit-тесты для Converters
@@ -280,6 +286,7 @@
 - [ ] Тест миграции 000003: merged_into_id (BIGINT, FK RESTRICT, CHECK self-merge, индекс)
 - [ ] Тест миграции 000004: resolved_at/resolved_by (замена decided_at/by + executed_at/by), CHECK constraint с EXECUTED
 - [ ] Тест миграции 000005: system_settings (PK key, CHECK has_value, trigger updated_at, seed dedup_distance_threshold)
+- [ ] Тест миграции 000006: частичные индексы idx_suggested_merges_{main,dup}_pos_actionable (WHERE status IN ('PENDING','APPROVED'))
 
 ### Задача 4.6: Тесты для system_settings queries
 - [ ] Создать `tests/integration/db_system_settings_test.go`
@@ -295,12 +302,18 @@
 - [ ] Тест trigger `updated_at` — автообновление при UPDATE
 - [ ] Тест `description` preservation — COALESCE при upsert сохраняет description если новый NULL
 
-### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges)
+### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges, InvalidateRelatedActionableMerges)
 - [ ] Тест `DeleteOutdatedPendingMerges` — удаляет PENDING merges с similarity_score < (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет APPROVED/REJECTED/EXECUTED merges
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет PENDING merges с similarity_score >= (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — threshold=0.0 (удаляет всё, кроме similarity_score=1.0)
 - [ ] Тест `DeleteOutdatedPendingMerges` — threshold=1.0 (ничего не удаляет: score < 0 невозможен)
+- [ ] Тест `InvalidateRelatedActionableMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (main_position_id)
+- [ ] Тест `InvalidateRelatedActionableMerges` — отклоняет PENDING-заявки с участием deprecated-позиций (duplicate_position_id)
+- [ ] Тест `InvalidateRelatedActionableMerges` — отклоняет APPROVED-заявки (не только PENDING)
+- [ ] Тест `InvalidateRelatedActionableMerges` — не трогает REJECTED/EXECUTED заявки
+- [ ] Тест `InvalidateRelatedActionableMerges` — не трогает заявки с другими позициями
+- [ ] Тест `InvalidateRelatedActionableMerges` — resolved_by = 'system', resolved_at заполняется
 
 ### Задача 4.7: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)

@@ -552,6 +552,11 @@ func (s *CatalogService) ExecuteMerge(
 			mergedStatus = mergedB.Status
 		}
 
+		// Инвалидируем все связанные заявки (PENDING/APPROVED), где участвуют deprecated-позиции
+		if err := invalidateActionableMerges(ctx, q, deprecatedPositionIDs); err != nil {
+			return err
+		}
+
 		return nil
 	})
 
@@ -798,6 +803,11 @@ func (s *CatalogService) ExecuteBatchMerge(
 			}
 		}
 
+		// Инвалидируем все связанные заявки (PENDING/APPROVED), где участвуют deprecated-позиции
+		if err := invalidateActionableMerges(ctx, q, deprecatedPositionIDs); err != nil {
+			return err
+		}
+
 		// Сортируем для детерминированного ответа API
 		sort.Slice(deprecatedPositionIDs, func(i, j int) bool {
 			return deprecatedPositionIDs[i] < deprecatedPositionIDs[j]
@@ -822,6 +832,19 @@ func (s *CatalogService) ExecuteBatchMerge(
 		Scenario:                scenario,
 		ResolvedAt:              resolvedAt.Time,
 	}, nil
+}
+
+// invalidateActionableMerges отклоняет все незавершённые (PENDING/APPROVED) заявки
+// на слияние, где участвует хотя бы одна из deprecated-позиций ("мёртвые души").
+// Вызывается внутри транзакций ExecuteMerge и ExecuteBatchMerge.
+func invalidateActionableMerges(ctx context.Context, q *db.Queries, deprecatedPositionIDs []int64) error {
+	if len(deprecatedPositionIDs) == 0 {
+		return nil
+	}
+	if err := q.InvalidateRelatedActionableMerges(ctx, deprecatedPositionIDs); err != nil {
+		return fmt.Errorf("ошибка InvalidateRelatedActionableMerges: %w", err)
+	}
+	return nil
 }
 
 // diagnoseMergeFailure определяет конкретную причину отказа MergeCatalogPosition
