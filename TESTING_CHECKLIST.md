@@ -141,34 +141,6 @@
 - [ ] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
 - [ ] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
 
-### Задача 2.6: Тесты для Settings Service
-- [ ] Создать `cmd/internal/services/settings/settings_service_test.go`
-- [ ] Мок Store (gomock MockStore)
-- [ ] Тест `UpdateSetting` — успешное обновление числовой настройки (UpsertSystemSettingNumeric)
-- [ ] Тест `UpdateSetting` — успешное обновление строковой настройки (UpsertSystemSettingString)
-- [ ] Тест `UpdateSetting` — успешное обновление булевой настройки (UpsertSystemSettingBoolean)
-- [ ] Тест `UpdateSetting` — пустой ключ (ValidationError)
-- [ ] Тест `UpdateSetting` — нет значения (ни numeric, ни string, ни boolean) (ValidationError)
-- [ ] Тест `UpdateSetting` — несколько значений одновременно (ValidationError)
-- [ ] Тест `UpdateSetting` — ошибка БД при upsert (wrapped DB error)
-- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold обновлён → DeleteOutdatedPendingMerges вызван
-- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold с ValueString (без вызова DeleteOutdatedPendingMerges)
-- [ ] Тест `UpdateSetting` — побочный эффект: другой ключ с ValueNumeric (без вызова DeleteOutdatedPendingMerges)
-- [ ] Тест `UpdateSetting` — побочный эффект: DeleteOutdatedPendingMerges возвращает ошибку → propagated error
-- [ ] Тест `UpdateSetting` — description сохраняется (NullString Valid=true)
-- [ ] Тест `UpdateSetting` — description пустой (NullString Valid=false, COALESCE сохраняет старое)
-- [ ] Тест `GetSetting` — успешное получение настройки
-- [ ] Тест `GetSetting` — пустой ключ (ValidationError)
-- [ ] Тест `GetSetting` — настройка не найдена (NotFoundError)
-- [ ] Тест `GetSetting` — ошибка БД (wrapped error)
-- [ ] Тест `ListSettings` — успешное получение списка
-- [ ] Тест `ListSettings` — пустой список (empty slice)
-- [ ] Тест `ListSettings` — ошибка БД (wrapped error)
-- [ ] Тест `settingToResponse` — конвертация ValueNumeric (sql.NullString → *float64)
-- [ ] Тест `settingToResponse` — конвертация ValueString, ValueBoolean, Description
-- [ ] Тест `settingToResponse` — timestamps в RFC3339
-- [ ] Тест `NewSettingsService` (конструктор)
-
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
 - [x] Введён Logger interface с поддержкой WithField/WithFields для тестируемости (по аналогии с auth/catalog)
@@ -228,6 +200,34 @@
 - [x] Тесты чистых маппер-функций: mapApiPositionToDbParams, mapApiSummaryToDbParams (заполненные + nil поля)
 - [x] Edge cases: пустой job_title, nil Positions/Summary, повторное использование существующих сущностей
 - [x] **Результат: 25 unit тестов, все проходят. Покрытие: ImportFullTender pipeline + error propagation + pure mappers + edge cases**
+
+### Задача 2.6: Тесты для Settings Service
+- [ ] Создать `cmd/internal/services/settings/settings_service_test.go`
+- [ ] Мок Store (gomock MockStore)
+- [ ] Тест `UpdateSetting` — успешное обновление числовой настройки (UpsertSystemSettingNumeric)
+- [ ] Тест `UpdateSetting` — успешное обновление строковой настройки (UpsertSystemSettingString)
+- [ ] Тест `UpdateSetting` — успешное обновление булевой настройки (UpsertSystemSettingBoolean)
+- [ ] Тест `UpdateSetting` — пустой ключ (ValidationError)
+- [ ] Тест `UpdateSetting` — нет значения (ни numeric, ни string, ни boolean) (ValidationError)
+- [ ] Тест `UpdateSetting` — несколько значений одновременно (ValidationError)
+- [ ] Тест `UpdateSetting` — ошибка БД при upsert (wrapped DB error)
+- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold обновлён → DeleteOutdatedPendingMerges вызван
+- [ ] Тест `UpdateSetting` — побочный эффект: dedup_distance_threshold с ValueString (без вызова DeleteOutdatedPendingMerges)
+- [ ] Тест `UpdateSetting` — побочный эффект: другой ключ с ValueNumeric (без вызова DeleteOutdatedPendingMerges)
+- [ ] Тест `UpdateSetting` — побочный эффект: DeleteOutdatedPendingMerges возвращает ошибку → propagated error
+- [ ] Тест `UpdateSetting` — description сохраняется (NullString Valid=true)
+- [ ] Тест `UpdateSetting` — description пустой (NullString Valid=false, COALESCE сохраняет старое)
+- [ ] Тест `GetSetting` — успешное получение настройки
+- [ ] Тест `GetSetting` — пустой ключ (ValidationError)
+- [ ] Тест `GetSetting` — настройка не найдена (NotFoundError)
+- [ ] Тест `GetSetting` — ошибка БД (wrapped error)
+- [ ] Тест `ListSettings` — успешное получение списка
+- [ ] Тест `ListSettings` — пустой список (empty slice)
+- [ ] Тест `ListSettings` — ошибка БД (wrapped error)
+- [ ] Тест `settingToResponse` — конвертация ValueNumeric (sql.NullString → *float64)
+- [ ] Тест `settingToResponse` — конвертация ValueString, ValueBoolean, Description
+- [ ] Тест `settingToResponse` — timestamps в RFC3339
+- [ ] Тест `NewSettingsService` (конструктор)
 
 ---
 
