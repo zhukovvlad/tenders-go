@@ -59,6 +59,20 @@ WHERE
     id = $3
 RETURNING *;
 
+-- name: RejectPendingMerge :one
+-- Атомарно переводит предложение из PENDING в REJECTED (защита от race condition).
+-- Возвращает строку ТОЛЬКО если текущий статус = PENDING.
+-- Если строка не найдена или статус не PENDING — возвращает sql.ErrNoRows.
+UPDATE suggested_merges
+SET 
+    status = 'REJECTED',
+    resolved_at = NOW(),
+    resolved_by = $1
+WHERE 
+    id = $2
+    AND status = 'PENDING'
+RETURNING *;
+
 -- name: GetSuggestedMergeByID :one
 -- Получает предложение о слиянии по ID (для валидации перед исполнением).
 SELECT * FROM suggested_merges

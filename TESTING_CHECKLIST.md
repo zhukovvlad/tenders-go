@@ -123,6 +123,14 @@
 - [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
 - [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
+- [x] Тесты RejectMerge — успешное отклонение PENDING-предложения (RejectPendingMerge с status=REJECTED)
+- [x] Тесты RejectMerge — пустой rejectedBy (ValidationError)
+- [x] Тесты RejectMerge — rejectedBy из пробелов/табов (ValidationError после TrimSpace)
+- [x] Тесты RejectMerge — mergeID <= 0 (ValidationError)
+- [x] Тесты RejectMerge — предложение не найдено (NotFoundError)
+- [x] Тесты RejectMerge — статус не PENDING (APPROVED/REJECTED/EXECUTED → ValidationError)
+- [x] Тесты RejectMerge — ошибка БД GetSuggestedMergeByID (wrapped DB error)
+- [x] Тесты RejectMerge — ошибка БД RejectPendingMerge (wrapped DB error)
 - [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
 - [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
 - [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
@@ -408,6 +416,14 @@
   - [ ] Ошибка БД (500)
   - [ ] Проверка требования роли admin
   - [ ] Проверка user_id из JWT передаётся как executedBy
+- [ ] Тесты RejectMergeHandler (`PATCH /api/v1/admin/merges/:id/reject`)
+  - [ ] Успешное отклонение → 200 + `{"status": "rejected", "merge_id": <id>}`
+  - [ ] Невалидный ID (400)
+  - [ ] Предложение не найдено (404)
+  - [ ] Статус не PENDING (400)
+  - [ ] Ошибка БД (500)
+  - [ ] Проверка требования роли admin
+  - [ ] Проверка user_id из JWT передаётся как rejectedBy
 
 ### Задача 5.9: Тесты для handlers_admin.go (System Settings)
 - [ ] Создать `cmd/internal/server/handlers_admin_test.go`

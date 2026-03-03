@@ -312,6 +312,64 @@ func (s *Server) ExecuteMergeHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// === 7b. PATCH /api/v1/admin/merges/:id/reject ===
+
+// RejectMergeHandler отклоняет предложение о слиянии.
+// Требует роль admin. ID берётся из URL, rejectedBy — из JWT.
+func (s *Server) RejectMergeHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "RejectMergeHandler")
+
+	// 1. Парсим ID из URL
+	idStr := c.Param("id")
+	mergeID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		logger.Errorf("Некорректный ID слияния: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом")))
+		return
+	}
+	if mergeID <= 0 {
+		logger.Errorf("Некорректный ID слияния: %d (должен быть > 0)", mergeID)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть положительным числом")))
+		return
+	}
+
+	// 2. Извлекаем user_id из JWT-контекста
+	userID, exists := c.Get("user_id")
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	rejectedBy := strconv.FormatInt(uid, 10)
+
+	// 3. Отклоняем через сервис
+	err = s.catalogService.RejectMerge(c.Request.Context(), mergeID, rejectedBy)
+	if err != nil {
+		logger.Errorf("Ошибка RejectMerge: %v", err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			// TODO: заменить на gin.H{"error": "internal server error"} после унификации
+			// всех хендлеров (см. issue «Sanitize 500 error responses across all handlers»).
+			c.JSON(http.StatusInternalServerError, errorResponse(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "rejected", "merge_id": mergeID})
+}
+
 // === 8. POST /api/v1/admin/merges/execute-batch ===
 
 // ExecuteBatchMergeHandler выполняет групповое слияние дубликатов каталога.

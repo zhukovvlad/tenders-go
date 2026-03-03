@@ -1939,3 +1939,195 @@ func TestExecuteBatchMerge_ExecuteMergeBatch_DBError(t *testing.T) {
 	var validationErr *apierrors.ValidationError
 	assert.False(t, errors.As(err, &validationErr))
 }
+
+// ========================================================================
+// RejectMerge tests
+// ========================================================================
+
+// TestRejectMerge_Success проверяет успешное отклонение PENDING-предложения.
+func TestRejectMerge_Success(t *testing.T) {
+	// GIVEN
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	mockStore.EXPECT().RejectPendingMerge(gomock.Any(), db.RejectPendingMergeParams{
+		ResolvedBy: sql.NullString{String: "42", Valid: true},
+		ID:         int64(100),
+	}).Return(db.SuggestedMerge{
+		ID:                  100,
+		MainPositionID:      10,
+		DuplicatePositionID: 20,
+		SimilarityScore:     0.95,
+		Status:              "REJECTED",
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		ResolvedAt:          sql.NullTime{Time: now, Valid: true},
+		ResolvedBy:          sql.NullString{String: "42", Valid: true},
+	}, nil)
+
+	// WHEN
+	err := service.RejectMerge(ctx, 100, "42")
+
+	// THEN
+	require.NoError(t, err)
+}
+
+// TestRejectMerge_EmptyRejectedBy проверяет ValidationError при пустом rejectedBy.
+func TestRejectMerge_EmptyRejectedBy(t *testing.T) {
+	// GIVEN
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	// WHEN
+	err := service.RejectMerge(ctx, 100, "")
+
+	// THEN
+	require.Error(t, err)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "rejectedBy")
+}
+
+// TestRejectMerge_NonPositiveID проверяет ValidationError при mergeID <= 0.
+func TestRejectMerge_NonPositiveID(t *testing.T) {
+	// GIVEN
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	for _, id := range []int64{0, -1, -100} {
+		// WHEN
+		err := service.RejectMerge(ctx, id, "42")
+
+		// THEN
+		require.Error(t, err, "mergeID=%d should fail", id)
+		var validationErr *apierrors.ValidationError
+		assert.True(t, errors.As(err, &validationErr), "mergeID=%d should be ValidationError", id)
+		assert.Contains(t, err.Error(), "mergeID", "mergeID=%d error should mention mergeID", id)
+	}
+}
+
+// TestRejectMerge_NotFound проверяет NotFoundError когда merge не существует.
+func TestRejectMerge_NotFound(t *testing.T) {
+	// GIVEN
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// RejectPendingMerge возвращает ErrNoRows (merge не найден или не PENDING)
+	mockStore.EXPECT().RejectPendingMerge(gomock.Any(), gomock.Any()).
+		Return(db.SuggestedMerge{}, sql.ErrNoRows)
+
+	// Fallback: GetSuggestedMergeByID тоже не находит → NotFoundError
+	mockStore.EXPECT().GetSuggestedMergeByID(gomock.Any(), int64(999)).
+		Return(db.SuggestedMerge{}, sql.ErrNoRows)
+
+	// WHEN
+	err := service.RejectMerge(ctx, 999, "42")
+
+	// THEN
+	require.Error(t, err)
+	var notFoundErr *apierrors.NotFoundError
+	assert.True(t, errors.As(err, &notFoundErr))
+	assert.Contains(t, err.Error(), "999")
+}
+
+// TestRejectMerge_WrongStatus проверяет ValidationError когда merge не в PENDING.
+func TestRejectMerge_WrongStatus(t *testing.T) {
+	// GIVEN
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// RejectPendingMerge возвращает ErrNoRows (guard status='PENDING' не прошёл)
+	mockStore.EXPECT().RejectPendingMerge(gomock.Any(), gomock.Any()).
+		Return(db.SuggestedMerge{}, sql.ErrNoRows)
+
+	// Fallback: GetSuggestedMergeByID находит merge в статусе EXECUTED
+	mockStore.EXPECT().GetSuggestedMergeByID(gomock.Any(), int64(50)).
+		Return(db.SuggestedMerge{
+			ID:                  50,
+			MainPositionID:      10,
+			DuplicatePositionID: 20,
+			SimilarityScore:     0.90,
+			Status:              "EXECUTED",
+			CreatedAt:           now,
+			UpdatedAt:           now,
+			ResolvedAt:          sql.NullTime{Time: now, Valid: true},
+			ResolvedBy:          sql.NullString{String: "admin", Valid: true},
+		}, nil)
+
+	// WHEN
+	err := service.RejectMerge(ctx, 50, "42")
+
+	// THEN
+	require.Error(t, err)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "EXECUTED")
+	assert.Contains(t, err.Error(), "PENDING")
+}
+
+// TestRejectMerge_RejectPendingMerge_DBError проверяет проброс ошибки БД от RejectPendingMerge.
+func TestRejectMerge_RejectPendingMerge_DBError(t *testing.T) {
+	// GIVEN
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	dbErr := errors.New("connection refused")
+	mockStore.EXPECT().RejectPendingMerge(gomock.Any(), gomock.Any()).
+		Return(db.SuggestedMerge{}, dbErr)
+
+	// WHEN
+	err := service.RejectMerge(ctx, 100, "42")
+
+	// THEN wrapped DB error (не ValidationError)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RejectPendingMerge")
+	var validationErr *apierrors.ValidationError
+	assert.False(t, errors.As(err, &validationErr))
+}
+
+// TestRejectMerge_GetSuggestedMergeByID_DBError проверяет проброс ошибки БД от fallback-запроса.
+func TestRejectMerge_GetSuggestedMergeByID_DBError(t *testing.T) {
+	// GIVEN
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// RejectPendingMerge → ErrNoRows (нужен fallback)
+	mockStore.EXPECT().RejectPendingMerge(gomock.Any(), gomock.Any()).
+		Return(db.SuggestedMerge{}, sql.ErrNoRows)
+
+	// Fallback GetSuggestedMergeByID → ошибка БД
+	dbErr := errors.New("timeout expired")
+	mockStore.EXPECT().GetSuggestedMergeByID(gomock.Any(), int64(100)).
+		Return(db.SuggestedMerge{}, dbErr)
+
+	// WHEN
+	err := service.RejectMerge(ctx, 100, "42")
+
+	// THEN wrapped DB error
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "merge 100")
+	var validationErr *apierrors.ValidationError
+	assert.False(t, errors.As(err, &validationErr))
+	var notFoundErr *apierrors.NotFoundError
+	assert.False(t, errors.As(err, &notFoundErr))
+}
+
+// TestRejectMerge_WhitespaceRejectedBy проверяет ValidationError при rejectedBy из пробелов.
+func TestRejectMerge_WhitespaceRejectedBy(t *testing.T) {
+	// GIVEN
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	for _, val := range []string{" ", "  ", "\t", " \t "} {
+		// WHEN
+		err := service.RejectMerge(ctx, 100, val)
+
+		// THEN
+		require.Error(t, err, "rejectedBy=%q should fail", val)
+		var validationErr *apierrors.ValidationError
+		assert.True(t, errors.As(err, &validationErr), "rejectedBy=%q should be ValidationError", val)
+		assert.Contains(t, err.Error(), "rejectedBy")
+	}
+}

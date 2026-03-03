@@ -196,6 +196,7 @@ func NewServer(
 			admin.GET("/suggested_merges", server.ListSuggestedMergesHandler)
 			admin.POST("/merges/execute-batch", server.ExecuteBatchMergeHandler)
 			admin.POST("/merges/:id/execute", server.ExecuteMergeHandler)
+			admin.PATCH("/merges/:id/reject", server.RejectMergeHandler)
 		}
 	}
 
