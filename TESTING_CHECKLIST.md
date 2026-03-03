@@ -123,6 +123,11 @@
 - [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
 - [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
+- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedPendingMerges с [B]
+- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedPendingMerges с [A, B]
+- [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedPendingMerges → rollback транзакции (wrapped DB error)
+- [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedPendingMerges с deprecated IDs
+- [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedPendingMerges → rollback транзакции (wrapped DB error)
 - [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
 - [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
 - [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)

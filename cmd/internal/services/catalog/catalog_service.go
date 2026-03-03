@@ -552,6 +552,14 @@ func (s *CatalogService) ExecuteMerge(
 			mergedStatus = mergedB.Status
 		}
 
+		// Инвалидируем все PENDING-заявки, где участвуют deprecated-позиции
+		// ("мёртвые души"), чтобы оператор не пытался исполнить невалидные слияния.
+		if len(deprecatedPositionIDs) > 0 {
+			if invErr := q.InvalidateRelatedPendingMerges(ctx, deprecatedPositionIDs); invErr != nil {
+				return fmt.Errorf("ошибка InvalidateRelatedPendingMerges: %w", invErr)
+			}
+		}
+
 		return nil
 	})
 
@@ -795,6 +803,14 @@ func (s *CatalogService) ExecuteBatchMerge(
 					return fmt.Errorf("ошибка SetPositionMerged (pos=%d): %w", posID, mergeErr)
 				}
 				deprecatedPositionIDs = append(deprecatedPositionIDs, posID)
+			}
+		}
+
+		// Инвалидируем все PENDING-заявки, где участвуют deprecated-позиции
+		// ("мёртвые души"), чтобы оператор не пытался исполнить невалидные слияния.
+		if len(deprecatedPositionIDs) > 0 {
+			if invErr := q.InvalidateRelatedPendingMerges(ctx, deprecatedPositionIDs); invErr != nil {
+				return fmt.Errorf("ошибка InvalidateRelatedPendingMerges: %w", invErr)
 			}
 		}
 

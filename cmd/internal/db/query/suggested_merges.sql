@@ -95,6 +95,23 @@ WHERE
     AND status IN ('PENDING', 'APPROVED')
 RETURNING *;
 
+-- name: InvalidateRelatedPendingMerges :exec
+-- Инвалидирует (REJECTED) все PENDING-заявки, где участвует хотя бы одна
+-- из deprecated-позиций (после слияния). Решает проблему "мёртвых душ":
+-- когда позиция B влита в A, другие PENDING-заявки с участием B
+-- зависают навсегда и вызывают ошибки при попытке исполнения.
+UPDATE suggested_merges
+SET
+    status = 'REJECTED',
+    resolved_at = NOW(),
+    resolved_by = 'system'
+WHERE
+    status = 'PENDING'
+    AND (
+        main_position_id = ANY(@position_ids::bigint[])
+        OR duplicate_position_id = ANY(@position_ids::bigint[])
+    );
+
 -- name: DeleteOutdatedPendingMerges :exec
 -- Очищает PENDING-заявки на слияние, которые больше не проходят по новому порогу расстояния.
 -- Формула: similarity_score = 1.0 - distance.
