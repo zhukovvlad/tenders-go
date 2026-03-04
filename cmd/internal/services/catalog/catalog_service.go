@@ -43,7 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/lib/pq"
@@ -746,6 +746,14 @@ func (s *CatalogService) ExecuteBatchMerge(
 			positionSet[m.DuplicatePositionID] = struct{}{}
 		}
 
+		// Сортируем один раз до ветвления для детерминированного порядка UPDATE-ов
+		// (стабильность тестов + отсутствие дедлоков при конкурентных batch-merge).
+		sortedPositionIDs := make([]int64, 0, len(positionSet))
+		for posID := range positionSet {
+			sortedPositionIDs = append(sortedPositionIDs, posID)
+		}
+		slices.Sort(sortedPositionIDs)
+
 		if !isMergeToNew {
 			// ===== Сценарий 1: Default Batch Merge =====
 			scenario = api_models.MergeScenarioDefault
@@ -776,13 +784,6 @@ func (s *CatalogService) ExecuteBatchMerge(
 			}
 
 			// Deprecate все позиции, кроме target
-			// Сортируем для детерминированного порядка UPDATE-ов (стабильность тестов + отсутствие дедлоков).
-			sortedPositionIDs := make([]int64, 0, len(positionSet))
-			for posID := range positionSet {
-				sortedPositionIDs = append(sortedPositionIDs, posID)
-			}
-			sort.Slice(sortedPositionIDs, func(i, j int) bool { return sortedPositionIDs[i] < sortedPositionIDs[j] })
-
 			for _, posID := range sortedPositionIDs {
 				if posID == req.TargetPositionID {
 					continue
@@ -846,13 +847,6 @@ func (s *CatalogService) ExecuteBatchMerge(
 			resultingPositionStatus = newPos.Status // "pending_indexing"
 
 			// Deprecate все позиции из группы
-			// Сортируем для детерминированного порядка UPDATE-ов (стабильность тестов + отсутствие дедлоков).
-			sortedPositionIDs := make([]int64, 0, len(positionSet))
-			for posID := range positionSet {
-				sortedPositionIDs = append(sortedPositionIDs, posID)
-			}
-			sort.Slice(sortedPositionIDs, func(i, j int) bool { return sortedPositionIDs[i] < sortedPositionIDs[j] })
-
 			for _, posID := range sortedPositionIDs {
 				_, mergeErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
 					TargetID:   sql.NullInt64{Int64: newPos.ID, Valid: true},
@@ -876,9 +870,7 @@ func (s *CatalogService) ExecuteBatchMerge(
 		}
 
 		// Сортируем для детерминированного ответа API
-		sort.Slice(deprecatedPositionIDs, func(i, j int) bool {
-			return deprecatedPositionIDs[i] < deprecatedPositionIDs[j]
-		})
+		slices.Sort(deprecatedPositionIDs)
 
 		return nil
 	})
