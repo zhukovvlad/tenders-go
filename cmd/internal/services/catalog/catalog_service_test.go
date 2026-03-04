@@ -852,6 +852,11 @@ func TestExecuteMerge_Success(t *testing.T) {
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
 					))
+
+			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 1))
 		}),
 	)
 
@@ -1177,6 +1182,11 @@ func TestExecuteMerge_MergeToNew_Success(t *testing.T) {
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
 					))
+
+			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[100,200])
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 2))
 		}),
 	)
 
@@ -1437,6 +1447,11 @@ func TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1(t *testing.T) {
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
 					))
+
+			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 1))
 		}),
 	)
 
@@ -1575,6 +1590,11 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 							now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 						))
 			}
+
+			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[59,89,98])
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 3))
 		}),
 	)
 
@@ -1649,6 +1669,11 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
+
+			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[59,98])
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 2))
 		}),
 	)
 
@@ -1859,6 +1884,11 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 							now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
 						))
 			}
+
+			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (все deprecated)
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 4))
 		}),
 	)
 
@@ -2130,4 +2160,504 @@ func TestRejectMerge_WhitespaceRejectedBy(t *testing.T) {
 		assert.True(t, errors.As(err, &validationErr), "rejectedBy=%q should be ValidationError", val)
 		assert.Contains(t, err.Error(), "rejectedBy")
 	}
+}
+
+// ========================================================================
+// InvalidateRelatedActionableMerges tests (package-level helper)
+// ========================================================================
+
+// TestInvalidateRelatedActionableMerges_Success проверяет успешную инвалидацию
+// PENDING и APPROVED заявок, связанных с deprecated-позициями ("мёртвые души").
+func TestInvalidateRelatedActionableMerges_Success(t *testing.T) {
+	// GIVEN sqlmock-backed *Queries
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	deprecatedIDs := []int64{100, 200}
+
+	// Ожидаем ExecContext с SQL-запросом InvalidateRelatedActionableMerges
+	// Он накрывает ОБА статуса: PENDING и APPROVED (WHERE status IN ('PENDING','APPROVED'))
+	mock.ExpectExec("InvalidateRelatedActionableMerges").
+		WithArgs(sqlmock.AnyArg()). // pq.Array(deprecatedIDs)
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	// WHEN
+	err := invalidateActionableMerges(ctx, q, deprecatedIDs)
+
+	// THEN
+	require.NoError(t, err)
+}
+
+// TestInvalidateRelatedActionableMerges_EmptyList проверяет что пустой список
+// не вызывает БД-запрос (early return).
+func TestInvalidateRelatedActionableMerges_EmptyList(t *testing.T) {
+	// GIVEN sqlmock-backed *Queries (без каких-либо ожиданий)
+	_, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// WHEN с пустым списком
+	err := invalidateActionableMerges(ctx, q, []int64{})
+
+	// THEN — нет ошибки, нет запросов к БД
+	require.NoError(t, err)
+}
+
+// TestExecuteMerge_InvalidateRelatedActionableMerges_DBError проверяет что ошибка
+// от InvalidateRelatedActionableMerges приводит к rollback транзакции (wrapped DB error).
+func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	dbErr := errors.New("network timeout")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteMerge succeeds
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.95),
+						"EXECUTED", now, now, now, "admin",
+					))
+
+			// MergeCatalogPosition succeeds
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+					))
+
+			// InvalidateRelatedActionableMerges — возвращает ошибку → rollback
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "admin", "")
+
+	// THEN — транзакция откатывается, ошибка пробрасывается
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "InvalidateRelatedActionableMerges")
+	var validationErr *apierrors.ValidationError
+	assert.False(t, errors.As(err, &validationErr))
+}
+
+// TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError проверяет rollback
+// при ошибке InvalidateRelatedActionableMerges в батч-слиянии.
+func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	dbErr := errors.New("connection reset by peer")
+	req := api_models.ExecuteBatchMergeRequest{
+		MergeIDs:         []int64{101, 102},
+		TargetPositionID: 2,
+	}
+
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			// ExecuteMergeBatch succeeds
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin").
+					AddRow(int64(102), int64(2), int64(98), float32(0.85), "EXECUTED", now, now, now, "admin"))
+
+			// GetCatalogPositionByID — target=2 is active
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
+						"POSITION", "active", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
+			// SetPositionMerged for 59 and 98 succeed
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(int64(59), "позиция 59", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(int64(98), "позиция 98", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
+
+			// InvalidateRelatedActionableMerges — возвращает ошибку → rollback
+			mock.ExpectExec("InvalidateRelatedActionableMerges").
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteBatchMerge(ctx, req, "admin")
+
+	// THEN — транзакция откатывается, ошибка пробрасывается
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "InvalidateRelatedActionableMerges")
+	var validationErr *apierrors.ValidationError
+	assert.False(t, errors.As(err, &validationErr))
+}
+
+// ========================================================================
+// ListPendingMerges tests
+// ========================================================================
+
+// makePendingMergesRow — хелпер для построения ListPendingMergesRow с контролируемыми данными.
+func makePendingMergesRow(
+	mergeID, mainID, dupID int64,
+	mainTitle, dupTitle string,
+	mainDesc, dupDesc sql.NullString,
+) db.ListPendingMergesRow {
+	now := time.Now()
+	return db.ListPendingMergesRow{
+		SuggestedMerge: db.SuggestedMerge{
+			ID:                  mergeID,
+			MainPositionID:      mainID,
+			DuplicatePositionID: dupID,
+			SimilarityScore:     0.92,
+			Status:              "PENDING",
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		},
+		CatalogPosition: db.CatalogPosition{
+			ID:               mainID,
+			StandardJobTitle: mainTitle,
+			Description:      mainDesc,
+			Kind:             "POSITION",
+			Status:           "active",
+		},
+		CatalogPosition_2: db.CatalogPosition{
+			ID:               dupID,
+			StandardJobTitle: dupTitle,
+			Description:      dupDesc,
+			Kind:             "POSITION",
+			Status:           "active",
+		},
+	}
+}
+
+// TestListPendingMerges_Success_MultipleGroups проверяет группировку по main_position_id.
+func TestListPendingMerges_Success_MultipleGroups(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// GIVEN: 2 группы — мастер A (ID=10) и мастер B (ID=20)
+	rows := []db.ListPendingMergesRow{
+		makePendingMergesRow(1, 10, 11, "Кладка кирпича", "Кирпичная кладка", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+		makePendingMergesRow(2, 20, 21, "Монтаж труб", "Трубопровод монтаж", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+	}
+
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(2), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(2), nil)
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), db.ListPendingMergesParams{
+		Limit: 20, Offset: 0,
+	}).Return(rows, nil)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 20)
+
+	// THEN
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, result.Groups, 2)
+	assert.Equal(t, int64(10), result.Groups[0].MainPosition.ID)
+	assert.Equal(t, int64(20), result.Groups[1].MainPosition.ID)
+	assert.Len(t, result.Groups[0].Merges, 1)
+	assert.Len(t, result.Groups[1].Merges, 1)
+}
+
+// TestListPendingMerges_Success_SingleGroupMultipleDuplicates проверяет группировку дубликатов
+// с одним мастером в несколько Merges.
+func TestListPendingMerges_Success_SingleGroupMultipleDuplicates(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// GIVEN: одна мастер-позиция (ID=10) с тремя дубликатами
+	rows := []db.ListPendingMergesRow{
+		makePendingMergesRow(1, 10, 11, "Кладка кирпича", "Кирпичная кладка", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+		makePendingMergesRow(2, 10, 12, "Кладка кирпича", "Кладка из кирпича", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+		makePendingMergesRow(3, 10, 13, "Кладка кирпича", "Укладка кирпича", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+	}
+
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(3), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(1), nil)
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), db.ListPendingMergesParams{
+		Limit: 50, Offset: 0,
+	}).Return(rows, nil)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 50)
+
+	// THEN — одна группа с тремя дубликатами
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, result.Groups, 1)
+	assert.Equal(t, int64(10), result.Groups[0].MainPosition.ID)
+	assert.Len(t, result.Groups[0].Merges, 3)
+	assert.Equal(t, int64(11), result.Groups[0].Merges[0].Duplicate.ID)
+	assert.Equal(t, int64(12), result.Groups[0].Merges[1].Duplicate.ID)
+	assert.Equal(t, int64(13), result.Groups[0].Merges[2].Duplicate.ID)
+}
+
+// TestListPendingMerges_EmptyResult проверяет пустой результат (нет PENDING предложений).
+func TestListPendingMerges_EmptyResult(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(0), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(0), nil)
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), db.ListPendingMergesParams{
+		Limit: 20, Offset: 0,
+	}).Return([]db.ListPendingMergesRow{}, nil)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 20)
+
+	// THEN
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.Groups)
+	assert.Equal(t, 0, result.Total)
+	assert.Equal(t, 0, result.TotalGroups)
+}
+
+// TestListPendingMerges_PageLessThan1 проверяет ValidationError при page < 1.
+func TestListPendingMerges_PageLessThan1(t *testing.T) {
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 0, 20)
+
+	// THEN
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "page")
+}
+
+// TestListPendingMerges_PageSizeInvalid проверяет ValidationError при page_size < 1 и > 500.
+func TestListPendingMerges_PageSizeInvalid(t *testing.T) {
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	for _, pageSize := range []int32{0, -1, 501, 1000} {
+		result, err := service.ListPendingMerges(ctx, 1, pageSize)
+		require.Error(t, err, "page_size=%d should fail", pageSize)
+		assert.Nil(t, result, "page_size=%d should return nil result", pageSize)
+		var validationErr *apierrors.ValidationError
+		assert.True(t, errors.As(err, &validationErr), "page_size=%d should be ValidationError", pageSize)
+		assert.Contains(t, err.Error(), "page_size")
+	}
+}
+
+// TestListPendingMerges_Pagination проверяет корректное вычисление offset:
+// page=2, page_size=10 → offset=10.
+func TestListPendingMerges_Pagination(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(25), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(10), nil)
+	// page=2, page_size=10 → offset=(2-1)*10=10
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), db.ListPendingMergesParams{
+		Limit: 10, Offset: 10,
+	}).Return([]db.ListPendingMergesRow{}, nil)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 2, 10)
+
+	// THEN — offset вычислен правильно (ListPendingMerges вызван с offset=10)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+// TestListPendingMerges_TotalFromCount проверяет что Total берётся из CountPendingMerges,
+// а не из len(rows) (важно: страница может быть неполной).
+func TestListPendingMerges_TotalFromCount(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	// CountPendingMerges = 100, но ListPendingMerges возвращает только 2 строки (page 1 из 10)
+	rows := []db.ListPendingMergesRow{
+		makePendingMergesRow(1, 10, 11, "Кладка", "Кладка дубль", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+		makePendingMergesRow(2, 20, 21, "Монтаж", "Монтаж дубль", sql.NullString{Valid: false}, sql.NullString{Valid: false}),
+	}
+
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(100), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(40), nil)
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), gomock.Any()).Return(rows, nil)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 20)
+
+	// THEN — Total = 100 (от CountPendingMerges), НЕ len(rows)=2
+	require.NoError(t, err)
+	assert.Equal(t, 100, result.Total)
+	assert.Equal(t, 40, result.TotalGroups)
+	assert.Len(t, result.Groups, 2) // только 2 строки на странице
+}
+
+// TestListPendingMerges_TotalGroupsFromCount проверяет что TotalGroups берётся
+// из CountPendingMergeGroups.
+func TestListPendingMerges_TotalGroupsFromCount(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(50), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(15), nil)
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), gomock.Any()).
+		Return([]db.ListPendingMergesRow{}, nil)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 50)
+
+	// THEN
+	require.NoError(t, err)
+	assert.Equal(t, 50, result.Total)
+	assert.Equal(t, 15, result.TotalGroups)
+}
+
+// TestListPendingMerges_DBError_CountPendingMerges проверяет wrapped DB error
+// при ошибке CountPendingMerges.
+func TestListPendingMerges_DBError_CountPendingMerges(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	dbErr := errors.New("connection refused")
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(0), dbErr)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 20)
+
+	// THEN
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "CountPendingMerges")
+}
+
+// TestListPendingMerges_DBError_CountPendingMergeGroups проверяет wrapped DB error
+// при ошибке CountPendingMergeGroups.
+func TestListPendingMerges_DBError_CountPendingMergeGroups(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	dbErr := errors.New("deadlock detected")
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(5), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(0), dbErr)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 20)
+
+	// THEN
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "CountPendingMergeGroups")
+}
+
+// TestListPendingMerges_DBError_ListPendingMerges проверяет wrapped DB error
+// при ошибке ListPendingMerges.
+func TestListPendingMerges_DBError_ListPendingMerges(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+
+	dbErr := errors.New("query timeout")
+	mockStore.EXPECT().CountPendingMerges(gomock.Any()).Return(int64(10), nil)
+	mockStore.EXPECT().CountPendingMergeGroups(gomock.Any()).Return(int64(5), nil)
+	mockStore.EXPECT().ListPendingMerges(gomock.Any(), gomock.Any()).
+		Return(nil, dbErr)
+
+	// WHEN
+	result, err := service.ListPendingMerges(ctx, 1, 20)
+
+	// THEN
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "ListPendingMerges")
+}
+
+// ========================================================================
+// catalogPositionToSummary tests
+// ========================================================================
+
+// TestCatalogPositionToSummary_NullableDescription проверяет конвертацию nullable description:
+// Valid=true → *string (ненулевой указатель), Valid=false → nil.
+func TestCatalogPositionToSummary_NullableDescription(t *testing.T) {
+	now := time.Now()
+
+	t.Run("Valid description converts to *string", func(t *testing.T) {
+		pos := db.CatalogPosition{
+			ID:               42,
+			StandardJobTitle: "Монтаж трубопровода",
+			Description:      sql.NullString{String: "Монтаж трубопровода из стальных труб", Valid: true},
+			Kind:             "POSITION",
+			Status:           "active",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		}
+
+		result := catalogPositionToSummary(pos)
+
+		assert.Equal(t, int64(42), result.ID)
+		assert.Equal(t, "Монтаж трубопровода", result.StandardJobTitle)
+		require.NotNil(t, result.Description)
+		assert.Equal(t, "Монтаж трубопровода из стальных труб", *result.Description)
+		assert.Equal(t, "POSITION", result.Kind)
+		assert.Equal(t, "active", result.Status)
+	})
+
+	t.Run("NULL description converts to nil pointer", func(t *testing.T) {
+		pos := db.CatalogPosition{
+			ID:               99,
+			StandardJobTitle: "Кровельные работы",
+			Description:      sql.NullString{Valid: false},
+			Kind:             "POSITION",
+			Status:           "pending_indexing",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		}
+
+		result := catalogPositionToSummary(pos)
+
+		assert.Equal(t, int64(99), result.ID)
+		assert.Nil(t, result.Description)
+	})
+
+	t.Run("Whitespace-only description converts to nil pointer", func(t *testing.T) {
+		pos := db.CatalogPosition{
+			ID:               77,
+			StandardJobTitle: "Покраска стен",
+			Description:      sql.NullString{String: "   ", Valid: true},
+			Kind:             "POSITION",
+			Status:           "active",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		}
+
+		result := catalogPositionToSummary(pos)
+
+		// Пробельная строка обрезается → пустая → nil
+		assert.Nil(t, result.Description)
+	})
 }

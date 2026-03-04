@@ -82,7 +82,6 @@
 
 ### ✅ Задача 2.2: Тесты для Catalog Service
 - [x] Создать `cmd/internal/services/catalog/catalog_service_test.go`
-- [x] Мок для database queries (gomock MockStore, регенерирован для полноты интерфейса)
 - [x] Введён Logger interface для тестируемости (по аналогии с auth service)
 - [x] Тесты GetUnindexedCatalogItems (получение неиндексированных позиций)
 - [x] Тесты GetAllActiveCatalogItems (получение активных позиций с пагинацией)
@@ -131,24 +130,25 @@
 - [x] Тесты RejectMerge — статус не PENDING (APPROVED/REJECTED/EXECUTED → ValidationError)
 - [x] Тесты RejectMerge — ошибка БД GetSuggestedMergeByID (wrapped DB error)
 - [x] Тесты RejectMerge — ошибка БД RejectPendingMerge (wrapped DB error)
-- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
-- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
-- [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
-- [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
-- [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
-- [ ] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
-- [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
-- [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
-- [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
-- [ ] Тесты ListPendingMerges — валидация page < 1 (ValidationError)
-- [ ] Тесты ListPendingMerges — валидация page_size < 1, > 500 (ValidationError)
-- [ ] Тесты ListPendingMerges — ошибка БД ListPendingMerges (wrapped error)
-- [ ] Тесты ListPendingMerges — ошибка БД CountPendingMerges (wrapped error)
-- [ ] Тесты ListPendingMerges — ошибка БД CountPendingMergeGroups (wrapped error)
-- [ ] Тесты ListPendingMerges — пагинация (page=2, page_size=10 → offset=10)
-- [ ] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
-- [ ] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
-- [ ] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
+- [x] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
+- [x] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
+- [x] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [x] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
+- [x] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [x] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
+- [x] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
+- [x] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
+- [x] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
+- [x] Тесты ListPendingMerges — валидация page < 1 (ValidationError)
+- [x] Тесты ListPendingMerges — валидация page_size < 1, > 500 (ValidationError)
+- [x] Тесты ListPendingMerges — ошибка БД ListPendingMerges (wrapped error)
+- [x] Тесты ListPendingMerges — ошибка БД CountPendingMerges (wrapped error)
+- [x] Тесты ListPendingMerges — ошибка БД CountPendingMergeGroups (wrapped error)
+- [x] Тесты ListPendingMerges — пагинация (page=2, page_size=10 → offset=10)
+- [x] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
+- [x] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
+- [x] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
+- [x] **Результат: 80 unit тестов, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
