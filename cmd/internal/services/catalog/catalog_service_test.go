@@ -1607,7 +1607,7 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 	assert.Equal(t, []int64{101, 102, 103}, result.MergeIDs)
 	assert.Equal(t, int64(2), result.ResultingPositionID)
 	assert.Equal(t, "active", result.ResultingPositionStatus)
-	assert.ElementsMatch(t, []int64{59, 89, 98}, result.DeprecatedPositionIDs)
+	assert.Equal(t, []int64{59, 89, 98}, result.DeprecatedPositionIDs)
 	assert.Equal(t, "default", result.Scenario)
 }
 
@@ -1902,7 +1902,7 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 	assert.Equal(t, []int64{101, 102, 103}, result.MergeIDs)
 	assert.Equal(t, int64(300), result.ResultingPositionID)
 	assert.Equal(t, "pending_indexing", result.ResultingPositionStatus)
-	assert.ElementsMatch(t, []int64{2, 59, 89, 98}, result.DeprecatedPositionIDs)
+	assert.Equal(t, []int64{2, 59, 89, 98}, result.DeprecatedPositionIDs)
 	assert.Equal(t, "merge_to_new", result.Scenario)
 }
 
