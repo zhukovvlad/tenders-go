@@ -327,13 +327,13 @@ func (s *CatalogService) ListPendingMerges(
 	totalCount, err := s.store.CountPendingMerges(ctx)
 	if err != nil {
 		s.logger.Errorf("Ошибка CountPendingMerges: %v", err)
-		return nil, fmt.Errorf("CountPendingMerges: %w", err)
+		return nil, fmt.Errorf("ошибка CountPendingMerges: %w", err)
 	}
 
 	totalGroups, err := s.store.CountPendingMergeGroups(ctx)
 	if err != nil {
 		s.logger.Errorf("Ошибка CountPendingMergeGroups: %v", err)
-		return nil, fmt.Errorf("CountPendingMergeGroups: %w", err)
+		return nil, fmt.Errorf("ошибка CountPendingMergeGroups: %w", err)
 	}
 
 	rows, err := s.store.ListPendingMerges(ctx, db.ListPendingMergesParams{
@@ -342,7 +342,7 @@ func (s *CatalogService) ListPendingMerges(
 	})
 	if err != nil {
 		s.logger.Errorf("Ошибка ListPendingMerges: %v", err)
-		return nil, fmt.Errorf("ListPendingMerges: %w", err)
+		return nil, fmt.Errorf("ошибка ListPendingMerges: %w", err)
 	}
 
 	// Группируем по main_position_id, сохраняя порядок появления

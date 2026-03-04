@@ -854,7 +854,7 @@ func TestExecuteMerge_Success(t *testing.T) {
 					))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 1))
 		}),
@@ -1184,7 +1184,7 @@ func TestExecuteMerge_MergeToNew_Success(t *testing.T) {
 					))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[100,200])
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 2))
 		}),
@@ -1449,7 +1449,7 @@ func TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1(t *testing.T) {
 					))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 1))
 		}),
@@ -1592,7 +1592,7 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 			}
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[59,89,98])
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 3))
 		}),
@@ -1671,7 +1671,7 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 					))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[59,98])
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 2))
 		}),
@@ -1886,7 +1886,7 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 			}
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (все deprecated)
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 4))
 		}),
@@ -2178,7 +2178,7 @@ func TestInvalidateRelatedActionableMerges_Success(t *testing.T) {
 
 	// Ожидаем ExecContext с SQL-запросом InvalidateRelatedActionableMerges
 	// Он накрывает ОБА статуса: PENDING и APPROVED (WHERE status IN ('PENDING','APPROVED'))
-	mock.ExpectExec("InvalidateRelatedActionableMerges").
+	mock.ExpectExec("UPDATE suggested_merges").
 		WithArgs(sqlmock.AnyArg()). // pq.Array(deprecatedIDs)
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
@@ -2234,7 +2234,7 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 					))
 
 			// InvalidateRelatedActionableMerges — возвращает ошибку → rollback
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnError(dbErr)
 		}),
@@ -2298,7 +2298,7 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
 
 			// InvalidateRelatedActionableMerges — возвращает ошибку → rollback
-			mock.ExpectExec("InvalidateRelatedActionableMerges").
+			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnError(dbErr)
 		}),
@@ -2534,6 +2534,22 @@ func TestListPendingMerges_TotalGroupsFromCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 50, result.Total)
 	assert.Equal(t, 15, result.TotalGroups)
+}
+
+// TestListPendingMerges_PageTooLarge проверяет overflow-guard:
+// (page-1)*page_size > math.MaxInt32 → ValidationError.
+func TestListPendingMerges_PageTooLarge(t *testing.T) {
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	// (2_000_000_000 - 1) * 500 = ~10^12, что >> math.MaxInt32 (2_147_483_647)
+	result, err := service.ListPendingMerges(ctx, 2_000_000_000, 500)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	var validationErr *apierrors.ValidationError
+	assert.True(t, errors.As(err, &validationErr))
+	assert.Contains(t, err.Error(), "page слишком велик")
 }
 
 // TestListPendingMerges_DBError_CountPendingMerges проверяет wrapped DB error
