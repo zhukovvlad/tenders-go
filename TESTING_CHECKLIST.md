@@ -82,7 +82,6 @@
 
 ### ✅ Задача 2.2: Тесты для Catalog Service
 - [x] Создать `cmd/internal/services/catalog/catalog_service_test.go`
-- [x] Мок для database queries (gomock MockStore, регенерирован для полноты интерфейса)
 - [x] Введён Logger interface для тестируемости (по аналогии с auth service)
 - [x] Тесты GetUnindexedCatalogItems (получение неиндексированных позиций)
 - [x] Тесты GetAllActiveCatalogItems (получение активных позиций с пагинацией)
@@ -114,12 +113,12 @@
 - [x] Тесты ExecuteBatchMerge — пустые merge_ids (ValidationError)
 - [x] Тесты ExecuteBatchMerge — дубликат merge_id (ValidationError с указанием ID)
 - [x] Тесты ExecuteBatchMerge — отсутствие target_position_id без new_main_title (ValidationError)
-- [x] Тесты ExecuteBatchMerge Сценарий 1 (Default Batch) — успешное выполнение (3 merge-записи, 3 deprecated)
+- [x] Тесты ExecuteBatchMerge Сценарий 1 (Default Batch) — успешное выполнение (3 merge-записи, 3 deprecated); SetPositionMerged вызывается в отсортированном по возрастанию posID порядке
 - [x] Тесты ExecuteBatchMerge Сценарий 1 — переименование target (status=pending_indexing)
 - [x] Тесты ExecuteBatchMerge Сценарий 1 — target_position_id не в группе позиций (ValidationError)
 - [x] Тесты ExecuteBatchMerge — частичный отказ (не все merge_ids обновились → rollback)
 - [x] Тесты ExecuteBatchMerge Сценарий 1 — позиция уже deprecated (ValidationError)
-- [x] Тесты ExecuteBatchMerge Сценарий 2 (Batch Merge-to-New) — создание C, все позиции deprecated
+- [x] Тесты ExecuteBatchMerge Сценарий 2 (Batch Merge-to-New) — создание C, все позиции deprecated; SetPositionMerged вызывается в отсортированном порядке posID
 - [x] Тесты ExecuteBatchMerge Сценарий 2 — дубликат названия (pq 23505 → ValidationError)
 - [x] Тесты ExecuteBatchMerge — ошибка БД при ExecuteMergeBatch (wrapped DB error)
 - [x] **Результат: 28 ExecuteMerge-тестов (16 single + 12 batch), все проходят.**
@@ -131,24 +130,25 @@
 - [x] Тесты RejectMerge — статус не PENDING (APPROVED/REJECTED/EXECUTED → ValidationError)
 - [x] Тесты RejectMerge — ошибка БД GetSuggestedMergeByID (wrapped DB error)
 - [x] Тесты RejectMerge — ошибка БД RejectPendingMerge (wrapped DB error)
-- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
-- [ ] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
-- [ ] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
-- [ ] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
-- [ ] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
-- [ ] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
-- [ ] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
-- [ ] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
-- [ ] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
-- [ ] Тесты ListPendingMerges — валидация page < 1 (ValidationError)
-- [ ] Тесты ListPendingMerges — валидация page_size < 1, > 500 (ValidationError)
-- [ ] Тесты ListPendingMerges — ошибка БД ListPendingMerges (wrapped error)
-- [ ] Тесты ListPendingMerges — ошибка БД CountPendingMerges (wrapped error)
-- [ ] Тесты ListPendingMerges — ошибка БД CountPendingMergeGroups (wrapped error)
-- [ ] Тесты ListPendingMerges — пагинация (page=2, page_size=10 → offset=10)
-- [ ] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
-- [ ] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
-- [ ] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
+- [x] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
+- [x] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
+- [x] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges пробрасывается наружу (wrapped DB error; rollback обеспечивает ExecTx, в unit-тесте явно не проверяется)
+- [x] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
+- [x] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges пробрасывается наружу (wrapped DB error; rollback обеспечивает ExecTx, в unit-тесте явно не проверяется)
+- [x] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
+- [x] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
+- [x] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)
+- [x] Тесты ListPendingMerges — пустой результат (empty groups, total=0)
+- [x] Тесты ListPendingMerges — валидация page < 1 (ValidationError)
+- [x] Тесты ListPendingMerges — валидация page_size < 1, > 500 (ValidationError)
+- [x] Тесты ListPendingMerges — ошибка БД ListPendingMerges (wrapped error)
+- [x] Тесты ListPendingMerges — ошибка БД CountPendingMerges (wrapped error)
+- [x] Тесты ListPendingMerges — ошибка БД CountPendingMergeGroups (wrapped error)
+- [x] Тесты ListPendingMerges — пагинация (page=2, page_size=10 → offset=10)
+- [x] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
+- [x] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
+- [x] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
+- [x] **Результат: 81 unit тест, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary. Сервис: `sortedPositionIDs` вынесен до ветвления if/else, SetPositionMerged вызывается в детерминированном порядке.**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`

@@ -43,7 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/lib/pq"
@@ -327,13 +327,13 @@ func (s *CatalogService) ListPendingMerges(
 	totalCount, err := s.store.CountPendingMerges(ctx)
 	if err != nil {
 		s.logger.Errorf("Ошибка CountPendingMerges: %v", err)
-		return nil, fmt.Errorf("ошибка БД при подсчёте предложений о слиянии: %w", err)
+		return nil, fmt.Errorf("ошибка CountPendingMerges: %w", err)
 	}
 
 	totalGroups, err := s.store.CountPendingMergeGroups(ctx)
 	if err != nil {
 		s.logger.Errorf("Ошибка CountPendingMergeGroups: %v", err)
-		return nil, fmt.Errorf("ошибка БД при подсчёте групп слияния: %w", err)
+		return nil, fmt.Errorf("ошибка CountPendingMergeGroups: %w", err)
 	}
 
 	rows, err := s.store.ListPendingMerges(ctx, db.ListPendingMergesParams{
@@ -342,7 +342,7 @@ func (s *CatalogService) ListPendingMerges(
 	})
 	if err != nil {
 		s.logger.Errorf("Ошибка ListPendingMerges: %v", err)
-		return nil, fmt.Errorf("ошибка БД при получении предложений о слиянии: %w", err)
+		return nil, fmt.Errorf("ошибка ListPendingMerges: %w", err)
 	}
 
 	// Группируем по main_position_id, сохраняя порядок появления
@@ -746,6 +746,14 @@ func (s *CatalogService) ExecuteBatchMerge(
 			positionSet[m.DuplicatePositionID] = struct{}{}
 		}
 
+		// Сортируем один раз до ветвления для детерминированного порядка UPDATE-ов
+		// (стабильность тестов + отсутствие дедлоков при конкурентных batch-merge).
+		sortedPositionIDs := make([]int64, 0, len(positionSet))
+		for posID := range positionSet {
+			sortedPositionIDs = append(sortedPositionIDs, posID)
+		}
+		slices.Sort(sortedPositionIDs)
+
 		if !isMergeToNew {
 			// ===== Сценарий 1: Default Batch Merge =====
 			scenario = api_models.MergeScenarioDefault
@@ -776,7 +784,7 @@ func (s *CatalogService) ExecuteBatchMerge(
 			}
 
 			// Deprecate все позиции, кроме target
-			for posID := range positionSet {
+			for _, posID := range sortedPositionIDs {
 				if posID == req.TargetPositionID {
 					continue
 				}
@@ -839,7 +847,7 @@ func (s *CatalogService) ExecuteBatchMerge(
 			resultingPositionStatus = newPos.Status // "pending_indexing"
 
 			// Deprecate все позиции из группы
-			for posID := range positionSet {
+			for _, posID := range sortedPositionIDs {
 				_, mergeErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
 					TargetID:   sql.NullInt64{Int64: newPos.ID, Valid: true},
 					PositionID: posID,
@@ -862,9 +870,7 @@ func (s *CatalogService) ExecuteBatchMerge(
 		}
 
 		// Сортируем для детерминированного ответа API
-		sort.Slice(deprecatedPositionIDs, func(i, j int) bool {
-			return deprecatedPositionIDs[i] < deprecatedPositionIDs[j]
-		})
+		slices.Sort(deprecatedPositionIDs)
 
 		return nil
 	})
