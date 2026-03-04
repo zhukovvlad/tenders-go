@@ -776,7 +776,14 @@ func (s *CatalogService) ExecuteBatchMerge(
 			}
 
 			// Deprecate все позиции, кроме target
+			// Сортируем для детерминированного порядка UPDATE-ов (стабильность тестов + отсутствие дедлоков).
+			sortedPositionIDs := make([]int64, 0, len(positionSet))
 			for posID := range positionSet {
+				sortedPositionIDs = append(sortedPositionIDs, posID)
+			}
+			sort.Slice(sortedPositionIDs, func(i, j int) bool { return sortedPositionIDs[i] < sortedPositionIDs[j] })
+
+			for _, posID := range sortedPositionIDs {
 				if posID == req.TargetPositionID {
 					continue
 				}
@@ -839,7 +846,14 @@ func (s *CatalogService) ExecuteBatchMerge(
 			resultingPositionStatus = newPos.Status // "pending_indexing"
 
 			// Deprecate все позиции из группы
+			// Сортируем для детерминированного порядка UPDATE-ов (стабильность тестов + отсутствие дедлоков).
+			sortedPositionIDs := make([]int64, 0, len(positionSet))
 			for posID := range positionSet {
+				sortedPositionIDs = append(sortedPositionIDs, posID)
+			}
+			sort.Slice(sortedPositionIDs, func(i, j int) bool { return sortedPositionIDs[i] < sortedPositionIDs[j] })
+
+			for _, posID := range sortedPositionIDs {
 				_, mergeErr := q.SetPositionMerged(ctx, db.SetPositionMergedParams{
 					TargetID:   sql.NullInt64{Int64: newPos.ID, Valid: true},
 					PositionID: posID,

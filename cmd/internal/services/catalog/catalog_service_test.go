@@ -1578,9 +1578,7 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged для {59, 89, 98} — порядок итерации по map недетерминирован,
-			// поэтому отключаем упорядоченный матчинг и задаём ожидание для каждого posID.
-			mock.MatchExpectationsInOrder(false)
+			// SetPositionMerged для {59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
 			for _, posID := range []int64{59, 89, 98} {
 				posID := posID
 				mock.ExpectQuery("UPDATE catalog_positions").
@@ -1875,9 +1873,7 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged для {2, 59, 89, 98} — порядок итерации по map недетерминирован,
-			// поэтому отключаем упорядоченный матчинг и задаём ожидание для каждого posID.
-			mock.MatchExpectationsInOrder(false)
+			// SetPositionMerged для {2, 59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
 			for _, posID := range []int64{2, 59, 89, 98} {
 				posID := posID
 				mock.ExpectQuery("UPDATE catalog_positions").
