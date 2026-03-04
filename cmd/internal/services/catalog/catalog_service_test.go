@@ -2205,7 +2205,9 @@ func TestInvalidateRelatedActionableMerges_EmptyList(t *testing.T) {
 }
 
 // TestExecuteMerge_InvalidateRelatedActionableMerges_DBError проверяет что ошибка
-// от InvalidateRelatedActionableMerges приводит к rollback транзакции (wrapped DB error).
+// от InvalidateRelatedActionableMerges пробрасывается наружу как wrapped DB error.
+// Примечание: фактический rollback транзакции не наблюдается в тесте, т.к.
+// ExecTx мокируется через DoAndReturn (BEGIN/ROLLBACK не проходят через sqlmock).
 func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
@@ -2233,7 +2235,7 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
 					))
 
-			// InvalidateRelatedActionableMerges — возвращает ошибку → rollback
+			// InvalidateRelatedActionableMerges — возвращает ошибку
 			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnError(dbErr)
@@ -2243,7 +2245,7 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 	// WHEN
 	result, err := service.ExecuteMerge(ctx, 42, "admin", "")
 
-	// THEN — транзакция откатывается, ошибка пробрасывается
+	// THEN — ошибка пробрасывается наружу
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "InvalidateRelatedActionableMerges")
@@ -2251,8 +2253,10 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 	assert.False(t, errors.As(err, &validationErr))
 }
 
-// TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError проверяет rollback
-// при ошибке InvalidateRelatedActionableMerges в батч-слиянии.
+// TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError проверяет что ошибка
+// от InvalidateRelatedActionableMerges пробрасывается наружу при батч-слиянии.
+// Примечание: фактический rollback транзакции не наблюдается в тесте, т.к.
+// ExecTx мокируется через DoAndReturn (BEGIN/ROLLBACK не проходят через sqlmock).
 func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
@@ -2297,7 +2301,7 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
 
-			// InvalidateRelatedActionableMerges — возвращает ошибку → rollback
+			// InvalidateRelatedActionableMerges — возвращает ошибку
 			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnError(dbErr)
@@ -2307,7 +2311,7 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 	// WHEN
 	result, err := service.ExecuteBatchMerge(ctx, req, "admin")
 
-	// THEN — транзакция откатывается, ошибка пробрасывается
+	// THEN — ошибка пробрасывается наружу
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "InvalidateRelatedActionableMerges")

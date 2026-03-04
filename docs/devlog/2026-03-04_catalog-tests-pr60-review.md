@@ -70,7 +70,7 @@ UPDATE suggested_merges ...
 
 ---
 
-### 3. [CodeRabbit, nitpick] Не покрыт overflow-guard `page * page_size > MaxInt32`
+### 3. [CodeRabbit, nitpick] Не покрыт overflow-guard `(page-1) * page_size > MaxInt32`
 
 **Утверждение ревьюера:**
 > В `ListPendingMerges` есть ветка:
@@ -99,3 +99,76 @@ UPDATE suggested_merges ...
 | Overflow guard тест | CodeRabbit | Непокрытая ветка | ✅ Применено |
 
 Итоговое число тестов: **81** (было 80), все зелёные.
+
+---
+
+## Второй раунд ревью (Copilot, 2026-03-04)
+
+После коммита с правками первого раунда появились новые замечания. Всего 15 комментариев.
+
+### Устаревшие (outdated) — 9 комментариев
+
+Все 9 относились к `ExpectExec("InvalidateRelatedActionableMerges")` — уже исправлено
+в первом раунде на `ExpectExec("UPDATE suggested_merges")`. Пометка `is_outdated: true`
+подтверждает, что правки учтены. **Действий не требуется.**
+
+### Активные замечания — 6 комментариев
+
+#### 1. Формат ошибок в `catalog_service.go` (line 331)
+
+Reviewer указал на несогласованность: `"CountPendingMerges: %w"` без русского префикса.
+Код уже содержал `"ошибка CountPendingMerges: %w"` — замечание устарело фактически,
+но не было помечено `is_outdated`. **Действий не потребовалось** (уже исправлено).
+
+#### 2. Misleading "rollback" в комментариях DBError тестов (lines 2216, 2269)
+
+**Утверждение:**
+> Тест декларирует проверку rollback, но при мокинге ExecTx через DoAndReturn/
+> execTxDoAndReturn rollback не наблюдаем — нет BEGIN/ROLLBACK в sqlmock.
+> Стоит либо переименовать/исправить описание, либо переписать harness.
+
+**Разбор:**
+Замечание верное. Тестовый harness `execTxDoAndReturn` мокирует весь `ExecTx` через
+`DoAndReturn`, поэтому реаьный BEGIN/ROLLBACK в sqlmock не происходит. Тесты проверяют
+только **проброс ошибки** из `InvalidateRelatedActionableMerges`, а не откат транзакции.
+
+Переписывать harness ради наблюдения BEGIN/ROLLBACK — избыточно для unit-тестов
+(это зона интеграционных тестов). Достаточно скорректировать формулировки.
+
+**Применено:** обновлены doc-комментарий и inline-комментарии в обоих тестах:
+- "приводит к rollback транзакции" → "пробрасывается наружу"
+- "→ rollback" → убрано
+- "THEN — транзакция откатывается, ошибка пробрасывается" → "THEN — ошибка пробрасывается наружу"
+- Добавлено примечание: "фактический rollback не наблюдается в тесте, т.к. ExecTx
+  мокируется через DoAndReturn (BEGIN/ROLLBACK не проходят через sqlmock)"
+
+#### 3. Несогласованность счётчика тестов (TESTING_CHECKLIST.md vs devlog)
+
+**Утверждение:**
+> В TESTING_CHECKLIST.md написано "80 unit тестов", в devlog — 81. Нужно синхронизировать.
+
+**Применено:** TESTING_CHECKLIST.md обновлён: "80 unit тестов" → "81 unit тест".
+
+#### 4. Неточная формула overflow-guard в devlog (line 73)
+
+**Утверждение:**
+> В devlog написано `page * page_size > MaxInt32`, но в коде проверяется `(page-1)*pageSize`.
+
+**Применено:** исправлено в devlog: `page * page_size > MaxInt32` →
+`(page-1) * page_size > MaxInt32`.
+
+---
+
+## Обновлённый итог
+
+| # | Ревьюер | Тип | Статус |
+|---|---------|-----|--------|
+| 9× `ExpectExec` матчер | Copilot R1 | Баг в тесте | ✅ Применено (R1) |
+| Формат ошибок | Copilot R1 | Консистентность | ✅ Применено (R1) |
+| Overflow guard тест | CodeRabbit R1 | Непокрытая ветка | ✅ Применено (R1) |
+| Outdated × 9 | Copilot R2 | Устарело | ⏭ Пропущено |
+| rollback формулировки | Copilot R2 | Неточное описание | ✅ Применено (R2) |
+| Счётчик тестов 80 vs 81 | Copilot R2 | Рассинхрон доков | ✅ Применено (R2) |
+| Формула overflow | Copilot R2 | Неточное описание | ✅ Применено (R2) |
+
+Итого: **81 unit тест**, все зелёные.

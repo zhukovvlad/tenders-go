@@ -148,7 +148,7 @@
 - [x] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
 - [x] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
 - [x] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
-- [x] **Результат: 80 unit тестов, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary**
+- [x] **Результат: 81 unit тест, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary**
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
