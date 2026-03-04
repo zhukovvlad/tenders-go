@@ -132,9 +132,9 @@
 - [x] Тесты RejectMerge — ошибка БД RejectPendingMerge (wrapped DB error)
 - [x] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 1: после Default Merge вызывается InvalidateRelatedActionableMerges с [B]
 - [x] Тесты ExecuteMerge — инвалидация "мёртвых душ" Сценарий 2: после Merge-to-New вызывается InvalidateRelatedActionableMerges с [A, B]
-- [x] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [x] Тесты ExecuteMerge — ошибка InvalidateRelatedActionableMerges пробрасывается наружу (wrapped DB error; rollback обеспечивает ExecTx, в unit-тесте явно не проверяется)
 - [x] Тесты ExecuteBatchMerge — инвалидация: после batch merge вызывается InvalidateRelatedActionableMerges с deprecated IDs
-- [x] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges → rollback транзакции (wrapped DB error)
+- [x] Тесты ExecuteBatchMerge — ошибка InvalidateRelatedActionableMerges пробрасывается наружу (wrapped DB error; rollback обеспечивает ExecTx, в unit-тесте явно не проверяется)
 - [x] Тесты InvalidateRelatedActionableMerges — покрывает APPROVED-заявки (не только PENDING) с deprecated-позициями
 - [x] Тесты ListPendingMerges — успешное получение сгруппированных предложений (несколько main_position_id)
 - [x] Тесты ListPendingMerges — одна мастер-позиция с несколькими дубликатами (группировка)

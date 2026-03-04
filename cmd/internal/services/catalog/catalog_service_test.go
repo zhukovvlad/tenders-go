@@ -1578,14 +1578,16 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged for each position != target (59, 89, 98 → target=2)
-			// Note: map iteration order is non-deterministic, so we use AnyArg for position_id
-			for i := 0; i < 3; i++ {
+			// SetPositionMerged для {59, 89, 98} — порядок итерации по map недетерминирован,
+			// поэтому отключаем упорядоченный матчинг и задаём ожидание для каждого posID.
+			mock.MatchExpectationsInOrder(false)
+			for _, posID := range []int64{59, 89, 98} {
+				posID := posID
 				mock.ExpectQuery("UPDATE catalog_positions").
-					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WithArgs(sqlmock.AnyArg(), posID).
 					WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
 						AddRow(
-							int64(59+i), "позиция", sql.NullString{Valid: false}, nil,
+							posID, "позиция", sql.NullString{Valid: false}, nil,
 							"POSITION", "deprecated", sql.NullInt64{Valid: false},
 							now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 						))
@@ -1607,7 +1609,7 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 	assert.Equal(t, []int64{101, 102, 103}, result.MergeIDs)
 	assert.Equal(t, int64(2), result.ResultingPositionID)
 	assert.Equal(t, "active", result.ResultingPositionStatus)
-	assert.Len(t, result.DeprecatedPositionIDs, 3)
+	assert.ElementsMatch(t, []int64{59, 89, 98}, result.DeprecatedPositionIDs)
 	assert.Equal(t, "default", result.Scenario)
 }
 
@@ -1873,13 +1875,16 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged for each unique position (2, 59, 89, 98)
-			for i := 0; i < 4; i++ {
+			// SetPositionMerged для {2, 59, 89, 98} — порядок итерации по map недетерминирован,
+			// поэтому отключаем упорядоченный матчинг и задаём ожидание для каждого posID.
+			mock.MatchExpectationsInOrder(false)
+			for _, posID := range []int64{2, 59, 89, 98} {
+				posID := posID
 				mock.ExpectQuery("UPDATE catalog_positions").
-					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WithArgs(sqlmock.AnyArg(), posID).
 					WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
 						AddRow(
-							int64(2+i), "позиция", sql.NullString{Valid: false}, nil,
+							posID, "позиция", sql.NullString{Valid: false}, nil,
 							"POSITION", "deprecated", sql.NullInt64{Valid: false},
 							now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
 						))
@@ -1901,7 +1906,7 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 	assert.Equal(t, []int64{101, 102, 103}, result.MergeIDs)
 	assert.Equal(t, int64(300), result.ResultingPositionID)
 	assert.Equal(t, "pending_indexing", result.ResultingPositionStatus)
-	assert.Len(t, result.DeprecatedPositionIDs, 4)
+	assert.ElementsMatch(t, []int64{2, 59, 89, 98}, result.DeprecatedPositionIDs)
 	assert.Equal(t, "merge_to_new", result.Scenario)
 }
 

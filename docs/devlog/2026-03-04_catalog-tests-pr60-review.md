@@ -129,7 +129,7 @@ Reviewer указал на несогласованность: `"CountPendingMer
 
 **Разбор:**
 Замечание верное. Тестовый harness `execTxDoAndReturn` мокирует весь `ExecTx` через
-`DoAndReturn`, поэтому реаьный BEGIN/ROLLBACK в sqlmock не происходит. Тесты проверяют
+`DoAndReturn`, поэтому реальный BEGIN/ROLLBACK в sqlmock не происходит. Тесты проверяют
 только **проброс ошибки** из `InvalidateRelatedActionableMerges`, а не откат транзакции.
 
 Переписывать harness ради наблюдения BEGIN/ROLLBACK — избыточно для unit-тестов
