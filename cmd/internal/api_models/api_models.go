@@ -356,6 +356,6 @@ type GroupPositionsRequest struct {
 type GroupPositionsResponse struct {
 	MergeID    int64  `json:"merge_id"`
 	ParentID   int64  `json:"parent_id"`
-	Status     string `json:"status"`      // expected: "GROUPED"
+	Status     string `json:"status"` // expected: "GROUPED"
 	ResolvedAt string `json:"resolved_at"`
 }
