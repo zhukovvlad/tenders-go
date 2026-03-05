@@ -547,6 +547,14 @@ func (s *CatalogService) ExecuteMerge(
 				return fmt.Errorf("ошибка MergeCatalogPosition: %w", mergeErr)
 			}
 
+			// Path Compression: перевешиваем все позиции, ранее влитые в B, напрямую на A
+			if flattenErr := q.FlattenMergeChain(ctx, db.FlattenMergeChainParams{
+				NewMasterID: sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
+				OldMasterID: sql.NullInt64{Int64: merge.DuplicatePositionID, Valid: true},
+			}); flattenErr != nil {
+				return fmt.Errorf("ошибка FlattenMergeChain для дубликата %d: %w", merge.DuplicatePositionID, flattenErr)
+			}
+
 			resultingPositionID = merge.MainPositionID // A остаётся активной
 			resultingPositionStatus = "active"         // WHERE clause гарантирует: master.status = 'active'
 			deprecatedPositionIDs = []int64{mergedPos.ID}
@@ -597,6 +605,22 @@ func (s *CatalogService) ExecuteMerge(
 					)
 				}
 				return fmt.Errorf("ошибка SetPositionMerged (B=%d): %w", merge.DuplicatePositionID, mergeBErr)
+			}
+
+			// Path Compression: перевешиваем все позиции, ранее влитые в A, напрямую на C
+			if flattenErr := q.FlattenMergeChain(ctx, db.FlattenMergeChainParams{
+				NewMasterID: sql.NullInt64{Int64: newPos.ID, Valid: true},
+				OldMasterID: sql.NullInt64{Int64: merge.MainPositionID, Valid: true},
+			}); flattenErr != nil {
+				return fmt.Errorf("ошибка FlattenMergeChain для мастера %d: %w", merge.MainPositionID, flattenErr)
+			}
+
+			// Path Compression: перевешиваем все позиции, ранее влитые в B, напрямую на C
+			if flattenErr := q.FlattenMergeChain(ctx, db.FlattenMergeChainParams{
+				NewMasterID: sql.NullInt64{Int64: newPos.ID, Valid: true},
+				OldMasterID: sql.NullInt64{Int64: merge.DuplicatePositionID, Valid: true},
+			}); flattenErr != nil {
+				return fmt.Errorf("ошибка FlattenMergeChain для дубликата %d: %w", merge.DuplicatePositionID, flattenErr)
 			}
 
 			resultingPositionStatus = newPos.Status // "pending_indexing" для C
@@ -800,6 +824,13 @@ func (s *CatalogService) ExecuteBatchMerge(
 					}
 					return fmt.Errorf("ошибка SetPositionMerged (pos=%d): %w", posID, mergeErr)
 				}
+				// Path Compression: перевешиваем все позиции, ранее влитые в posID, на target
+				if flattenErr := q.FlattenMergeChain(ctx, db.FlattenMergeChainParams{
+					NewMasterID: sql.NullInt64{Int64: req.TargetPositionID, Valid: true},
+					OldMasterID: sql.NullInt64{Int64: posID, Valid: true},
+				}); flattenErr != nil {
+					return fmt.Errorf("ошибка FlattenMergeChain для позиции %d: %w", posID, flattenErr)
+				}
 				deprecatedPositionIDs = append(deprecatedPositionIDs, posID)
 			}
 
@@ -859,6 +890,13 @@ func (s *CatalogService) ExecuteBatchMerge(
 						)
 					}
 					return fmt.Errorf("ошибка SetPositionMerged (pos=%d): %w", posID, mergeErr)
+				}
+				// Path Compression: перевешиваем все позиции, ранее влитые в posID, на C
+				if flattenErr := q.FlattenMergeChain(ctx, db.FlattenMergeChainParams{
+					NewMasterID: sql.NullInt64{Int64: newPos.ID, Valid: true},
+					OldMasterID: sql.NullInt64{Int64: posID, Valid: true},
+				}); flattenErr != nil {
+					return fmt.Errorf("ошибка FlattenMergeChain для позиции %d: %w", posID, flattenErr)
 				}
 				deprecatedPositionIDs = append(deprecatedPositionIDs, posID)
 			}

@@ -853,6 +853,11 @@ func TestExecuteMerge_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
 					))
 
+			// FlattenMergeChain: path compression (B→A)
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
 			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
@@ -1183,6 +1188,16 @@ func TestExecuteMerge_MergeToNew_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
 					))
 
+			// FlattenMergeChain: path compression (A→C)
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
+			// FlattenMergeChain: path compression (B→C)
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[100,200])
 			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
@@ -1448,6 +1463,11 @@ func TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
 					))
 
+			// FlattenMergeChain: path compression (B→A)
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
 			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
@@ -1578,7 +1598,7 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged для {59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
+			// SetPositionMerged + FlattenMergeChain для {59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
 			for _, posID := range []int64{59, 89, 98} {
 				mock.ExpectQuery("UPDATE catalog_positions").
 					WithArgs(sqlmock.AnyArg(), posID).
@@ -1588,6 +1608,11 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 							"POSITION", "deprecated", sql.NullInt64{Valid: false},
 							now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 						))
+
+				// FlattenMergeChain: path compression (posID→target)
+				mock.ExpectExec("UPDATE catalog_positions").
+					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(0, 0))
 			}
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[59,89,98])
@@ -1641,7 +1666,7 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged for 59 and 98
+			// SetPositionMerged for 59 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
@@ -1650,6 +1675,11 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 					))
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
+			// SetPositionMerged for 98 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
@@ -1658,6 +1688,9 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 					))
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// UpdateCatalogPositionDetails for rename
 			mock.ExpectQuery("UPDATE catalog_positions").
@@ -1872,7 +1905,7 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged для {2, 59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
+			// SetPositionMerged + FlattenMergeChain для {2, 59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
 			for _, posID := range []int64{2, 59, 89, 98} {
 				mock.ExpectQuery("UPDATE catalog_positions").
 					WithArgs(sqlmock.AnyArg(), posID).
@@ -1882,6 +1915,11 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 							"POSITION", "deprecated", sql.NullInt64{Valid: false},
 							now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
 						))
+
+				// FlattenMergeChain: path compression (posID→C)
+				mock.ExpectExec("UPDATE catalog_positions").
+					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(0, 0))
 			}
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (все deprecated)
@@ -2234,6 +2272,11 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
 					))
 
+			// FlattenMergeChain: path compression (B→A)
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
 			// InvalidateRelatedActionableMerges — возвращает ошибку
 			mock.ExpectExec("UPDATE suggested_merges").
 				WithArgs(sqlmock.AnyArg()).
@@ -2286,19 +2329,27 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 						now, now, nil, sql.NullInt64{Valid: false},
 					))
 
-			// SetPositionMerged for 59 and 98 succeed
+			// SetPositionMerged for 59 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
 					AddRow(int64(59), "позиция 59", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
+			// SetPositionMerged for 98 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
 					AddRow(int64(98), "позиция 98", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// InvalidateRelatedActionableMerges — возвращает ошибку
 			mock.ExpectExec("UPDATE suggested_merges").

@@ -150,6 +150,31 @@
 - [x] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
 - [x] **Результат: 81 unit тест, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary. Сервис: `sortedPositionIDs` вынесен до ветвления if/else, SetPositionMerged вызывается в детерминированном порядке.**
 
+#### Path Compression (FlattenMergeChain) — unit-тесты
+
+**Обновление существующих тестов** (8 тестов сломаны из-за добавления FlattenMergeChain в транзакции):
+- [x] Починить TestExecuteMerge_Success — добавить sqlmock ExpectExec для FlattenMergeChain (OldMasterID=B)
+- [x] Починить TestExecuteMerge_MergeToNew_Success — добавить 2× ExpectExec для FlattenMergeChain (OldMasterID=A, OldMasterID=B)
+- [x] Починить TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1 — добавить ExpectExec для FlattenMergeChain
+- [x] Починить TestExecuteBatchMerge_Scenario1_Success — добавить ExpectExec для FlattenMergeChain в цикле
+- [x] Починить TestExecuteBatchMerge_Scenario1_WithRename — добавить ExpectExec для FlattenMergeChain в цикле
+- [x] Починить TestExecuteBatchMerge_Scenario2_Success — добавить ExpectExec для FlattenMergeChain в цикле
+- [x] Починить TestExecuteMerge_InvalidateRelatedActionableMerges_DBError — добавить ExpectExec для FlattenMergeChain до invalid-шага
+- [x] Починить TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError — добавить ExpectExec для FlattenMergeChain до invalid-шага
+
+**Новые тесты — ошибки FlattenMergeChain:**
+- [ ] Тест ExecuteMerge Сценарий 1 — ошибка FlattenMergeChain после MergeCatalogPosition (wrapped DB error, транзакция откатывается)
+- [ ] Тест ExecuteMerge Сценарий 2 — ошибка FlattenMergeChain для мастера A (wrapped DB error, транзакция откатывается)
+- [ ] Тест ExecuteMerge Сценарий 2 — ошибка FlattenMergeChain для дубликата B (первый FlattenMergeChain OK, второй fail → wrapped DB error)
+- [ ] Тест ExecuteBatchMerge Сценарий 1 — ошибка FlattenMergeChain внутри цикла (wrapped DB error, транзакция откатывается)
+- [ ] Тест ExecuteBatchMerge Сценарий 2 — ошибка FlattenMergeChain внутри цикла (wrapped DB error, транзакция откатывается)
+
+**Новые тесты — корректность вызовов FlattenMergeChain:**
+- [ ] Тест ExecuteMerge Сценарий 1 — FlattenMergeChain вызывается с NewMasterID=MainPositionID, OldMasterID=DuplicatePositionID
+- [ ] Тест ExecuteMerge Сценарий 2 — FlattenMergeChain вызывается дважды: (NewMasterID=C, OldMasterID=A) и (NewMasterID=C, OldMasterID=B)
+- [ ] Тест ExecuteBatchMerge Сценарий 1 — FlattenMergeChain вызывается для каждой deprecated-позиции с NewMasterID=target
+- [ ] Тест ExecuteBatchMerge Сценарий 2 — FlattenMergeChain вызывается для каждой позиции с NewMasterID=newPos.ID
+
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
 - [x] Введён Logger interface с поддержкой WithField/WithFields для тестируемости (по аналогии с auth/catalog)
@@ -322,6 +347,16 @@
 - [ ] Тест `InvalidateRelatedActionableMerges` — не трогает REJECTED/EXECUTED заявки
 - [ ] Тест `InvalidateRelatedActionableMerges` — не трогает заявки с другими позициями
 - [ ] Тест `InvalidateRelatedActionableMerges` — resolved_by = 'system', resolved_at заполняется
+
+### Задача 4.9: Тесты FlattenMergeChain (Path Compression)
+- [ ] Тест `FlattenMergeChain` — перевешивает позиции с merged_into_id=old на new_master_id
+- [ ] Тест `FlattenMergeChain` — не трогает позиции с другим merged_into_id
+- [ ] Тест `FlattenMergeChain` — не трогает позиции с merged_into_id IS NULL
+- [ ] Тест `FlattenMergeChain` — обновляет updated_at
+- [ ] Тест `FlattenMergeChain` — нет строк для обновления (no-op, без ошибки)
+- [ ] Тест `FlattenMergeChain` — множественные позиции (A→B, C→B → все → new_master)
+- [ ] Тест интеграционный: ExecuteMerge + FlattenMergeChain — после merge D→B→A цепочка становится D→A, B→A
+- [ ] Тест интеграционный: ExecuteBatchMerge + FlattenMergeChain — после batch merge все цепочки плоские (глубина ≤ 1)
 
 ### Задача 4.7: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)
