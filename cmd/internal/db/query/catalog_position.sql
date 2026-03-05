@@ -206,3 +206,13 @@ WHERE
     AND merged_into_id IS NULL
     AND status != 'deprecated'
 RETURNING *;
+
+-- name: FlattenMergeChain :exec
+-- Перевешивает все позиции, ранее влитые в old_master_id, напрямую на new_master_id.
+-- Выполняет "сжатие путей" (Path Compression) для предотвращения транзитивных цепочек.
+UPDATE catalog_positions
+SET
+    merged_into_id = sqlc.arg(new_master_id),
+    updated_at = NOW()
+WHERE
+    merged_into_id = sqlc.arg(old_master_id);
