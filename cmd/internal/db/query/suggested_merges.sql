@@ -22,6 +22,8 @@ SET
 -- name: ListPendingMerges :many
 -- (Для Go-сервера / Админки) Показывает оператору "очередь"
 -- того, что нужно смерджить.
+-- Пагинация применяется на уровне групп (main_position_id), а не строк,
+-- чтобы все дубликаты для группы всегда возвращались вместе.
 SELECT 
     sqlc.embed(sm),
     sqlc.embed(main_pos),
@@ -34,10 +36,17 @@ JOIN
     catalog_positions dup_pos ON sm.duplicate_position_id = dup_pos.id
 WHERE 
     sm.status = 'PENDING'
+    AND sm.main_position_id IN (
+        SELECT sub.main_position_id
+        FROM suggested_merges sub
+        WHERE sub.status = 'PENDING'
+        GROUP BY sub.main_position_id
+        ORDER BY MAX(sub.similarity_score) DESC, sub.main_position_id ASC
+        LIMIT $1
+        OFFSET $2
+    )
 ORDER BY 
-    sm.similarity_score DESC
-LIMIT $1
-OFFSET $2;
+    sm.similarity_score DESC, sm.main_position_id ASC, sm.id ASC;
 
 -- name: CountPendingMerges :one
 -- Возвращает общее количество PENDING merge-предложений (для пагинации).

@@ -140,8 +140,8 @@ func (s *Server) HandleGetSystemSetting(c *gin.Context) {
 // Возвращает список PENDING merge-предложений, сгруппированных по main_position_id.
 //
 // Query-параметры:
-//   - page      (int, default 1):   номер страницы
-//   - page_size (int, default 100): количество merge-записей на странице
+//   - page      (int, default 1):   номер страницы (по группам)
+//   - page_size (int, default 100): количество групп (main_position_id) на странице
 //
 // Response: 200 + ListSuggestedMergesResponse
 // Errors:   400 (невалидные параметры), 500 (ошибка БД)

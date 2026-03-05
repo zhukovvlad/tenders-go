@@ -150,6 +150,18 @@
 - [x] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
 - [x] **Результат: 81 unit тест, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary. Сервис: `sortedPositionIDs` вынесен до ветвления if/else, SetPositionMerged вызывается в детерминированном порядке.**
 
+#### Fix: пагинация по группам (2026-03-05)
+
+**Баг**: SQL `ListPendingMerges` применял LIMIT/OFFSET к плоским строкам, а не группам.
+Строки одной группы (main_position_id) разрывались пагинацией — часть дубликатов терялась.
+**Фикс**: подзапрос `IN (SELECT ... GROUP BY main_position_id ... LIMIT/OFFSET)` — пагинация по группам.
+Deterministic tiebreakers добавлены и в подзапрос, и во внешнюю сортировку.
+
+**Запланированные интеграционные тесты** (SQL-уровень, задача 4.8):
+- [ ] Тест ListPendingMerges — пагинация по группам: LIMIT/OFFSET не разрывает группу (все дубликаты группы возвращаются целиком)
+- [ ] Тест ListPendingMerges — порядок групп: группы отсортированы по MAX(similarity_score) DESC, main_position_id ASC
+- [ ] Тест ListPendingMerges — deterministic ordering: одинаковые score → стабильный порядок по main_position_id, id
+
 #### Path Compression (FlattenMergeChain) — unit-тесты
 
 **Обновление существующих тестов** (8 тестов сломаны из-за добавления FlattenMergeChain в транзакции):
@@ -335,7 +347,17 @@
 - [ ] Тест trigger `updated_at` — автообновление при UPDATE
 - [ ] Тест `description` preservation — COALESCE при upsert сохраняет description если новый NULL
 
-### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges, InvalidateRelatedActionableMerges)
+### Задача 4.8: Тесты для suggested_merges queries (DeleteOutdatedPendingMerges, InvalidateRelatedActionableMerges, ListPendingMerges)
+
+**ListPendingMerges (пагинация по группам)**:
+- [ ] Тест `ListPendingMerges` — возвращает все дубликаты для группы (main_position_id), а не обрезает LIMIT'ом
+- [ ] Тест `ListPendingMerges` — LIMIT=1 возвращает одну группу со всеми её дубликатами
+- [ ] Тест `ListPendingMerges` — OFFSET корректно пропускает группы, а не строки
+- [ ] Тест `ListPendingMerges` — порядок групп: по MAX(similarity_score) DESC, main_position_id ASC
+- [ ] Тест `ListPendingMerges` — порядок строк внутри группы: по similarity_score DESC, main_position_id ASC, id ASC
+- [ ] Тест `ListPendingMerges` — deterministic tiebreaker: одинаковые MAX(score) → стабильный порядок по main_position_id
+
+**DeleteOutdatedPendingMerges, InvalidateRelatedActionableMerges**:
 - [ ] Тест `DeleteOutdatedPendingMerges` — удаляет PENDING merges с similarity_score < (1.0 - threshold)
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет APPROVED/REJECTED/EXECUTED merges
 - [ ] Тест `DeleteOutdatedPendingMerges` — не удаляет PENDING merges с similarity_score >= (1.0 - threshold)
