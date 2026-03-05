@@ -135,6 +135,18 @@ WHERE
         OR duplicate_position_id = ANY(@position_ids::bigint[])
     );
 
+-- name: GroupMerge :one
+-- Атомарно переводит предложение из PENDING или APPROVED в GROUPED.
+UPDATE suggested_merges
+SET 
+    status = 'GROUPED',
+    resolved_at = NOW(),
+    resolved_by = $1
+WHERE 
+    id = $2
+    AND status IN ('PENDING', 'APPROVED')
+RETURNING *;
+
 -- name: DeleteOutdatedPendingMerges :exec
 -- Очищает PENDING-заявки на слияние, которые больше не проходят по новому порогу расстояния.
 -- Формула: similarity_score = 1.0 - distance.

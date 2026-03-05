@@ -340,3 +340,22 @@ type ListSuggestedMergesResponse struct {
 	Total       int                   `json:"total"`        // Общее количество PENDING merge-записей
 	TotalGroups int                   `json:"total_groups"` // Общее количество уникальных main_position_id
 }
+
+// === Group Positions (POST /api/v1/admin/merges/:id/group) ===
+
+// GroupPositionsRequest — DTO запроса для группировки позиций под родителем.
+// Ровно одно из полей ParentID / NewParentTitle должно быть задано.
+type GroupPositionsRequest struct {
+	// Идентификатор существующего родителя (если выбран из справочника)
+	ParentID int64 `json:"parent_id,omitempty"`
+	// Название для нового родителя (если нужно создать на лету)
+	NewParentTitle string `json:"new_parent_title,omitempty"`
+}
+
+// GroupPositionsResponse — DTO ответа для группировки позиций.
+type GroupPositionsResponse struct {
+	MergeID    int64  `json:"merge_id"`
+	ParentID   int64  `json:"parent_id"`
+	Status     string `json:"status"`      // expected: "GROUPED"
+	ResolvedAt string `json:"resolved_at"`
+}

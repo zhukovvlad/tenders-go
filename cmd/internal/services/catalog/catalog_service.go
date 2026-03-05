@@ -1068,3 +1068,152 @@ func (s *CatalogService) GetAllActiveCatalogItems(
 		len(response), limit, offset)
 	return response, nil
 }
+
+// GroupPositions реализует POST /api/v1/admin/merges/:id/group.
+//
+// # Назначение
+//
+// Группирует две позиции из merge-заявки под общим абстрактным родителем (HEADER).
+// В отличие от ExecuteMerge, позиции НЕ становятся deprecated — они остаются активными
+// вариантами (например, "Окно 900x1200" и "Окно 900x1500" под родителем "Окно ПВХ").
+//
+// # Параметры
+//
+//   - ctx: контекст выполнения запроса
+//   - mergeID: ID записи в таблице suggested_merges
+//   - executedBy: ID оператора, выполнившего группировку
+//   - req: GroupPositionsRequest с ParentID или NewParentTitle
+//
+// # Возвращаемое значение
+//
+//   - *api_models.GroupPositionsResponse: данные о выполненной группировке
+//   - error: ValidationError, NotFoundError или ошибка БД
+func (s *CatalogService) GroupPositions(
+	ctx context.Context,
+	mergeID int64,
+	executedBy string,
+	req api_models.GroupPositionsRequest,
+) (*api_models.GroupPositionsResponse, error) {
+	logger := s.logger.WithField("method", "GroupPositions").WithField("merge_id", mergeID)
+
+	// Валидация: executedBy обязателен
+	if executedBy == "" {
+		return nil, apierrors.NewValidationError("executedBy не может быть пустым")
+	}
+
+	// Валидация: ровно одно из ParentID / NewParentTitle
+	req.NewParentTitle = strings.TrimSpace(req.NewParentTitle)
+	hasParentID := req.ParentID > 0
+	hasNewTitle := req.NewParentTitle != ""
+
+	if hasParentID && hasNewTitle {
+		return nil, apierrors.NewValidationError("нельзя указать одновременно parent_id и new_parent_title")
+	}
+	if !hasParentID && !hasNewTitle {
+		return nil, apierrors.NewValidationError("необходимо указать parent_id или new_parent_title")
+	}
+
+	var merge db.SuggestedMerge
+	var finalParentID int64
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// 1. Атомарно переводим PENDING/APPROVED → GROUPED
+		var txErr error
+		merge, txErr = q.GroupMerge(ctx, db.GroupMergeParams{
+			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
+			ID:         mergeID,
+		})
+		if txErr != nil {
+			if errors.Is(txErr, sql.ErrNoRows) {
+				existing, checkErr := q.GetSuggestedMergeByID(ctx, mergeID)
+				if checkErr != nil {
+					if errors.Is(checkErr, sql.ErrNoRows) {
+						return apierrors.NewNotFoundError("предложение о слиянии с ID %d не найдено", mergeID)
+					}
+					return fmt.Errorf("ошибка GetSuggestedMergeByID: %w", checkErr)
+				}
+				return apierrors.NewValidationError(
+					"группировка %d невозможна: текущий статус=%s (ожидается PENDING/APPROVED)",
+					mergeID, existing.Status,
+				)
+			}
+			return fmt.Errorf("ошибка GroupMerge: %w", txErr)
+		}
+
+		// 2. Определяем finalParentID
+		if hasNewTitle {
+			// Создаём новую родительскую позицию (HEADER)
+			parent, createErr := q.CreateParentCatalogPosition(ctx, req.NewParentTitle)
+			if createErr != nil {
+				return fmt.Errorf("ошибка CreateParentCatalogPosition: %w", createErr)
+			}
+			finalParentID = parent.ID
+		} else {
+			// Проверяем, что указанный ParentID существует и валиден
+			parent, getErr := q.GetCatalogPositionByID(ctx, req.ParentID)
+			if getErr != nil {
+				if errors.Is(getErr, sql.ErrNoRows) {
+					return apierrors.NewNotFoundError("родительская позиция с ID %d не найдена", req.ParentID)
+				}
+				return fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", req.ParentID, getErr)
+			}
+			if parent.Status == "deprecated" {
+				return apierrors.NewValidationError(
+					"родительская позиция %d имеет статус deprecated", req.ParentID,
+				)
+			}
+			if parent.MergedIntoID.Valid {
+				return apierrors.NewValidationError(
+					"родительская позиция %d влита в другую позицию", req.ParentID,
+				)
+			}
+			finalParentID = parent.ID
+		}
+
+		// 3. Привязываем ОБЕ позиции к родителю (позиции остаются active)
+		_, mainErr := q.SetPositionParent(ctx, db.SetPositionParentParams{
+			ParentID:   sql.NullInt64{Int64: finalParentID, Valid: true},
+			PositionID: merge.MainPositionID,
+		})
+		if mainErr != nil {
+			if errors.Is(mainErr, sql.ErrNoRows) {
+				return apierrors.NewValidationError(
+					"группировка невозможна: позиция %d deprecated или влита",
+					merge.MainPositionID,
+				)
+			}
+			return fmt.Errorf("ошибка SetPositionParent (main=%d): %w", merge.MainPositionID, mainErr)
+		}
+
+		_, dupErr := q.SetPositionParent(ctx, db.SetPositionParentParams{
+			ParentID:   sql.NullInt64{Int64: finalParentID, Valid: true},
+			PositionID: merge.DuplicatePositionID,
+		})
+		if dupErr != nil {
+			if errors.Is(dupErr, sql.ErrNoRows) {
+				return apierrors.NewValidationError(
+					"группировка невозможна: позиция %d deprecated или влита",
+					merge.DuplicatePositionID,
+				)
+			}
+			return fmt.Errorf("ошибка SetPositionParent (dup=%d): %w", merge.DuplicatePositionID, dupErr)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("Ошибка группировки: %v", err)
+		return nil, err
+	}
+
+	logger.Infof("Группировка: позиции %d и %d привязаны к родителю %d",
+		merge.MainPositionID, merge.DuplicatePositionID, finalParentID)
+
+	return &api_models.GroupPositionsResponse{
+		MergeID:    mergeID,
+		ParentID:   finalParentID,
+		Status:     merge.Status,
+		ResolvedAt: merge.ResolvedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+	}, nil
+}
