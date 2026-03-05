@@ -147,13 +147,6 @@
 - [x] Тесты ListPendingMerges — пагинация (page=2, page_size=10 → offset=10)
 - [x] Тесты ListPendingMerges — Total содержит общее количество из CountPendingMerges, а не len(rows)
 - [x] Тесты ListPendingMerges — TotalGroups содержит количество из CountPendingMergeGroups
-
-#### Fix: пагинация по группам (2026-03-05)
-
-**Баг**: SQL `ListPendingMerges` применял LIMIT/OFFSET к плоским строкам, а не группам.
-Строки одной группы (main_position_id) разрывались пагинацией — часть дубликатов терялась.
-**Фикс**: подзапрос `IN (SELECT ... GROUP BY main_position_id ... LIMIT/OFFSET)` — пагинация по группам.
-
 - [x] Тесты catalogPositionToSummary — конвертация nullable description (Valid=true → *string, Valid=false → nil)
 - [x] **Результат: 81 unit тест, все проходят. Покрытие: ExecuteMerge + ExecuteBatchMerge + InvalidateRelatedActionableMerges + ListPendingMerges + catalogPositionToSummary. Сервис: `sortedPositionIDs` вынесен до ветвления if/else, SetPositionMerged вызывается в детерминированном порядке.**
 
