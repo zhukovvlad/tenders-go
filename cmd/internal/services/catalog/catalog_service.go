@@ -1358,9 +1358,12 @@ func (s *CatalogService) GroupBatchPositions(
 		return nil, apierrors.NewValidationError("merge_ids не может быть пустым")
 	}
 
-	// Проверка на дубликаты в merge_ids
+	// Проверка на дубликаты и валидность merge_ids
 	seen := make(map[int64]struct{}, len(req.MergeIDs))
 	for _, id := range req.MergeIDs {
+		if id <= 0 {
+			return nil, apierrors.NewValidationError("merge_id должен быть положительным, получено: %d", id)
+		}
 		if _, exists := seen[id]; exists {
 			return nil, apierrors.NewValidationError("дубликат merge_id: %d", id)
 		}

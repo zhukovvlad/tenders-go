@@ -156,6 +156,7 @@
 - [ ] Тест GroupPositions — пустой executedBy (ValidationError)
 - [ ] Тест GroupPositions — mergeID <= 0 (ValidationError)
 - [ ] Тест GroupPositions — ParentID < 0 (ValidationError)
+- [ ] Тест GroupPositions — ParentID = 0, NewParentTitle задан → успех (ParentID=0 трактуется как 'не задан')
 - [ ] Тест GroupPositions — оба поля пустые: ParentID=0, NewParentTitle="" (ValidationError)
 - [ ] Тест GroupPositions — оба поля заданы: ParentID>0 И NewParentTitle!="" (ValidationError)
 - [ ] Тест GroupPositions — NewParentTitle из пробелов (ValidationError после TrimSpace → оба пустые)
@@ -197,6 +198,7 @@
 - [ ] Тест resolveParentID — parent.Kind != "HEADER" → ValidationError
 - [ ] Тест resolveParentID — parent.ID в forbiddenIDs → ValidationError
 - [ ] Тест resolveParentID — parent.ID не в forbiddenIDs → success
+- [ ] Тест resolveParentID — parentID = 0, newTitle задан → создаёт новую позицию (parentID=0 трактуется как 'не задан')
 - [ ] Тест resolveParentID — GetCatalogPositionByID DB error → wrapped error
 
 #### Group Batch Positions (GroupBatchPositions) — unit-тесты
