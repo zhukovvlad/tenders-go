@@ -340,3 +340,51 @@ type ListSuggestedMergesResponse struct {
 	Total       int                   `json:"total"`        // Общее количество PENDING merge-записей
 	TotalGroups int                   `json:"total_groups"` // Общее количество уникальных main_position_id
 }
+
+// === Group Positions (POST /api/v1/admin/merges/:id/group) ===
+
+// GroupPositionsRequest — DTO запроса для группировки позиций под родителем.
+// Ровно одно из полей ParentID / NewParentTitle должно быть задано.
+type GroupPositionsRequest struct {
+	// Идентификатор существующего родителя (если выбран из справочника)
+	ParentID int64 `json:"parent_id,omitempty"`
+	// Название для нового родителя (если нужно создать на лету)
+	NewParentTitle string `json:"new_parent_title,omitempty"`
+	// Принудительная перезапись parent_id для позиций, уже входящих в другую группу
+	Force bool `json:"force,omitempty"`
+}
+
+// GroupPositionsResponse — DTO ответа для группировки позиций.
+type GroupPositionsResponse struct {
+	MergeID    int64     `json:"merge_id"`
+	ParentID   int64     `json:"parent_id"`
+	Status     string    `json:"status"` // expected: "GROUPED"
+	ResolvedAt time.Time `json:"resolved_at"`
+}
+
+// GroupBatchPositionsRequest — DTO запроса для батч-группировки позиций.
+// Ровно одно из полей ParentID / NewParentTitle должно быть задано.
+type GroupBatchPositionsRequest struct {
+	MergeIDs       []int64 `json:"merge_ids" binding:"required"`
+	ParentID       int64   `json:"parent_id,omitempty"`
+	NewParentTitle string  `json:"new_parent_title,omitempty"`
+	Force          bool    `json:"force,omitempty"`
+}
+
+// GroupBatchPositionsResponse — DTO ответа для батч-группировки позиций.
+type GroupBatchPositionsResponse struct {
+	MergeIDs    []int64   `json:"merge_ids"`
+	ParentID    int64     `json:"parent_id"`
+	PositionIDs []int64   `json:"position_ids"` // все уникальные позиции, привязанные к parent
+	Status      string    `json:"status"`       // "GROUPED"
+	ResolvedAt  time.Time `json:"resolved_at"`
+}
+
+// GroupConflict — описание конфликта при группировке: позиция уже в другой группе.
+type GroupConflict struct {
+	PositionID         int64  `json:"position_id"`
+	PositionTitle      string `json:"position_title"`
+	CurrentParentID    int64  `json:"current_parent_id"`
+	CurrentParentTitle string `json:"current_parent_title"`
+	SiblingsCount      int64  `json:"siblings_count"`
+}

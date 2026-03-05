@@ -35,3 +35,22 @@ func NewNotFoundError(format string, args ...interface{}) error {
 		Message: fmt.Sprintf(format, args...),
 	}
 }
+
+// ConflictError представляет конфликт ресурсов (HTTP 409 Conflict).
+// Содержит структурированные данные о конфликтах для отображения на фронте.
+type ConflictError struct {
+	Message   string
+	Conflicts interface{} // структурированные данные конфликтов
+}
+
+func (e *ConflictError) Error() string {
+	return e.Message
+}
+
+// NewConflictError creates a ConflictError with the given message and structured conflict data.
+func NewConflictError(message string, conflicts interface{}) error {
+	return &ConflictError{
+		Message:   message,
+		Conflicts: conflicts,
+	}
+}

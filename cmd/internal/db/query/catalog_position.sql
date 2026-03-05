@@ -216,3 +216,32 @@ SET
     updated_at = NOW()
 WHERE
     merged_into_id = sqlc.arg(old_master_id);
+
+-- name: CreateParentCatalogPosition :one
+-- Создает абстрактную родительскую позицию (HEADER).
+INSERT INTO catalog_positions (
+    standard_job_title,
+    kind,
+    status
+) VALUES (
+    $1,                  -- standard_job_title
+    'HEADER',            -- kind: абстрактная группа
+    'active'             -- status: сразу активна, так как это просто родитель
+)
+RETURNING *;
+
+-- name: CountPositionsByParentID :one
+-- Считает количество позиций, привязанных к данному родителю.
+SELECT COUNT(*) FROM catalog_positions WHERE parent_id = $1;
+
+-- name: SetPositionParent :one
+-- Привязывает позицию к родителю. Позиция остается активной.
+UPDATE catalog_positions
+SET
+    parent_id = sqlc.arg(parent_id),
+    updated_at = NOW()
+WHERE
+    id = sqlc.arg(position_id)
+    AND merged_into_id IS NULL
+    AND status != 'deprecated'
+RETURNING *;

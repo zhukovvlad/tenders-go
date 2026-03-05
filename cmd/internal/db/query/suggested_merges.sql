@@ -16,7 +16,7 @@ DO UPDATE
 SET
     similarity_score = EXCLUDED.similarity_score, -- Всегда обновляем скор
     -- Статус сбрасываем в PENDING, только если он не был окончательно решен
-    status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED', 'EXECUTED') THEN suggested_merges.status ELSE 'PENDING' END,
+    status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED', 'EXECUTED', 'GROUPED') THEN suggested_merges.status ELSE 'PENDING' END,
     updated_at = NOW(); -- Обновляем время изменения, но не создания
 
 -- name: ListPendingMerges :many
@@ -134,6 +134,31 @@ WHERE
         main_position_id = ANY(@position_ids::bigint[])
         OR duplicate_position_id = ANY(@position_ids::bigint[])
     );
+
+-- name: GroupMerge :one
+-- Атомарно переводит предложение из PENDING или APPROVED в GROUPED.
+UPDATE suggested_merges
+SET 
+    status = 'GROUPED',
+    resolved_at = NOW(),
+    resolved_by = $1
+WHERE 
+    id = $2
+    AND status IN ('PENDING', 'APPROVED')
+RETURNING *;
+
+-- name: GroupMergeBatch :many
+-- Атомарно переводит несколько предложений из PENDING/APPROVED в GROUPED (batch group).
+-- Возвращает ВСЕ строки, успешно обновлённые.
+UPDATE suggested_merges
+SET
+    status = 'GROUPED',
+    resolved_at = NOW(),
+    resolved_by = @resolved_by
+WHERE
+    id = ANY(@ids::bigint[])
+    AND status IN ('PENDING', 'APPROVED')
+RETURNING *;
 
 -- name: DeleteOutdatedPendingMerges :exec
 -- Очищает PENDING-заявки на слияние, которые больше не проходят по новому порогу расстояния.

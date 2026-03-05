@@ -432,3 +432,157 @@ func (s *Server) ExecuteBatchMergeHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// === 9. POST /api/v1/admin/merges/:id/group ===
+
+// GroupPositionsHandler группирует две позиции из merge-заявки под общим родителем.
+// Требует роль admin. ID берётся из URL, executedBy — из JWT.
+func (s *Server) GroupPositionsHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "GroupPositionsHandler")
+
+	// 1. Парсим ID из URL
+	idStr := c.Param("id")
+	mergeID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		logger.Errorf("Некорректный ID слияния: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом")))
+		return
+	}
+	if mergeID <= 0 {
+		logger.Errorf("ID слияния должен быть положительным, получено: %d", mergeID)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть положительным целым числом")))
+		return
+	}
+
+	// 2. Парсим тело запроса (strict: запрещаем неизвестные поля)
+	var req api_models.GroupPositionsRequest
+	body, readErr := c.GetRawData()
+	if readErr != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", readErr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", readErr)))
+		return
+	}
+	if len(body) == 0 {
+		logger.Errorf("Пустое тело запроса")
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("тело запроса обязательно")))
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		logger.Errorf("Ошибка парсинга тела запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
+		return
+	}
+
+	// 3. Извлекаем user_id из JWT-контекста
+	userID, exists := c.Get("user_id")
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	executedBy := strconv.FormatInt(uid, 10)
+
+	// 4. Выполняем группировку через сервис
+	result, err := s.catalogService.GroupPositions(c.Request.Context(), mergeID, executedBy, req)
+	if err != nil {
+		logger.Errorf("Ошибка GroupPositions: %v", err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		var conflictErr *apierrors.ConflictError
+		switch {
+		case errors.As(err, &conflictErr):
+			c.JSON(http.StatusConflict, gin.H{
+				"error":     "positions_already_grouped",
+				"conflicts": conflictErr.Conflicts,
+				"message":   conflictErr.Message,
+			})
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// === 10. POST /api/v1/admin/merges/group-batch ===
+
+// GroupBatchPositionsHandler выполняет групповую группировку позиций каталога.
+// Требует роль admin. Принимает JSON-тело с merge_ids и параметрами группировки.
+func (s *Server) GroupBatchPositionsHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "GroupBatchPositionsHandler")
+
+	// 1. Парсим тело запроса (strict: запрещаем неизвестные поля)
+	var req api_models.GroupBatchPositionsRequest
+	body, readErr := c.GetRawData()
+	if readErr != nil {
+		logger.Errorf("Ошибка чтения тела запроса: %v", readErr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса: %v", readErr)))
+		return
+	}
+	if len(body) == 0 {
+		logger.Errorf("Пустое тело запроса")
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("тело запроса обязательно")))
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		logger.Errorf("Ошибка парсинга тела запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса: %v", err)))
+		return
+	}
+
+	// 2. Извлекаем user_id из JWT-контекста
+	userID, exists := c.Get("user_id")
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	executedBy := strconv.FormatInt(uid, 10)
+
+	// 3. Выполняем батч-группировку через сервис
+	result, err := s.catalogService.GroupBatchPositions(c.Request.Context(), req, executedBy)
+	if err != nil {
+		logger.Errorf("Ошибка GroupBatchPositions: %v", err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		var conflictErr *apierrors.ConflictError
+		switch {
+		case errors.As(err, &conflictErr):
+			c.JSON(http.StatusConflict, gin.H{
+				"error":     "positions_already_grouped",
+				"conflicts": conflictErr.Conflicts,
+				"message":   conflictErr.Message,
+			})
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}

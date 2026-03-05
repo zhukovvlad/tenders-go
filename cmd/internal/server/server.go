@@ -195,7 +195,9 @@ func NewServer(
 			// Слияние дубликатов каталога
 			admin.GET("/suggested_merges", server.ListSuggestedMergesHandler)
 			admin.POST("/merges/execute-batch", server.ExecuteBatchMergeHandler)
+			admin.POST("/merges/group-batch", server.GroupBatchPositionsHandler)
 			admin.POST("/merges/:id/execute", server.ExecuteMergeHandler)
+			admin.POST("/merges/:id/group", server.GroupPositionsHandler)
 			admin.PATCH("/merges/:id/reject", server.RejectMergeHandler)
 		}
 	}
