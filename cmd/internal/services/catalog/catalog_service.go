@@ -1102,6 +1102,9 @@ func (s *CatalogService) GroupPositions(
 	}
 
 	// Валидация: ровно одно из ParentID / NewParentTitle
+	if req.ParentID < 0 {
+		return nil, apierrors.NewValidationError("parent_id должен быть положительным")
+	}
 	req.NewParentTitle = strings.TrimSpace(req.NewParentTitle)
 	hasParentID := req.ParentID > 0
 	hasNewTitle := req.NewParentTitle != ""
@@ -1359,6 +1362,9 @@ func (s *CatalogService) GroupBatchPositions(
 		seen[id] = struct{}{}
 	}
 
+	if req.ParentID < 0 {
+		return nil, apierrors.NewValidationError("parent_id должен быть положительным")
+	}
 	req.NewParentTitle = strings.TrimSpace(req.NewParentTitle)
 	hasParentID := req.ParentID > 0
 	hasNewTitle := req.NewParentTitle != ""
