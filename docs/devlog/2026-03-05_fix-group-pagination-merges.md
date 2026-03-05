@@ -66,9 +66,12 @@ ORDER BY sm.similarity_score DESC, sm.main_position_id ASC, sm.id ASC;
 |------|-----------|
 | `cmd/internal/db/query/suggested_merges.sql` | SQL-запрос `ListPendingMerges` — подзапрос с GROUP BY + LIMIT/OFFSET + deterministic tiebreakers |
 | `cmd/internal/db/sqlc/*` | Перегенерированы локально (`make sqlc`), не версионируются |
+| `cmd/internal/server/handlers_admin.go` | Обновлён doc-комментарий: `page_size` → «количество групп на странице» |
+| `cmd/internal/services/catalog/catalog_service.go` | Обновлён doc-комментарий: `pageSize` → «количество групп» |
 
 ## Важно
 
-Сервисный слой (`catalog_service.go`) и хандлер (`handlers_admin.go`) **не изменились**.
+Логика сервисного слоя (`catalog_service.go`) и хандлера (`handlers_admin.go`) **не изменилась** —
+обновлены только doc-комментарии, отражающие новую семантику `page_size` (группы вместо строк).
 Параметры `Limit`/`Offset` передаются так же — изменилась только семантика:
 раньше они ограничивали строки, теперь ограничивают группы.
