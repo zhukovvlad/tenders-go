@@ -4,6 +4,10 @@
 ALTER TABLE suggested_merges
 DROP CONSTRAINT ck_suggested_merges_status;
 
+UPDATE suggested_merges
+SET status = 'REJECTED'
+WHERE status = 'GROUPED';
+
 ALTER TABLE suggested_merges
 ADD CONSTRAINT ck_suggested_merges_status
 CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXECUTED'));

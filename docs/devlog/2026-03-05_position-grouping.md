@@ -131,7 +131,7 @@ admin.POST("/merges/:id/group", server.GroupPositionsHandler)
 ```text
 PENDING ──→ APPROVED ──→ EXECUTED   (слияние дубликатов)
    │            │
-   │            ├──→ GROUPED        (группировка вариантов) ← NEW
+   ├────────────┼──→ GROUPED        (группировка вариантов) ← NEW
    │            │
    └────────────┴──→ REJECTED       (отклонение)
 ```

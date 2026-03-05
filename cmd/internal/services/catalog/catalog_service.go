@@ -1145,6 +1145,13 @@ func (s *CatalogService) GroupPositions(
 			// Создаём новую родительскую позицию (HEADER)
 			parent, createErr := q.CreateParentCatalogPosition(ctx, req.NewParentTitle)
 			if createErr != nil {
+				var pqErr *pq.Error
+				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
+					return apierrors.NewValidationError(
+						"родительская позиция с названием %q уже существует",
+						req.NewParentTitle,
+					)
+				}
 				return fmt.Errorf("ошибка CreateParentCatalogPosition: %w", createErr)
 			}
 			finalParentID = parent.ID
@@ -1165,6 +1172,18 @@ func (s *CatalogService) GroupPositions(
 			if parent.MergedIntoID.Valid {
 				return apierrors.NewValidationError(
 					"родительская позиция %d влита в другую позицию", req.ParentID,
+				)
+			}
+			if parent.Kind != "HEADER" {
+				return apierrors.NewValidationError(
+					"родительская позиция %d должна иметь kind=HEADER (текущий kind=%s)",
+					req.ParentID, parent.Kind,
+				)
+			}
+			if parent.ID == merge.MainPositionID || parent.ID == merge.DuplicatePositionID {
+				return apierrors.NewValidationError(
+					"родительская позиция %d не может совпадать с группируемыми позициями",
+					req.ParentID,
 				)
 			}
 			finalParentID = parent.ID
@@ -1214,6 +1233,6 @@ func (s *CatalogService) GroupPositions(
 		MergeID:    mergeID,
 		ParentID:   finalParentID,
 		Status:     merge.Status,
-		ResolvedAt: merge.ResolvedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+		ResolvedAt: merge.ResolvedAt.Time,
 	}, nil
 }

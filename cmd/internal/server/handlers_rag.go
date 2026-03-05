@@ -448,6 +448,11 @@ func (s *Server) GroupPositionsHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом")))
 		return
 	}
+	if mergeID <= 0 {
+		logger.Errorf("ID слияния должен быть положительным, получено: %d", mergeID)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть положительным целым числом")))
+		return
+	}
 
 	// 2. Парсим тело запроса (strict: запрещаем неизвестные поля)
 	var req api_models.GroupPositionsRequest
