@@ -1141,58 +1141,19 @@ func (s *CatalogService) GroupPositions(
 		}
 
 		// 2. Определяем finalParentID
-		if hasNewTitle {
-			// Создаём новую родительскую позицию (HEADER)
-			parent, createErr := q.CreateParentCatalogPosition(ctx, req.NewParentTitle)
-			if createErr != nil {
-				var pqErr *pq.Error
-				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
-					return apierrors.NewValidationError(
-						"родительская позиция с названием %q уже существует",
-						req.NewParentTitle,
-					)
-				}
-				return fmt.Errorf("ошибка CreateParentCatalogPosition: %w", createErr)
-			}
-			finalParentID = parent.ID
-		} else {
-			// Проверяем, что указанный ParentID существует и валиден
-			parent, getErr := q.GetCatalogPositionByID(ctx, req.ParentID)
-			if getErr != nil {
-				if errors.Is(getErr, sql.ErrNoRows) {
-					return apierrors.NewNotFoundError("родительская позиция с ID %d не найдена", req.ParentID)
-				}
-				return fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", req.ParentID, getErr)
-			}
-			if parent.Status == "deprecated" {
-				return apierrors.NewValidationError(
-					"родительская позиция %d имеет статус deprecated", req.ParentID,
-				)
-			}
-			if parent.MergedIntoID.Valid {
-				return apierrors.NewValidationError(
-					"родительская позиция %d влита в другую позицию", req.ParentID,
-				)
-			}
-			if parent.Kind != "HEADER" {
-				return apierrors.NewValidationError(
-					"родительская позиция %d должна иметь kind=HEADER (текущий kind=%s)",
-					req.ParentID, parent.Kind,
-				)
-			}
-			if parent.ID == merge.MainPositionID || parent.ID == merge.DuplicatePositionID {
-				return apierrors.NewValidationError(
-					"родительская позиция %d не может совпадать с группируемыми позициями",
-					req.ParentID,
-				)
-			}
-			finalParentID = parent.ID
+		var resolveErr error
+		finalParentID, resolveErr = s.resolveParentID(
+			ctx, q, req.ParentID, req.NewParentTitle,
+			[]int64{merge.MainPositionID, merge.DuplicatePositionID},
+		)
+		if resolveErr != nil {
+			return resolveErr
 		}
 
 		// 3. Проверяем конфликты parent_id (если не force)
 		positionIDs := []int64{merge.MainPositionID, merge.DuplicatePositionID}
 		if !req.Force {
-			conflicts, conflictErr := s.detectGroupConflicts(ctx, q, positionIDs)
+			conflicts, conflictErr := s.detectGroupConflicts(ctx, q, positionIDs, finalParentID)
 			if conflictErr != nil {
 				return conflictErr
 			}
@@ -1253,12 +1214,73 @@ func (s *CatalogService) GroupPositions(
 	}, nil
 }
 
-// detectGroupConflicts проверяет, есть ли среди positionIDs позиции, уже привязанные к родителю.
+// resolveParentID определяет и валидирует ID родительской позиции.
+// Создаёт новый HEADER (если newTitle != "") или валидирует существующий parentID.
+// forbiddenIDs — позиции, которые не могут быть родителем (сами группируемые позиции).
+func (s *CatalogService) resolveParentID(
+	ctx context.Context,
+	q *db.Queries,
+	parentID int64,
+	newTitle string,
+	forbiddenIDs []int64,
+) (int64, error) {
+	if newTitle != "" {
+		parent, createErr := q.CreateParentCatalogPosition(ctx, newTitle)
+		if createErr != nil {
+			var pqErr *pq.Error
+			if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
+				return 0, apierrors.NewValidationError(
+					"родительская позиция с названием %q уже существует",
+					newTitle,
+				)
+			}
+			return 0, fmt.Errorf("ошибка CreateParentCatalogPosition: %w", createErr)
+		}
+		return parent.ID, nil
+	}
+
+	parent, getErr := q.GetCatalogPositionByID(ctx, parentID)
+	if getErr != nil {
+		if errors.Is(getErr, sql.ErrNoRows) {
+			return 0, apierrors.NewNotFoundError("родительская позиция с ID %d не найдена", parentID)
+		}
+		return 0, fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", parentID, getErr)
+	}
+	if parent.Status == "deprecated" {
+		return 0, apierrors.NewValidationError(
+			"родительская позиция %d имеет статус deprecated", parentID,
+		)
+	}
+	if parent.MergedIntoID.Valid {
+		return 0, apierrors.NewValidationError(
+			"родительская позиция %d влита в другую позицию", parentID,
+		)
+	}
+	if parent.Kind != "HEADER" {
+		return 0, apierrors.NewValidationError(
+			"родительская позиция %d должна иметь kind=HEADER (текущий kind=%s)",
+			parentID, parent.Kind,
+		)
+	}
+	for _, id := range forbiddenIDs {
+		if parent.ID == id {
+			return 0, apierrors.NewValidationError(
+				"родительская позиция %d не может совпадать с группируемыми позициями",
+				parentID,
+			)
+		}
+	}
+	return parent.ID, nil
+}
+
+// detectGroupConflicts проверяет, есть ли среди positionIDs позиции, уже привязанные к ДРУГОМУ родителю.
+// Позиции, уже привязанные к targetParentID, не считаются конфликтами (идемпотентность).
 // Возвращает срез конфликтов для отображения оператору.
 func (s *CatalogService) detectGroupConflicts(
 	ctx context.Context,
 	q *db.Queries,
 	positionIDs []int64,
+	targetParentID int64,
 ) ([]api_models.GroupConflict, error) {
 	var conflicts []api_models.GroupConflict
 	for _, posID := range positionIDs {
@@ -1272,7 +1294,11 @@ func (s *CatalogService) detectGroupConflicts(
 		if !pos.ParentID.Valid {
 			continue
 		}
-		// Позиция уже в группе — собираем детали
+		// Не считаем конфликтом, если уже привязано к целевому родителю
+		if pos.ParentID.Int64 == targetParentID {
+			continue
+		}
+		// Позиция уже в другой группе — собираем детали
 		parent, parentErr := q.GetCatalogPositionByID(ctx, pos.ParentID.Int64)
 		if parentErr != nil {
 			return nil, fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", pos.ParentID.Int64, parentErr)
@@ -1391,58 +1417,17 @@ func (s *CatalogService) GroupBatchPositions(
 		slices.Sort(sortedPositionIDs)
 
 		// 3. Определяем finalParentID
-		if hasNewTitle {
-			parent, createErr := q.CreateParentCatalogPosition(ctx, req.NewParentTitle)
-			if createErr != nil {
-				var pqErr *pq.Error
-				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
-					return apierrors.NewValidationError(
-						"родительская позиция с названием %q уже существует",
-						req.NewParentTitle,
-					)
-				}
-				return fmt.Errorf("ошибка CreateParentCatalogPosition: %w", createErr)
-			}
-			finalParentID = parent.ID
-		} else {
-			parent, getErr := q.GetCatalogPositionByID(ctx, req.ParentID)
-			if getErr != nil {
-				if errors.Is(getErr, sql.ErrNoRows) {
-					return apierrors.NewNotFoundError("родительская позиция с ID %d не найдена", req.ParentID)
-				}
-				return fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", req.ParentID, getErr)
-			}
-			if parent.Status == "deprecated" {
-				return apierrors.NewValidationError(
-					"родительская позиция %d имеет статус deprecated", req.ParentID,
-				)
-			}
-			if parent.MergedIntoID.Valid {
-				return apierrors.NewValidationError(
-					"родительская позиция %d влита в другую позицию", req.ParentID,
-				)
-			}
-			if parent.Kind != "HEADER" {
-				return apierrors.NewValidationError(
-					"родительская позиция %d должна иметь kind=HEADER (текущий kind=%s)",
-					req.ParentID, parent.Kind,
-				)
-			}
-			// Проверка: parent не должен совпадать с группируемыми позициями
-			for _, posID := range sortedPositionIDs {
-				if parent.ID == posID {
-					return apierrors.NewValidationError(
-						"родительская позиция %d не может совпадать с группируемыми позициями",
-						req.ParentID,
-					)
-				}
-			}
-			finalParentID = parent.ID
+		var resolveErr error
+		finalParentID, resolveErr = s.resolveParentID(
+			ctx, q, req.ParentID, req.NewParentTitle, sortedPositionIDs,
+		)
+		if resolveErr != nil {
+			return resolveErr
 		}
 
 		// 4. Проверяем конфликты parent_id (если не force)
 		if !req.Force {
-			conflicts, conflictErr := s.detectGroupConflicts(ctx, q, sortedPositionIDs)
+			conflicts, conflictErr := s.detectGroupConflicts(ctx, q, sortedPositionIDs, finalParentID)
 			if conflictErr != nil {
 				return conflictErr
 			}

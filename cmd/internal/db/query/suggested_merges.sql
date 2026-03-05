@@ -16,7 +16,7 @@ DO UPDATE
 SET
     similarity_score = EXCLUDED.similarity_score, -- Всегда обновляем скор
     -- Статус сбрасываем в PENDING, только если он не был окончательно решен
-    status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED', 'EXECUTED') THEN suggested_merges.status ELSE 'PENDING' END,
+    status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED', 'EXECUTED', 'GROUPED') THEN suggested_merges.status ELSE 'PENDING' END,
     updated_at = NOW(); -- Обновляем время изменения, но не создания
 
 -- name: ListPendingMerges :many

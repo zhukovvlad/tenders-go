@@ -509,7 +509,7 @@ func (s *Server) GroupPositionsHandler(c *gin.Context) {
 		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
-			c.JSON(http.StatusInternalServerError, errorResponse(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
 		}
 		return
 	}
@@ -579,7 +579,7 @@ func (s *Server) GroupBatchPositionsHandler(c *gin.Context) {
 		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
-			c.JSON(http.StatusInternalServerError, errorResponse(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
 		}
 		return
 	}

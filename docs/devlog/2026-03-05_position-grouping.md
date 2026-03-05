@@ -120,15 +120,28 @@ type GroupConflict struct {
 
 ### 4. Сервисные методы (`catalog_service.go`)
 
+#### `resolveParentID` (хелпер, выделен из дублирующегося кода)
+
+```go
+func (s *CatalogService) resolveParentID(
+    ctx context.Context, q *db.Queries,
+    parentID int64, newTitle string, forbiddenIDs []int64,
+) (int64, error)
+```
+
+Инкапсулирует логику определения и валидации родительской позиции:
+- `newTitle != ""` → `CreateParentCatalogPosition` + обработка pq 23505
+- `parentID > 0` → `GetCatalogPositionByID` + валидация (deprecated, merged, kind=HEADER, forbiddenIDs)
+
+Используется в `GroupPositions` и `GroupBatchPositions`, устраняя ~30 строк дублирования.
+
 #### `GroupPositions` (одиночная группировка)
 
 Логика внутри `ExecTx`:
 
 1. `GroupMerge` — атомарно PENDING/APPROVED → GROUPED
-2. Определение `finalParentID`:
-   - `NewParentTitle` → `CreateParentCatalogPosition` (новый HEADER)
-   - `ParentID` → `GetCatalogPositionByID` + валидация (не deprecated, не merged, kind=HEADER, не совпадает с группируемыми)
-3. **Проверка конфликтов** (если `!force`): `detectGroupConflicts` — если позиция уже имеет `parent_id`, возвращаем `ConflictError` (409) со структурированными данными о конфликтах
+2. `resolveParentID` — определение и валидация `finalParentID`
+3. **Проверка конфликтов** (если `!force`): `detectGroupConflicts(ctx, q, positionIDs, finalParentID)` — если позиция привязана к *другому* родителю, возвращаем `ConflictError` (409). Позиции, уже привязанные к целевому `finalParentID`, пропускаются (идемпотентность).
 4. `SetPositionParent` для MainPositionID и DuplicatePositionID
 
 #### `GroupBatchPositions` (батч-группировка)
@@ -136,6 +149,7 @@ type GroupConflict struct {
 Паттерн аналогичен `ExecuteBatchMerge`, но:
 - Использует `GroupMergeBatch` (не `ExecuteMergeBatch`)
 - PENDING/APPROVED → GROUPED (не EXECUTED)
+- `resolveParentID` — общий хелпер для определения родителя
 - Позиции остаются active: `SetPositionParent` вместо `SetPositionMerged`
 - Нет `InvalidateRelatedActionableMerges`, нет `FlattenMergeChain`
 - Проверка конфликтов `parent_id` (если `!force`)
@@ -172,18 +186,20 @@ type GroupConflict struct {
 
 **Новый тип ошибки:** `ConflictError` в `apierrors` (Message + Conflicts interface{}) → HTTP 409.
 
-**Хелпер:** `detectGroupConflicts(ctx, q, positionIDs)` — для каждой позиции проверяет
-`parent_id`, загружает название родителя и количество «соседей» через `CountPositionsByParentID`.
+**Хелпер:** `detectGroupConflicts(ctx, q, positionIDs, targetParentID)` — для каждой позиции проверяет
+`parent_id`. Позиции, уже привязанные к `targetParentID`, не считаются конфликтами (идемпотентность).
+Для реальных конфликтов загружает название родителя и количество «соседей» через `CountPositionsByParentID`.
 
 ### 6. HTTP Handlers (`handlers_rag.go`)
 
 **`GroupPositionsHandler`** — `POST /api/v1/admin/merges/:id/group`
 
-Обновлён: теперь обрабатывает `ConflictError` → 409 с `gin.H{"error", "conflicts", "message"}`.
+Обновлён: теперь обрабатывает `ConflictError` → 409 с `gin.H{"error": "...", "conflicts": [...], "message": "..."}`.
+Ветка `default` возвращает generic 500 (`gin.H{"error": "internal_server_error"}`) без утечки внутренних деталей.
 
 **`GroupBatchPositionsHandler`** — `POST /api/v1/admin/merges/group-batch` (NEW)
 
-Паттерн идентичен `ExecuteBatchMergeHandler`.
+Паттерн идентичен `ExecuteBatchMergeHandler`. Аналогично generic 500 в default-ветке.
 
 ### 7. Регистрация роутов (`server.go`)
 
@@ -198,6 +214,17 @@ admin.POST("/merges/:id/group", server.GroupPositionsHandler)
 
 **`CountPositionsByParentID`** — `SELECT COUNT(*) WHERE parent_id = $1` для вычисления siblings_count.
 
+### 9. Фикс: `UpsertSuggestedMerge` — защита GROUPED от сброса
+
+`GROUPED` добавлен в список терминальных статусов в CASE-выражении `UpsertSuggestedMerge`:
+
+```sql
+status = CASE WHEN suggested_merges.status IN ('APPROVED', 'REJECTED', 'EXECUTED', 'GROUPED')
+         THEN suggested_merges.status ELSE 'PENDING' END
+```
+
+Без этого фикса RAG-воркер мог случайно сбросить `GROUPED` обратно в `PENDING`.
+
 ## Статусная модель suggested_merges (обновлённая)
 
 ```text
@@ -211,10 +238,12 @@ PENDING ──→ APPROVED ──→ EXECUTED   (слияние дубликат
 ## Тестовый план
 
 См. обновлённый `TESTING_CHECKLIST.md`:
-- Unit: GroupPositions (валидация, force/conflict, ExecTx, ошибки)
-- Unit: GroupBatchPositions (валидация, дубликаты merge_ids, force/conflict, ExecTx)
-- Unit: detectGroupConflicts (позиция с parent, без parent, ошибки БД)
-- Handler: GroupPositionsHandler (HTTP codes, JWT, strict JSON, 409 Conflict)
-- Handler: GroupBatchPositionsHandler (HTTP codes, JWT, strict JSON, 409 Conflict)
+- Unit: resolveParentID (хелпер: создание HEADER, валидация существующего, forbiddenIDs)
+- Unit: GroupPositions (валидация, force/conflict, идемпотентность, ExecTx, ошибки)
+- Unit: GroupBatchPositions (валидация, дубликаты merge_ids, force/conflict, идемпотентность, ExecTx)
+- Unit: detectGroupConflicts (позиция с другим parent, позиция с целевым parent → skip, без parent, ошибки БД)
+- Handler: GroupPositionsHandler (HTTP codes, JWT, strict JSON, 409 Conflict, generic 500)
+- Handler: GroupBatchPositionsHandler (HTTP codes, JWT, strict JSON, 409 Conflict, generic 500)
 - Integration: GroupMerge, GroupMergeBatch, CreateParentCatalogPosition, SetPositionParent, CountPositionsByParentID
+- Integration: UpsertSuggestedMerge с GROUPED → не сбрасывает в PENDING
 - Integration: constraints (chk_not_self_parent, ON DELETE RESTRICT)
