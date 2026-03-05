@@ -163,17 +163,17 @@
 - [x] Починить TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError — добавить ExpectExec для FlattenMergeChain до invalid-шага
 
 **Новые тесты — ошибки FlattenMergeChain:**
-- [ ] Тест ExecuteMerge Сценарий 1 — ошибка FlattenMergeChain после MergeCatalogPosition (wrapped DB error, транзакция откатывается)
-- [ ] Тест ExecuteMerge Сценарий 2 — ошибка FlattenMergeChain для мастера A (wrapped DB error, транзакция откатывается)
-- [ ] Тест ExecuteMerge Сценарий 2 — ошибка FlattenMergeChain для дубликата B (первый FlattenMergeChain OK, второй fail → wrapped DB error)
-- [ ] Тест ExecuteBatchMerge Сценарий 1 — ошибка FlattenMergeChain внутри цикла (wrapped DB error, транзакция откатывается)
-- [ ] Тест ExecuteBatchMerge Сценарий 2 — ошибка FlattenMergeChain внутри цикла (wrapped DB error, транзакция откатывается)
+- [x] Тест ExecuteMerge Сценарий 1 — ошибка FlattenMergeChain после MergeCatalogPosition (wrapped DB error, транзакция откатывается)
+- [x] Тест ExecuteMerge Сценарий 2 — ошибка FlattenMergeChain для мастера A (wrapped DB error, транзакция откатывается)
+- [x] Тест ExecuteMerge Сценарий 2 — ошибка FlattenMergeChain для дубликата B (первый FlattenMergeChain OK, второй fail → wrapped DB error)
+- [x] Тест ExecuteBatchMerge Сценарий 1 — ошибка FlattenMergeChain внутри цикла (wrapped DB error, транзакция откатывается)
+- [x] Тест ExecuteBatchMerge Сценарий 2 — ошибка FlattenMergeChain внутри цикла (wrapped DB error, транзакция откатывается)
 
 **Новые тесты — корректность вызовов FlattenMergeChain:**
-- [ ] Тест ExecuteMerge Сценарий 1 — FlattenMergeChain вызывается с NewMasterID=MainPositionID, OldMasterID=DuplicatePositionID
-- [ ] Тест ExecuteMerge Сценарий 2 — FlattenMergeChain вызывается дважды: (NewMasterID=C, OldMasterID=A) и (NewMasterID=C, OldMasterID=B)
-- [ ] Тест ExecuteBatchMerge Сценарий 1 — FlattenMergeChain вызывается для каждой deprecated-позиции с NewMasterID=target
-- [ ] Тест ExecuteBatchMerge Сценарий 2 — FlattenMergeChain вызывается для каждой позиции с NewMasterID=newPos.ID
+- [x] Тест ExecuteMerge Сценарий 1 — FlattenMergeChain вызывается с NewMasterID=MainPositionID, OldMasterID=DuplicatePositionID
+- [x] Тест ExecuteMerge Сценарий 2 — FlattenMergeChain вызывается дважды: (NewMasterID=C, OldMasterID=A) и (NewMasterID=C, OldMasterID=B)
+- [x] Тест ExecuteBatchMerge Сценарий 1 — FlattenMergeChain вызывается для каждой deprecated-позиции с NewMasterID=target
+- [x] Тест ExecuteBatchMerge Сценарий 2 — FlattenMergeChain вызывается для каждой позиции с NewMasterID=newPos.ID
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
@@ -358,7 +358,7 @@
 - [ ] Тест интеграционный: ExecuteMerge + FlattenMergeChain — после merge D→B→A цепочка становится D→A, B→A
 - [ ] Тест интеграционный: ExecuteBatchMerge + FlattenMergeChain — после batch merge все цепочки плоские (глубина ≤ 1)
 
-### Задача 4.7: Тесты ограничений целостности (из TODO.md)
+### Задача 4.10: Тесты ограничений целостности (из TODO.md)
 - [ ] Тест `ON DELETE RESTRICT` для тендеров (наличие лотов)
 - [ ] Тест `ON DELETE RESTRICT` для подрядчиков (наличие персон)
 - [ ] Тест `ON DELETE CASCADE` для типов тендеров

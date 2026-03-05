@@ -20,7 +20,9 @@
 
 **Path Compression на уровне записи.** При каждом слиянии все позиции, ранее указывающие
 на старого мастера, перенаправляются напрямую на нового мастера. После выполнения любой
-merge-операции глубина цепочки всегда ≤ 1.
+merge-операции глубина цепочки всегда ≤ 1 для вновь сливаемых позиций.
+Для исторических цепочек, возникших до внедрения Path Compression, может потребоваться
+одноразовая миграция.
 
 ## Что сделано
 
@@ -48,14 +50,14 @@ WHERE
 - **Сценарий 1** (Default Merge, B → A):
   Сразу после `MergeCatalogPosition(B)` — перевешиваем все позиции, ранее влитые в B,
   напрямую на A:
-  ```
+  ```text
   FlattenMergeChain(NewMasterID=A, OldMasterID=B)
   ```
 
 - **Сценарий 2** (Merge-to-New, A,B → C):
   После `SetPositionMerged` для обоих — перевешиваем тех, кто ссылался на A или B,
   напрямую на C:
-  ```
+  ```text
   FlattenMergeChain(NewMasterID=C, OldMasterID=A)
   FlattenMergeChain(NewMasterID=C, OldMasterID=B)
   ```
@@ -67,13 +69,13 @@ WHERE
 
 - **Сценарий 1** (Default Batch, все → target):
   Для каждого `posID != target`:
-  ```
+  ```text
   FlattenMergeChain(NewMasterID=target, OldMasterID=posID)
   ```
 
 - **Сценарий 2** (Batch Merge-to-New, все → C):
   Для каждого `posID`:
-  ```
+  ```text
   FlattenMergeChain(NewMasterID=C, OldMasterID=posID)
   ```
 
@@ -86,7 +88,7 @@ WHERE
 
 ## Порядок операций внутри транзакции
 
-```
+```text
 1. ExecuteMerge / ExecuteMergeBatch  (PENDING/APPROVED → EXECUTED)
 2. MergeCatalogPosition / SetPositionMerged  (дубликат → deprecated)
 3. FlattenMergeChain  (сжатие цепочки)   ← НОВОЕ

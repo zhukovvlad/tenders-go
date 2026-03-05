@@ -855,7 +855,7 @@ func TestExecuteMerge_Success(t *testing.T) {
 
 			// FlattenMergeChain: path compression (B→A)
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 100, Valid: true}, sql.NullInt64{Int64: 200, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
@@ -1114,6 +1114,48 @@ func TestExecuteMerge_MergeCatalogPosition_DBError(t *testing.T) {
 	assert.False(t, errors.As(err, &validationErr))
 }
 
+func TestExecuteMerge_FlattenMergeChain_Scenario1_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN Scenario 1: MergeCatalogPosition succeeds, FlattenMergeChain fails
+	dbErr := errors.New("disk full")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.95),
+						"EXECUTED", now, now, now, "admin",
+					))
+
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+					))
+
+			// FlattenMergeChain fails
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sql.NullInt64{Int64: 100, Valid: true}, sql.NullInt64{Int64: 200, Valid: true}).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "admin", "")
+
+	// THEN — wrapped error with дубликата
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "FlattenMergeChain для дубликата 200")
+}
+
 func TestExecuteMerge_DBError(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
@@ -1190,12 +1232,12 @@ func TestExecuteMerge_MergeToNew_Success(t *testing.T) {
 
 			// FlattenMergeChain: path compression (A→C)
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: 100, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// FlattenMergeChain: path compression (B→C)
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: 200, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[100,200])
@@ -1436,6 +1478,135 @@ func TestExecuteMerge_MergeToNew_SetPositionMerged_DBError(t *testing.T) {
 	assert.False(t, errors.As(err, &validationErr))
 }
 
+func TestExecuteMerge_MergeToNew_FlattenMergeChain_MasterA_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN Scenario 2: both SetPositionMerged succeed, FlattenMergeChain for master A fails
+	dbErr := errors.New("disk full")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.90),
+						"EXECUTED", now, now, now, "admin",
+					))
+
+			mock.ExpectQuery("INSERT INTO catalog_positions").
+				WithArgs("Новая позиция").
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(300), "Новая позиция", sql.NullString{Valid: false}, nil,
+						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
+			// SetPositionMerged for A (ID=100)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(100)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(100), "мастер", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+					))
+
+			// SetPositionMerged for B (ID=200)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+					))
+
+			// FlattenMergeChain for master A → fails
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: 100, Valid: true}).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "admin", "Новая позиция")
+
+	// THEN — wrapped error with мастера
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "FlattenMergeChain для мастера 100")
+}
+
+func TestExecuteMerge_MergeToNew_FlattenMergeChain_DuplicateB_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN Scenario 2: FlattenMergeChain for master A succeeds, for duplicate B fails
+	dbErr := errors.New("disk full")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), int64(42)).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(
+						int64(42), int64(100), int64(200), float32(0.90),
+						"EXECUTED", now, now, now, "admin",
+					))
+
+			mock.ExpectQuery("INSERT INTO catalog_positions").
+				WithArgs("Новая позиция").
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(300), "Новая позиция", sql.NullString{Valid: false}, nil,
+						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
+			// SetPositionMerged for A (ID=100)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(100)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(100), "мастер", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+					))
+
+			// SetPositionMerged for B (ID=200)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(200)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+					))
+
+			// FlattenMergeChain for master A → succeeds
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: 100, Valid: true}).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
+			// FlattenMergeChain for duplicate B → fails
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: 200, Valid: true}).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteMerge(ctx, 42, "admin", "Новая позиция")
+
+	// THEN — wrapped error with дубликата
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "FlattenMergeChain для дубликата 200")
+}
+
 func TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1(t *testing.T) {
 	service, mockStore := setupTestService(t)
 	ctx := context.Background()
@@ -1465,7 +1636,7 @@ func TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1(t *testing.T) {
 
 			// FlattenMergeChain: path compression (B→A)
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 100, Valid: true}, sql.NullInt64{Int64: 200, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[200])
@@ -1611,7 +1782,7 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 
 				// FlattenMergeChain: path compression (posID→target)
 				mock.ExpectExec("UPDATE catalog_positions").
-					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: posID, Valid: true}).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 			}
 
@@ -1676,7 +1847,7 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 					))
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 59, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// SetPositionMerged for 98 + FlattenMergeChain
@@ -1689,7 +1860,7 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
 					))
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 98, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// UpdateCatalogPositionDetails for rename
@@ -1918,7 +2089,7 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 
 				// FlattenMergeChain: path compression (posID→C)
 				mock.ExpectExec("UPDATE catalog_positions").
-					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: posID, Valid: true}).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 			}
 
@@ -2005,6 +2176,116 @@ func TestExecuteBatchMerge_ExecuteMergeBatch_DBError(t *testing.T) {
 	assert.Contains(t, err.Error(), "ExecuteMergeBatch")
 	var validationErr *apierrors.ValidationError
 	assert.False(t, errors.As(err, &validationErr))
+}
+
+func TestExecuteBatchMerge_FlattenMergeChain_Scenario1_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN Scenario 1 (TargetPositionID=2): SetPositionMerged OK for 59, FlattenMergeChain fails
+	req := api_models.ExecuteBatchMergeRequest{
+		MergeIDs:         []int64{101},
+		TargetPositionID: 2,
+	}
+
+	dbErr := errors.New("disk full")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin"))
+
+			// GetCatalogPositionByID — target=2 is active
+			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+				WithArgs(int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
+						"POSITION", "active", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
+			// SetPositionMerged for 59
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(59)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(59), "позиция 59", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+					))
+
+			// FlattenMergeChain for 59 → fails
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 59, Valid: true}).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteBatchMerge(ctx, req, "admin")
+
+	// THEN — wrapped error with позиции
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "FlattenMergeChain для позиции 59")
+}
+
+func TestExecuteBatchMerge_FlattenMergeChain_Scenario2_DBError(t *testing.T) {
+	service, mockStore := setupTestService(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// GIVEN Scenario 2 (NewMainTitle): SetPositionMerged OK for first posID, FlattenMergeChain fails
+	req := api_models.ExecuteBatchMergeRequest{
+		MergeIDs:     []int64{101},
+		NewMainTitle: "Единая позиция",
+	}
+
+	dbErr := errors.New("disk full")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("UPDATE suggested_merges").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows(suggestedMergeColumns).
+					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin"))
+
+			// CreateSimpleCatalogPosition
+			mock.ExpectQuery("INSERT INTO catalog_positions").
+				WithArgs("Единая позиция").
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(300), "Единая позиция", sql.NullString{Valid: false}, nil,
+						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Valid: false},
+					))
+
+			// SetPositionMerged for 2 (first in sorted order)
+			mock.ExpectQuery("UPDATE catalog_positions").
+				WithArgs(sqlmock.AnyArg(), int64(2)).
+				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					AddRow(
+						int64(2), "позиция", sql.NullString{Valid: false}, nil,
+						"POSITION", "deprecated", sql.NullInt64{Valid: false},
+						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+					))
+
+			// FlattenMergeChain for 2 → fails
+			mock.ExpectExec("UPDATE catalog_positions").
+				WithArgs(sql.NullInt64{Int64: 300, Valid: true}, sql.NullInt64{Int64: 2, Valid: true}).
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	result, err := service.ExecuteBatchMerge(ctx, req, "admin")
+
+	// THEN — wrapped error with позиции
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "FlattenMergeChain для позиции 2")
 }
 
 // ========================================================================
@@ -2274,7 +2555,7 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 
 			// FlattenMergeChain: path compression (B→A)
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 100, Valid: true}, sql.NullInt64{Int64: 200, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// InvalidateRelatedActionableMerges — возвращает ошибку
@@ -2337,7 +2618,7 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 59, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// SetPositionMerged for 98 + FlattenMergeChain
@@ -2348,7 +2629,7 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
 			mock.ExpectExec("UPDATE catalog_positions").
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 98, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// InvalidateRelatedActionableMerges — возвращает ошибку
