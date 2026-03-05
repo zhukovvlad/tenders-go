@@ -230,6 +230,10 @@ INSERT INTO catalog_positions (
 )
 RETURNING *;
 
+-- name: CountPositionsByParentID :one
+-- Считает количество позиций, привязанных к данному родителю.
+SELECT COUNT(*) FROM catalog_positions WHERE parent_id = $1;
+
 -- name: SetPositionParent :one
 -- Привязывает позицию к родителю. Позиция остается активной.
 UPDATE catalog_positions

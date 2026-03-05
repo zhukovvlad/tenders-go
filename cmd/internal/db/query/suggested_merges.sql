@@ -147,6 +147,19 @@ WHERE
     AND status IN ('PENDING', 'APPROVED')
 RETURNING *;
 
+-- name: GroupMergeBatch :many
+-- Атомарно переводит несколько предложений из PENDING/APPROVED в GROUPED (batch group).
+-- Возвращает ВСЕ строки, успешно обновлённые.
+UPDATE suggested_merges
+SET
+    status = 'GROUPED',
+    resolved_at = NOW(),
+    resolved_by = @resolved_by
+WHERE
+    id = ANY(@ids::bigint[])
+    AND status IN ('PENDING', 'APPROVED')
+RETURNING *;
+
 -- name: DeleteOutdatedPendingMerges :exec
 -- Очищает PENDING-заявки на слияние, которые больше не проходят по новому порогу расстояния.
 -- Формула: similarity_score = 1.0 - distance.

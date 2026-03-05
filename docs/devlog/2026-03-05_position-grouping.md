@@ -81,50 +81,122 @@ RETURNING *;
 type GroupPositionsRequest struct {
     ParentID       int64  `json:"parent_id,omitempty"`
     NewParentTitle string `json:"new_parent_title,omitempty"`
+    Force          bool   `json:"force,omitempty"`
 }
 
 type GroupPositionsResponse struct {
-    MergeID    int64  `json:"merge_id"`
-    ParentID   int64  `json:"parent_id"`
-    Status     string `json:"status"`      // "GROUPED"
-    ResolvedAt string `json:"resolved_at"`
+    MergeID    int64     `json:"merge_id"`
+    ParentID   int64     `json:"parent_id"`
+    Status     string    `json:"status"`      // "GROUPED"
+    ResolvedAt time.Time `json:"resolved_at"`
+}
+
+type GroupBatchPositionsRequest struct {
+    MergeIDs       []int64 `json:"merge_ids"`
+    ParentID       int64   `json:"parent_id,omitempty"`
+    NewParentTitle string  `json:"new_parent_title,omitempty"`
+    Force          bool    `json:"force,omitempty"`
+}
+
+type GroupBatchPositionsResponse struct {
+    MergeIDs    []int64   `json:"merge_ids"`
+    ParentID    int64     `json:"parent_id"`
+    PositionIDs []int64   `json:"position_ids"`
+    Status      string    `json:"status"`
+    ResolvedAt  time.Time `json:"resolved_at"`
+}
+
+type GroupConflict struct {
+    PositionID         int64  `json:"position_id"`
+    PositionTitle      string `json:"position_title"`
+    CurrentParentID    int64  `json:"current_parent_id"`
+    CurrentParentTitle string `json:"current_parent_title"`
+    SiblingsCount      int64  `json:"siblings_count"`
 }
 ```
 
 Ровно одно из полей `ParentID` / `NewParentTitle` должно быть задано.
+`Force` — принудительно перезаписывает `parent_id` для позиций, уже входящих в другую группу.
 
-### 4. Сервисный метод `GroupPositions` (`catalog_service.go`)
+### 4. Сервисные методы (`catalog_service.go`)
+
+#### `GroupPositions` (одиночная группировка)
 
 Логика внутри `ExecTx`:
 
 1. `GroupMerge` — атомарно PENDING/APPROVED → GROUPED
 2. Определение `finalParentID`:
    - `NewParentTitle` → `CreateParentCatalogPosition` (новый HEADER)
-   - `ParentID` → `GetCatalogPositionByID` + валидация (не deprecated, не merged)
-3. `SetPositionParent` для MainPositionID и DuplicatePositionID
+   - `ParentID` → `GetCatalogPositionByID` + валидация (не deprecated, не merged, kind=HEADER, не совпадает с группируемыми)
+3. **Проверка конфликтов** (если `!force`): `detectGroupConflicts` — если позиция уже имеет `parent_id`, возвращаем `ConflictError` (409) со структурированными данными о конфликтах
+4. `SetPositionParent` для MainPositionID и DuplicatePositionID
+
+#### `GroupBatchPositions` (батч-группировка)
+
+Паттерн аналогичен `ExecuteBatchMerge`, но:
+- Использует `GroupMergeBatch` (не `ExecuteMergeBatch`)
+- PENDING/APPROVED → GROUPED (не EXECUTED)
+- Позиции остаются active: `SetPositionParent` вместо `SetPositionMerged`
+- Нет `InvalidateRelatedActionableMerges`, нет `FlattenMergeChain`
+- Проверка конфликтов `parent_id` (если `!force`)
+- `slices.Sort(positionIDs)` для детерминированного порядка UPDATE
 
 **Ключевое отличие от `ExecuteMerge`:**
 - Позиции **не** становятся deprecated
 - `InvalidateRelatedActionableMerges` **не** вызывается (нет «мёртвых душ»)
 - `FlattenMergeChain` **не** нужен (нет merged_into_id)
 
-### 5. HTTP Handler `GroupPositionsHandler` (`handlers_rag.go`)
+### 5. Двухфазное подтверждение (force/conflict паттерн)
 
-Роут: `POST /api/v1/admin/merges/:id/group`
+**Проблема:** позиция может уже быть в другой группе (`parent_id IS NOT NULL`).
 
-Паттерн идентичен `ExecuteMergeHandler`:
-- Parse `:id` из URL
-- Strict JSON decode с `DisallowUnknownFields()`
-- Extract `user_id` из JWT context
-- Error dispatch: ValidationError → 400, NotFoundError → 404, остальное → 500
+**Решение:** запрос без `force` → проверка `detectGroupConflicts()` → 409 Conflict с деталями:
 
-### 6. Регистрация роута (`server.go`)
+```json
+{
+  "error": "positions_already_grouped",
+  "conflicts": [
+    {
+      "position_id": 42,
+      "position_title": "Окно ПВХ 900×1200",
+      "current_parent_id": 10,
+      "current_parent_title": "Двери металлические",
+      "siblings_count": 3
+    }
+  ],
+  "message": "1 из 2 позиций уже входит в группу. Передайте force=true для переноса."
+}
+```
+
+Фронт показывает диалог → оператор подтверждает → повторный запрос с `force: true` → 200 OK.
+
+**Новый тип ошибки:** `ConflictError` в `apierrors` (Message + Conflicts interface{}) → HTTP 409.
+
+**Хелпер:** `detectGroupConflicts(ctx, q, positionIDs)` — для каждой позиции проверяет
+`parent_id`, загружает название родителя и количество «соседей» через `CountPositionsByParentID`.
+
+### 6. HTTP Handlers (`handlers_rag.go`)
+
+**`GroupPositionsHandler`** — `POST /api/v1/admin/merges/:id/group`
+
+Обновлён: теперь обрабатывает `ConflictError` → 409 с `gin.H{"error", "conflicts", "message"}`.
+
+**`GroupBatchPositionsHandler`** — `POST /api/v1/admin/merges/group-batch` (NEW)
+
+Паттерн идентичен `ExecuteBatchMergeHandler`.
+
+### 7. Регистрация роутов (`server.go`)
 
 ```go
+admin.POST("/merges/group-batch", server.GroupBatchPositionsHandler)
 admin.POST("/merges/:id/group", server.GroupPositionsHandler)
 ```
 
-Между `/merges/:id/execute` и `/merges/:id/reject`.
+### 8. SQL-запросы (новые)
+
+**`GroupMergeBatch`** — bulk PENDING/APPROVED → GROUPED (аналог `ExecuteMergeBatch`).
+
+**`CountPositionsByParentID`** — `SELECT COUNT(*) WHERE parent_id = $1` для вычисления siblings_count.
 
 ## Статусная модель suggested_merges (обновлённая)
 
@@ -139,7 +211,10 @@ PENDING ──→ APPROVED ──→ EXECUTED   (слияние дубликат
 ## Тестовый план
 
 См. обновлённый `TESTING_CHECKLIST.md`:
-- Unit: GroupPositions (валидация, ExecTx, ошибки)
-- Handler: GroupPositionsHandler (HTTP codes, JWT, strict JSON)
-- Integration: GroupMerge, CreateParentCatalogPosition, SetPositionParent
+- Unit: GroupPositions (валидация, force/conflict, ExecTx, ошибки)
+- Unit: GroupBatchPositions (валидация, дубликаты merge_ids, force/conflict, ExecTx)
+- Unit: detectGroupConflicts (позиция с parent, без parent, ошибки БД)
+- Handler: GroupPositionsHandler (HTTP codes, JWT, strict JSON, 409 Conflict)
+- Handler: GroupBatchPositionsHandler (HTTP codes, JWT, strict JSON, 409 Conflict)
+- Integration: GroupMerge, GroupMergeBatch, CreateParentCatalogPosition, SetPositionParent, CountPositionsByParentID
 - Integration: constraints (chk_not_self_parent, ON DELETE RESTRICT)

@@ -1189,7 +1189,23 @@ func (s *CatalogService) GroupPositions(
 			finalParentID = parent.ID
 		}
 
-		// 3. Привязываем ОБЕ позиции к родителю (позиции остаются active)
+		// 3. Проверяем конфликты parent_id (если не force)
+		positionIDs := []int64{merge.MainPositionID, merge.DuplicatePositionID}
+		if !req.Force {
+			conflicts, conflictErr := s.detectGroupConflicts(ctx, q, positionIDs)
+			if conflictErr != nil {
+				return conflictErr
+			}
+			if len(conflicts) > 0 {
+				return apierrors.NewConflictError(
+					fmt.Sprintf("%d из %d позиций уже входит в группу. Передайте force=true для переноса.",
+						len(conflicts), len(positionIDs)),
+					conflicts,
+				)
+			}
+		}
+
+		// 4. Привязываем ОБЕ позиции к родителю (позиции остаются active)
 		_, mainErr := q.SetPositionParent(ctx, db.SetPositionParentParams{
 			ParentID:   sql.NullInt64{Int64: finalParentID, Valid: true},
 			PositionID: merge.MainPositionID,
@@ -1234,5 +1250,243 @@ func (s *CatalogService) GroupPositions(
 		ParentID:   finalParentID,
 		Status:     merge.Status,
 		ResolvedAt: merge.ResolvedAt.Time,
+	}, nil
+}
+
+// detectGroupConflicts проверяет, есть ли среди positionIDs позиции, уже привязанные к родителю.
+// Возвращает срез конфликтов для отображения оператору.
+func (s *CatalogService) detectGroupConflicts(
+	ctx context.Context,
+	q *db.Queries,
+	positionIDs []int64,
+) ([]api_models.GroupConflict, error) {
+	var conflicts []api_models.GroupConflict
+	for _, posID := range positionIDs {
+		pos, err := q.GetCatalogPositionByID(ctx, posID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // позиция может не существовать — другая валидация поймает
+			}
+			return nil, fmt.Errorf("ошибка GetCatalogPositionByID (pos=%d): %w", posID, err)
+		}
+		if !pos.ParentID.Valid {
+			continue
+		}
+		// Позиция уже в группе — собираем детали
+		parent, parentErr := q.GetCatalogPositionByID(ctx, pos.ParentID.Int64)
+		if parentErr != nil {
+			return nil, fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", pos.ParentID.Int64, parentErr)
+		}
+		siblingsCount, countErr := q.CountPositionsByParentID(ctx, pos.ParentID)
+		if countErr != nil {
+			return nil, fmt.Errorf("ошибка CountPositionsByParentID (parent=%d): %w", pos.ParentID.Int64, countErr)
+		}
+		conflicts = append(conflicts, api_models.GroupConflict{
+			PositionID:         posID,
+			PositionTitle:      pos.StandardJobTitle,
+			CurrentParentID:    pos.ParentID.Int64,
+			CurrentParentTitle: parent.StandardJobTitle,
+			SiblingsCount:      siblingsCount,
+		})
+	}
+	return conflicts, nil
+}
+
+// GroupBatchPositions реализует POST /api/v1/admin/merges/group-batch.
+//
+// # Назначение
+//
+// Выполняет групповую группировку позиций в одной транзакции.
+// Все позиции из merge-заявок привязываются к одному родителю (HEADER).
+//
+// # Параметры
+//
+//   - ctx: контекст выполнения запроса
+//   - req: GroupBatchPositionsRequest с merge_ids, parent_id/new_parent_title, force
+//   - executedBy: ID оператора
+//
+// # Возвращаемое значение
+//
+//   - *api_models.GroupBatchPositionsResponse: результат батча
+//   - error: ValidationError, NotFoundError, ConflictError или ошибка БД
+func (s *CatalogService) GroupBatchPositions(
+	ctx context.Context,
+	req api_models.GroupBatchPositionsRequest,
+	executedBy string,
+) (*api_models.GroupBatchPositionsResponse, error) {
+	logger := s.logger.WithField("method", "GroupBatchPositions").
+		WithField("merge_ids_count", len(req.MergeIDs))
+
+	if executedBy == "" {
+		return nil, apierrors.NewValidationError("executedBy не может быть пустым")
+	}
+	if len(req.MergeIDs) == 0 {
+		return nil, apierrors.NewValidationError("merge_ids не может быть пустым")
+	}
+
+	// Проверка на дубликаты в merge_ids
+	seen := make(map[int64]struct{}, len(req.MergeIDs))
+	for _, id := range req.MergeIDs {
+		if _, exists := seen[id]; exists {
+			return nil, apierrors.NewValidationError("дубликат merge_id: %d", id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	req.NewParentTitle = strings.TrimSpace(req.NewParentTitle)
+	hasParentID := req.ParentID > 0
+	hasNewTitle := req.NewParentTitle != ""
+
+	if hasParentID && hasNewTitle {
+		return nil, apierrors.NewValidationError("нельзя указать одновременно parent_id и new_parent_title")
+	}
+	if !hasParentID && !hasNewTitle {
+		return nil, apierrors.NewValidationError("необходимо указать parent_id или new_parent_title")
+	}
+
+	var finalParentID int64
+	var resolvedAt sql.NullTime
+	var sortedPositionIDs []int64
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// 1. Bulk-переводим PENDING/APPROVED → GROUPED
+		groupedMerges, txErr := q.GroupMergeBatch(ctx, db.GroupMergeBatchParams{
+			ResolvedBy: sql.NullString{String: executedBy, Valid: true},
+			Ids:        req.MergeIDs,
+		})
+		if txErr != nil {
+			return fmt.Errorf("ошибка GroupMergeBatch: %w", txErr)
+		}
+
+		// Проверяем что ВСЕ merge_ids были обновлены
+		if len(groupedMerges) != len(req.MergeIDs) {
+			executedSet := make(map[int64]struct{}, len(groupedMerges))
+			for _, m := range groupedMerges {
+				executedSet[m.ID] = struct{}{}
+			}
+			var failedIDs []int64
+			for _, id := range req.MergeIDs {
+				if _, ok := executedSet[id]; !ok {
+					failedIDs = append(failedIDs, id)
+				}
+			}
+			return apierrors.NewValidationError(
+				"не удалось сгруппировать merge_ids %v: не найдены или имеют неверный статус",
+				failedIDs,
+			)
+		}
+
+		resolvedAt = groupedMerges[0].ResolvedAt
+
+		// 2. Собираем уникальные position_ids из всех merge-записей
+		positionSet := make(map[int64]struct{})
+		for _, m := range groupedMerges {
+			positionSet[m.MainPositionID] = struct{}{}
+			positionSet[m.DuplicatePositionID] = struct{}{}
+		}
+		sortedPositionIDs = make([]int64, 0, len(positionSet))
+		for posID := range positionSet {
+			sortedPositionIDs = append(sortedPositionIDs, posID)
+		}
+		slices.Sort(sortedPositionIDs)
+
+		// 3. Определяем finalParentID
+		if hasNewTitle {
+			parent, createErr := q.CreateParentCatalogPosition(ctx, req.NewParentTitle)
+			if createErr != nil {
+				var pqErr *pq.Error
+				if errors.As(createErr, &pqErr) && pqErr.Code == "23505" {
+					return apierrors.NewValidationError(
+						"родительская позиция с названием %q уже существует",
+						req.NewParentTitle,
+					)
+				}
+				return fmt.Errorf("ошибка CreateParentCatalogPosition: %w", createErr)
+			}
+			finalParentID = parent.ID
+		} else {
+			parent, getErr := q.GetCatalogPositionByID(ctx, req.ParentID)
+			if getErr != nil {
+				if errors.Is(getErr, sql.ErrNoRows) {
+					return apierrors.NewNotFoundError("родительская позиция с ID %d не найдена", req.ParentID)
+				}
+				return fmt.Errorf("ошибка GetCatalogPositionByID (parent=%d): %w", req.ParentID, getErr)
+			}
+			if parent.Status == "deprecated" {
+				return apierrors.NewValidationError(
+					"родительская позиция %d имеет статус deprecated", req.ParentID,
+				)
+			}
+			if parent.MergedIntoID.Valid {
+				return apierrors.NewValidationError(
+					"родительская позиция %d влита в другую позицию", req.ParentID,
+				)
+			}
+			if parent.Kind != "HEADER" {
+				return apierrors.NewValidationError(
+					"родительская позиция %d должна иметь kind=HEADER (текущий kind=%s)",
+					req.ParentID, parent.Kind,
+				)
+			}
+			// Проверка: parent не должен совпадать с группируемыми позициями
+			for _, posID := range sortedPositionIDs {
+				if parent.ID == posID {
+					return apierrors.NewValidationError(
+						"родительская позиция %d не может совпадать с группируемыми позициями",
+						req.ParentID,
+					)
+				}
+			}
+			finalParentID = parent.ID
+		}
+
+		// 4. Проверяем конфликты parent_id (если не force)
+		if !req.Force {
+			conflicts, conflictErr := s.detectGroupConflicts(ctx, q, sortedPositionIDs)
+			if conflictErr != nil {
+				return conflictErr
+			}
+			if len(conflicts) > 0 {
+				return apierrors.NewConflictError(
+					fmt.Sprintf("%d из %d позиций уже входит в группу. Передайте force=true для переноса.",
+						len(conflicts), len(sortedPositionIDs)),
+					conflicts,
+				)
+			}
+		}
+
+		// 5. Привязываем все позиции к родителю
+		for _, posID := range sortedPositionIDs {
+			_, setErr := q.SetPositionParent(ctx, db.SetPositionParentParams{
+				ParentID:   sql.NullInt64{Int64: finalParentID, Valid: true},
+				PositionID: posID,
+			})
+			if setErr != nil {
+				if errors.Is(setErr, sql.ErrNoRows) {
+					return apierrors.NewValidationError(
+						"группировка невозможна: позиция %d deprecated или влита", posID,
+					)
+				}
+				return fmt.Errorf("ошибка SetPositionParent (pos=%d): %w", posID, setErr)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("Ошибка батч-группировки: %v", err)
+		return nil, err
+	}
+
+	logger.Infof("Batch group выполнен: позиции %v привязаны к родителю %d",
+		sortedPositionIDs, finalParentID)
+
+	return &api_models.GroupBatchPositionsResponse{
+		MergeIDs:    req.MergeIDs,
+		ParentID:    finalParentID,
+		PositionIDs: sortedPositionIDs,
+		Status:      "GROUPED",
+		ResolvedAt:  resolvedAt.Time,
 	}, nil
 }
