@@ -41,12 +41,12 @@ WHERE
         FROM suggested_merges sub
         WHERE sub.status = 'PENDING'
         GROUP BY sub.main_position_id
-        ORDER BY MAX(sub.similarity_score) DESC
+        ORDER BY MAX(sub.similarity_score) DESC, sub.main_position_id ASC
         LIMIT $1
         OFFSET $2
     )
 ORDER BY 
-    sm.similarity_score DESC;
+    sm.similarity_score DESC, sm.main_position_id ASC, sm.id ASC;
 
 -- name: CountPendingMerges :one
 -- Возвращает общее количество PENDING merge-предложений (для пагинации).

@@ -45,26 +45,27 @@ WHERE sm.status = 'PENDING'
       FROM suggested_merges sub
       WHERE sub.status = 'PENDING'
       GROUP BY sub.main_position_id
-      ORDER BY MAX(sub.similarity_score) DESC
+      ORDER BY MAX(sub.similarity_score) DESC, sub.main_position_id ASC
       LIMIT $1
       OFFSET $2
   )
-ORDER BY sm.similarity_score DESC;
+ORDER BY sm.similarity_score DESC, sm.main_position_id ASC, sm.id ASC;
 ```
 
 - Подзапрос: выбирает `pageSize` групп, начиная с `offset`, отсортированных по
-  максимальному score в группе.
+  максимальному score в группе. При равном score — по `main_position_id ASC`
+  (deterministic tiebreaker, предотвращает page drift).
 - Основной запрос: возвращает все строки для выбранных групп.
+  Порядок: `similarity_score DESC, main_position_id ASC, id ASC` —
+  стабильный при одинаковых score.
 - Группа 511 теперь **всегда** содержит оба дубликата: 574 и 643.
 
 ## Затронутые файлы
 
 | Файл | Изменение |
 |------|-----------|
-| `cmd/internal/db/query/suggested_merges.sql` | SQL-запрос `ListPendingMerges` — подзапрос с GROUP BY + LIMIT/OFFSET |
-| `cmd/internal/db/sqlc/suggested_merges.sql.go` | Перегенерирован (`make sqlc`) |
-| `cmd/internal/db/sqlc/mock_querier.go` | Перегенерирован (`make sqlc`) |
-| `cmd/internal/db/sqlc/mock_store.go` | Перегенерирован (`make sqlc`) |
+| `cmd/internal/db/query/suggested_merges.sql` | SQL-запрос `ListPendingMerges` — подзапрос с GROUP BY + LIMIT/OFFSET + deterministic tiebreakers |
+| `cmd/internal/db/sqlc/*` | Перегенерированы локально (`make sqlc`), не версионируются |
 
 ## Важно
 
