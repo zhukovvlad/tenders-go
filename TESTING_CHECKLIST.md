@@ -154,6 +154,8 @@
 
 **Новые тесты:**
 - [ ] Тест GroupPositions — пустой executedBy (ValidationError)
+- [ ] Тест GroupPositions — mergeID <= 0 (ValidationError)
+- [ ] Тест GroupPositions — ParentID < 0 (ValidationError)
 - [ ] Тест GroupPositions — оба поля пустые: ParentID=0, NewParentTitle="" (ValidationError)
 - [ ] Тест GroupPositions — оба поля заданы: ParentID>0 И NewParentTitle!="" (ValidationError)
 - [ ] Тест GroupPositions — NewParentTitle из пробелов (ValidationError после TrimSpace → оба пустые)
@@ -202,7 +204,9 @@
 **Новые тесты:**
 - [ ] Тест GroupBatchPositions — пустой executedBy (ValidationError)
 - [ ] Тест GroupBatchPositions — пустой merge_ids (ValidationError)
+- [ ] Тест GroupBatchPositions — merge_id <= 0 в списке (ValidationError)
 - [ ] Тест GroupBatchPositions — дубликат в merge_ids (ValidationError)
+- [ ] Тест GroupBatchPositions — ParentID < 0 (ValidationError)
 - [ ] Тест GroupBatchPositions — оба поля заданы: ParentID + NewParentTitle (ValidationError)
 - [ ] Тест GroupBatchPositions — оба поля пустые (ValidationError)
 - [ ] Тест GroupBatchPositions с NewParentTitle — успешная группировка (GroupMergeBatch + CreateParentCatalogPosition + N× SetPositionParent)
@@ -599,6 +603,7 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
   - [ ] ID <= 0 в URL → 400
   - [ ] Оба поля заданы (parent_id + new_parent_title) → 400
   - [ ] Оба поля пустые → 400
+  - [ ] parent_id < 0 в body → 400
   - [ ] Предложение не найдено → 404
   - [ ] Родительская позиция не найдена → 404
   - [ ] Статус не PENDING/APPROVED → 400
@@ -616,6 +621,7 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
   - [ ] Дубликат в merge_ids → 400
   - [ ] Оба поля заданы (parent_id + new_parent_title) → 400
   - [ ] Оба поля пустые → 400
+  - [ ] parent_id < 0 в body → 400
   - [ ] Частичный batch (часть merge_ids невалидна) → 400
   - [ ] Родительская позиция не найдена → 404
   - [ ] Конфликт parent_id (без force) → 409 + {"error": "positions_already_grouped", "conflicts": [...]}

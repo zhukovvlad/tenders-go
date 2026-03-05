@@ -1096,6 +1096,11 @@ func (s *CatalogService) GroupPositions(
 ) (*api_models.GroupPositionsResponse, error) {
 	logger := s.logger.WithField("method", "GroupPositions").WithField("merge_id", mergeID)
 
+	// Валидация: mergeID должен быть положительным
+	if mergeID <= 0 {
+		return nil, apierrors.NewValidationError("mergeID должен быть положительным")
+	}
+
 	// Валидация: executedBy обязателен
 	if executedBy == "" {
 		return nil, apierrors.NewValidationError("executedBy не может быть пустым")
