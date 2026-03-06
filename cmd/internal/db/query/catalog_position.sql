@@ -43,12 +43,12 @@ LIMIT $1
 OFFSET $2;
 
 -- name: ListCatalogPositionsForEmbedding :many
--- Основная очередь для воркера. Ищем по статусу.
-SELECT id, standard_job_title, description 
+-- Основная очередь для воркера. Захватываем и POSITION, и GROUP_TITLE.
+SELECT id, standard_job_title, description, kind 
 FROM catalog_positions
 WHERE 
     status = 'pending_indexing'
-    AND kind = 'POSITION'
+    AND kind IN ('POSITION', 'GROUP_TITLE')
 ORDER BY id
 LIMIT $1;
 
@@ -218,15 +218,17 @@ WHERE
     merged_into_id = sqlc.arg(old_master_id);
 
 -- name: CreateParentCatalogPosition :one
--- Создает абстрактную родительскую позицию (HEADER).
+-- Создает абстрактную родительскую позицию (GROUP_TITLE).
 INSERT INTO catalog_positions (
     standard_job_title,
+    description,
     kind,
     status
 ) VALUES (
-    $1,                  -- standard_job_title
-    'HEADER',            -- kind: абстрактная группа
-    'active'             -- status: сразу активна, так как это просто родитель
+    $1,                  -- standard_job_title (temporary raw input, to be lemmatized by worker)
+    $1,                  -- description (raw user input, kept for UI)
+    'GROUP_TITLE',       -- kind
+    'pending_indexing'   -- status (send to Python worker queue)
 )
 RETURNING *;
 

@@ -1264,9 +1264,9 @@ func (s *CatalogService) resolveParentID(
 			"родительская позиция %d влита в другую позицию", parentID,
 		)
 	}
-	if parent.Kind != "HEADER" {
+	if parent.Kind != "GROUP_TITLE" {
 		return 0, apierrors.NewValidationError(
-			"родительская позиция %d должна иметь kind=HEADER (текущий kind=%s)",
+			"родительская позиция %d должна иметь kind=GROUP_TITLE (текущий kind=%s)",
 			parentID, parent.Kind,
 		)
 	}

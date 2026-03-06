@@ -181,7 +181,7 @@
 - [ ] Тест GroupPositions — без конфликта, force=false → успех (detectGroupConflicts возвращает пустой срез)
 - [ ] Тест GroupPositions — идемпотентность: позиция уже под целевым parent → не считается конфликтом
 - [ ] Тест GroupPositions — ошибка БД в detectGroupConflicts (wrapped DB error)
-- [ ] Тест GroupPositions с ParentID — parent.Kind != "HEADER" (ValidationError)
+- [ ] Тест GroupPositions с ParentID — parent.Kind != "GROUP_TITLE" (ValidationError)
 - [ ] Тест GroupPositions с ParentID — parent.ID совпадает с MainPositionID/DuplicatePositionID (ValidationError)
 - [ ] Тест GroupPositions с NewParentTitle — unique constraint violation 23505 (ValidationError)
 
@@ -195,7 +195,7 @@
 - [ ] Тест resolveParentID — ParentID не найден → NotFoundError
 - [ ] Тест resolveParentID — parent deprecated → ValidationError
 - [ ] Тест resolveParentID — parent merged → ValidationError
-- [ ] Тест resolveParentID — parent.Kind != "HEADER" → ValidationError
+- [ ] Тест resolveParentID — parent.Kind != "GROUP_TITLE" → ValidationError
 - [ ] Тест resolveParentID — parent.ID в forbiddenIDs → ValidationError
 - [ ] Тест resolveParentID — parent.ID не в forbiddenIDs → success
 - [ ] Тест resolveParentID — parentID = 0, newTitle задан → создаёт новую позицию (parentID=0 трактуется как 'не задан')
@@ -218,7 +218,7 @@
 - [ ] Тест GroupBatchPositions — родитель не найден (NotFoundError)
 - [ ] Тест GroupBatchPositions — родитель deprecated (ValidationError)
 - [ ] Тест GroupBatchPositions — родитель merged (ValidationError)
-- [ ] Тест GroupBatchPositions — parent.Kind != "HEADER" (ValidationError)
+- [ ] Тест GroupBatchPositions — parent.Kind != "GROUP_TITLE" (ValidationError)
 - [ ] Тест GroupBatchPositions — parent.ID совпадает с одной из позиций (ValidationError)
 - [ ] Тест GroupBatchPositions — unique constraint 23505 при CreateParentCatalogPosition (ValidationError)
 - [ ] Тест GroupBatchPositions — parent_id конфликт без force → ConflictError

@@ -238,7 +238,7 @@ PENDING ──→ APPROVED ──→ EXECUTED   (слияние дубликат
 ## Тестовый план
 
 См. обновлённый `TESTING_CHECKLIST.md`:
-- Unit: resolveParentID (хелпер: создание HEADER, валидация существующего, forbiddenIDs)
+- Unit: resolveParentID (хелпер: создание GROUP_TITLE, валидация существующего, forbiddenIDs)
 - Unit: GroupPositions (валидация, force/conflict, идемпотентность, ExecTx, ошибки)
 - Unit: GroupBatchPositions (валидация, дубликаты merge_ids, force/conflict, идемпотентность, ExecTx)
 - Unit: detectGroupConflicts (позиция с другим parent, позиция с целевым parent → skip, без parent, ошибки БД)
