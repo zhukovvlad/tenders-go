@@ -225,10 +225,10 @@ INSERT INTO catalog_positions (
     kind,
     status
 ) VALUES (
-    $1,                  -- standard_job_title (temporary raw input, to be lemmatized by worker)
-    $1,                  -- description (raw user input, kept for UI)
+    $1,                  -- standard_job_title (временный сырой ввод, будет лемматизирован воркером)
+    $1,                  -- description (сырой ввод пользователя, хранится для UI)
     'GROUP_TITLE',       -- kind
-    'pending_indexing'   -- status (send to Python worker queue)
+    'pending_indexing'   -- status (отправить в очередь Python-воркера)
 )
 RETURNING *;
 

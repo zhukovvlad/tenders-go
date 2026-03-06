@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
+	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -778,6 +779,13 @@ var (
 	catalogPositionColumns = []string{
 		"id", "standard_job_title", "description", "embedding", "kind", "status",
 		"unit_id", "created_at", "updated_at", "fts_vector", "merged_into_id",
+	}
+	// fullCatalogPositionColumns — все 13 колонок CatalogPosition (включая parent_id, parameters).
+	// Используется для запросов, возвращающих RETURNING * (GetCatalogPositionByID, CreateParentCatalogPosition).
+	fullCatalogPositionColumns = []string{
+		"id", "standard_job_title", "description", "embedding", "kind", "status",
+		"unit_id", "created_at", "updated_at", "fts_vector", "merged_into_id",
+		"parent_id", "parameters",
 	}
 )
 
@@ -3011,4 +3019,275 @@ func TestCatalogPositionToSummary_NullableDescription(t *testing.T) {
 		// Пробельная строка обрезается → пустая → nil
 		assert.Nil(t, result.Description)
 	})
+}
+
+// =============================================================================
+// resolveParentID — unit-тесты
+// =============================================================================
+
+func TestResolveParentID_NewTitle_Success(t *testing.T) {
+	// Given: сервис и sqlmock-backed Queries
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	// Expect: CreateParentCatalogPosition вызывается с названием
+	mock.ExpectQuery("INSERT INTO catalog_positions").
+		WithArgs("Окна ПВХ").
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(50), "Окна ПВХ", sql.NullString{String: "Окна ПВХ", Valid: true}, nil,
+				"GROUP_TITLE", "pending_indexing", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	// When: resolveParentID с newTitle
+	resultID, err := service.resolveParentID(context.Background(), q, 0, "Окна ПВХ", nil)
+
+	// Then: возвращает ID новой позиции
+	require.NoError(t, err)
+	assert.Equal(t, int64(50), resultID)
+}
+
+func TestResolveParentID_NewTitle_UniqueViolation23505(t *testing.T) {
+	// Given
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+
+	// Expect: CreateParentCatalogPosition возвращает unique constraint violation
+	mock.ExpectQuery("INSERT INTO catalog_positions").
+		WithArgs("Окна ПВХ").
+		WillReturnError(&pq.Error{Code: "23505"})
+
+	// When
+	_, err := service.resolveParentID(context.Background(), q, 0, "Окна ПВХ", nil)
+
+	// Then: ValidationError
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "уже существует")
+}
+
+func TestResolveParentID_NewTitle_DBError(t *testing.T) {
+	// Given
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+
+	dbErr := errors.New("connection refused")
+	mock.ExpectQuery("INSERT INTO catalog_positions").
+		WithArgs("Окна ПВХ").
+		WillReturnError(dbErr)
+
+	// When
+	_, err := service.resolveParentID(context.Background(), q, 0, "Окна ПВХ", nil)
+
+	// Then: wrapped DB error
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dbErr)
+}
+
+func TestResolveParentID_ParentID_Success_GroupTitle(t *testing.T) {
+	// Given: существующий родитель с kind=GROUP_TITLE
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Группа: Окна", sql.NullString{String: "Окна", Valid: true}, nil,
+				"GROUP_TITLE", "active", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	// When
+	resultID, err := service.resolveParentID(context.Background(), q, 10, "", nil)
+
+	// Then
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), resultID)
+}
+
+func TestResolveParentID_ParentID_NotFound(t *testing.T) {
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(999)).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err := service.resolveParentID(context.Background(), q, 999, "", nil)
+
+	var notFound *apierrors.NotFoundError
+	require.ErrorAs(t, err, &notFound)
+}
+
+func TestResolveParentID_ParentID_Deprecated(t *testing.T) {
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Deprecated", sql.NullString{Valid: false}, nil,
+				"GROUP_TITLE", "deprecated", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	_, err := service.resolveParentID(context.Background(), q, 10, "", nil)
+
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "deprecated")
+}
+
+func TestResolveParentID_ParentID_Merged(t *testing.T) {
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Merged", sql.NullString{Valid: false}, nil,
+				"GROUP_TITLE", "active", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Int64: 5, Valid: true},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	_, err := service.resolveParentID(context.Background(), q, 10, "", nil)
+
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "влита")
+}
+
+func TestResolveParentID_ParentID_KindNotGroupTitle(t *testing.T) {
+	// Given: родитель с kind=POSITION (не GROUP_TITLE)
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Обычная позиция", sql.NullString{Valid: false}, nil,
+				"POSITION", "active", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	// When
+	_, err := service.resolveParentID(context.Background(), q, 10, "", nil)
+
+	// Then: ValidationError с указанием kind=GROUP_TITLE
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "GROUP_TITLE")
+	assert.Contains(t, valErr.Error(), "POSITION")
+}
+
+func TestResolveParentID_ParentID_KindHeader_Rejected(t *testing.T) {
+	// Given: родитель с kind=HEADER (legacy, не GROUP_TITLE)
+	// После data-миграции 000008 таких быть не должно, но тест фиксирует поведение.
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Legacy HEADER", sql.NullString{Valid: false}, nil,
+				"HEADER", "active", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	// When
+	_, err := service.resolveParentID(context.Background(), q, 10, "", nil)
+
+	// Then: ValidationError — HEADER теперь не принимается
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "GROUP_TITLE")
+	assert.Contains(t, valErr.Error(), "HEADER")
+}
+
+func TestResolveParentID_ParentID_InForbiddenIDs(t *testing.T) {
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Группа", sql.NullString{Valid: false}, nil,
+				"GROUP_TITLE", "active", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	_, err := service.resolveParentID(context.Background(), q, 10, "", []int64{10, 20})
+
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "не может совпадать")
+}
+
+func TestResolveParentID_ParentID_NotInForbiddenIDs(t *testing.T) {
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
+			AddRow(
+				int64(10), "Группа", sql.NullString{Valid: false}, nil,
+				"GROUP_TITLE", "active", sql.NullInt64{Valid: false},
+				now, now, nil, sql.NullInt64{Valid: false},
+				sql.NullInt64{Valid: false}, pqtype.NullRawMessage{Valid: false},
+			))
+
+	resultID, err := service.resolveParentID(context.Background(), q, 10, "", []int64{20, 30})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), resultID)
+}
+
+func TestResolveParentID_ParentID_DBError(t *testing.T) {
+	service, _ := setupTestService(t)
+	mock, q, cleanup := newMockQueries(t)
+	defer cleanup()
+
+	dbErr := errors.New("connection timeout")
+	mock.ExpectQuery("SELECT .+ FROM catalog_positions").
+		WithArgs(int64(10)).
+		WillReturnError(dbErr)
+
+	_, err := service.resolveParentID(context.Background(), q, 10, "", nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dbErr)
 }

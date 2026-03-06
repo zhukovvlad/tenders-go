@@ -188,18 +188,20 @@
 #### resolveParentID (хелпер) — unit-тесты
 
 **Новые тесты:**
-- [ ] Тест resolveParentID — NewParentTitle → CreateParentCatalogPosition, возвращает parent.ID
-- [ ] Тест resolveParentID — NewParentTitle, unique violation 23505 → ValidationError
-- [ ] Тест resolveParentID — NewParentTitle, DB error → wrapped error
-- [ ] Тест resolveParentID — ParentID → GetCatalogPositionByID, возвращает parent.ID
-- [ ] Тест resolveParentID — ParentID не найден → NotFoundError
-- [ ] Тест resolveParentID — parent deprecated → ValidationError
-- [ ] Тест resolveParentID — parent merged → ValidationError
-- [ ] Тест resolveParentID — parent.Kind != "GROUP_TITLE" → ValidationError
-- [ ] Тест resolveParentID — parent.ID в forbiddenIDs → ValidationError
-- [ ] Тест resolveParentID — parent.ID не в forbiddenIDs → success
-- [ ] Тест resolveParentID — parentID = 0, newTitle задан → создаёт новую позицию (parentID=0 трактуется как 'не задан')
-- [ ] Тест resolveParentID — GetCatalogPositionByID DB error → wrapped error
+- [x] Тест resolveParentID — NewParentTitle → CreateParentCatalogPosition, возвращает parent.ID
+- [x] Тест resolveParentID — NewParentTitle, unique violation 23505 → ValidationError
+- [x] Тест resolveParentID — NewParentTitle, DB error → wrapped error
+- [x] Тест resolveParentID — ParentID → GetCatalogPositionByID, возвращает parent.ID
+- [x] Тест resolveParentID — ParentID не найден → NotFoundError
+- [x] Тест resolveParentID — parent deprecated → ValidationError
+- [x] Тест resolveParentID — parent merged → ValidationError
+- [x] Тест resolveParentID — parent.Kind != "GROUP_TITLE" → ValidationError
+- [x] Тест resolveParentID — parent.Kind = "HEADER" (legacy) → ValidationError
+- [x] Тест resolveParentID — parent.ID в forbiddenIDs → ValidationError
+- [x] Тест resolveParentID — parent.ID не в forbiddenIDs → success
+- [x] Тест resolveParentID — parentID = 0, newTitle задан → создаёт новую позицию (parentID=0 трактуется как 'не задан')
+- [x] Тест resolveParentID — GetCatalogPositionByID DB error → wrapped error
+- [x] **Результат: 12 resolveParentID-тестов, все проходят.**
 
 #### Group Batch Positions (GroupBatchPositions) — unit-тесты
 
