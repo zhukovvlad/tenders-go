@@ -133,7 +133,8 @@ func buildContextString(description sql.NullString, standardJobTitle string) str
 //
 //   - Переиспользуется DTO UnmatchedPositionResponse (изначально для Процесса 2)
 //   - PositionItemID содержит catalog_id (не position_item.id!)
-//   - Возвращаются только записи с kind='POSITION' (исключаются HEADER, LOT_HEADER и т.д.)
+//   - Возвращаются записи с kind='POSITION' и kind='GROUP_TITLE' (исключаются HEADER, LOT_HEADER и т.д.)
+//   - Поле kind не передаётся в API-ответ — воркер обрабатывает оба вида одинаково
 func (s *CatalogService) GetUnindexedCatalogItems(
 	ctx context.Context,
 	limit int32,
