@@ -9,8 +9,14 @@ CHECK (kind IN ('POSITION', 'HEADER', 'LOT_HEADER', 'TRASH', 'TO_REVIEW', 'GROUP
 
 -- Migrate legacy parent groups: HEADER parents → GROUP_TITLE
 -- Only converts HEADER rows that are actually used as parent_id by other positions.
+-- Also requeues active parents for embedding by the Python worker.
 UPDATE catalog_positions
-SET kind = 'GROUP_TITLE'
+SET kind = 'GROUP_TITLE',
+    description = COALESCE(description, standard_job_title),
+    status = CASE
+        WHEN status = 'active' THEN 'pending_indexing'
+        ELSE status
+    END
 WHERE kind = 'HEADER'
   AND id IN (
     SELECT DISTINCT parent_id
