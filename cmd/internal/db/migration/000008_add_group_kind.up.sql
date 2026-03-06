@@ -6,3 +6,14 @@ DROP CONSTRAINT ck_catalog_positions_kind;
 ALTER TABLE catalog_positions
 ADD CONSTRAINT ck_catalog_positions_kind
 CHECK (kind IN ('POSITION', 'HEADER', 'LOT_HEADER', 'TRASH', 'TO_REVIEW', 'GROUP_TITLE'));
+
+-- Migrate legacy parent groups: HEADER parents → GROUP_TITLE
+-- Only converts HEADER rows that are actually used as parent_id by other positions.
+UPDATE catalog_positions
+SET kind = 'GROUP_TITLE'
+WHERE kind = 'HEADER'
+  AND id IN (
+    SELECT DISTINCT parent_id
+    FROM catalog_positions
+    WHERE parent_id IS NOT NULL
+  );

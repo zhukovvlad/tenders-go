@@ -77,13 +77,16 @@ if parent.Kind != "GROUP_TITLE" { ... "kind=GROUP_TITLE" }
 
 ## Влияние на существующие данные
 
-Существующие `HEADER`-записи остаются валидными (constraint сохраняет `HEADER`).
-Новые родительские группы будут создаваться с `GROUP_TITLE`.
-При необходимости можно добавить data-миграцию `UPDATE ... SET kind='GROUP_TITLE' WHERE kind='HEADER'`
-для унификации старых записей.
+Up-миграция автоматически конвертирует существующие `HEADER`-записи, которые используются
+как `parent_id`, в `GROUP_TITLE`. Остальные `HEADER`-записи (не являющиеся родителями)
+остаются без изменений — constraint по-прежнему допускает оба значения.
+Down-миграция выполняет обратную конвертацию `GROUP_TITLE` → `HEADER` перед
+восстановлением старого constraint.
 
 ## Влияние на Python-воркер
 
-Воркер получает `GROUP_TITLE`-записи через `ListCatalogPositionsForEmbedding`.
-Поле `kind` теперь доступно в ответе — воркер может при необходимости применять
-разную логику лемматизации для `POSITION` и `GROUP_TITLE`.
+SQL-запрос `ListCatalogPositionsForEmbedding` теперь выбирает поле `kind` для `POSITION` и `GROUP_TITLE`.
+На текущем этапе `kind` используется только на SQL/Go-уровне и не прокидывается в ответ API
+(`GET /api/v1/catalog/unindexed` возвращает `UnmatchedPositionResponse` без поля `kind`), поэтому
+логика Python-воркера остаётся одинаковой для обоих видов записей; дифференциация по `kind` возможна
+в будущем после расширения DTO/API.
