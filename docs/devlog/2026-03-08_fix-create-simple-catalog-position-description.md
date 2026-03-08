@@ -42,7 +42,7 @@ INSERT INTO catalog_positions (
 ## Что изменено
 
 - `cmd/internal/db/query/catalog_position.sql` — добавлен `description = $1` в `CreateSimpleCatalogPosition`.
-- `cmd/internal/db/sqlc/catalog_position.sql.go` — пересоздан через `make sqlc`.
+- Локально пересгенерирован слой sqlc командой `make sqlc` (сгенерированные файлы не коммитятся в репозиторий).
 
 ## Затронутые сценарии
 
@@ -52,4 +52,42 @@ INSERT INTO catalog_positions (
 ## Совместимость
 
 Сигнатура Go-функции `CreateSimpleCatalogPosition(ctx, standardJobTitle string)` **не изменилась**
-— оба поля заполняются одним параметром `$1`. Существующие тесты и моки не требуют правок.
+— оба поля заполняются одним параметром `$1`.
+
+## Исправление тестов
+
+### Усиление mock-ожиданий для CreateSimpleCatalogPosition
+
+В `catalog_service_test.go` у 7 mock-ожиданий для `CreateSimpleCatalogPosition` был слабый
+SQL-паттерн `"INSERT INTO catalog_positions"`, который не проверял фактическое наличие нового
+столбца `description` в запросе. Паттерн заменён на регулярное выражение:
+
+```
+`(?s)INSERT INTO catalog_positions \(.*description`
+```
+
+Это гарантирует регрессионную защиту: если `description` пропадёт из INSERT, тест упадёт.
+
+### Системная проблема: 11 → 13 колонок в catalog_positions
+
+В рамках Position Grouping к таблице `catalog_positions` были добавлены два новых столбца:
+`parent_id` и `parameters`. Часть тестов по-прежнему использовала старую константу
+`catalogPositionColumns` (11 колонок), тогда как в БД их 13.
+
+`sqlmock` строго проверяет соответствие числа столбцов в `NewRows` и числа значений в `AddRow`,
+поэтому тесты падали с ошибкой:
+
+```
+sql: expected 11 destination arguments in Scan, not 13
+```
+
+**Исправления в `catalog_service_test.go`:**
+- Все 36 обращений к `sqlmock.NewRows(catalogPositionColumns)` заменены на
+  `sqlmock.NewRows(fullCatalogPositionColumns)` — константа уже содержит все 13 столбцов.
+- В соответствующие вызовы `AddRow` добавлены два финальных `nil` для `parent_id`
+  и `parameters`.
+
+**Исправления в `import_service_test.go`:**
+- Локальная переменная `catalogPosColumns` расширена с 11 до 13 столбцов:
+  к массиву добавлены `"parent_id"` и `"parameters"`.
+- В 5 вызовах `AddRow` добавлены два финальных `nil` для новых столбцов.

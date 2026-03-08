@@ -854,11 +854,12 @@ func TestExecuteMerge_Success(t *testing.T) {
 			// MergeCatalogPosition succeeds
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)). // master_id, duplicate_id
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат работа", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain: path compression (B→A)
@@ -1010,11 +1011,12 @@ func TestExecuteMerge_DuplicateAlreadyMerged(t *testing.T) {
 			// GetCatalogPositionByID for duplicate — already merged
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 99, Valid: true},
+						nil, nil,
 					))
 		}),
 	)
@@ -1056,21 +1058,23 @@ func TestExecuteMerge_MasterInactive(t *testing.T) {
 			// GetCatalogPositionByID for duplicate — OK (not merged yet)
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
 						"POSITION", "active", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// GetCatalogPositionByID for master — deprecated
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(100)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(100), "мастер", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 50, Valid: true},
+						nil, nil,
 					))
 		}),
 	)
@@ -1141,11 +1145,12 @@ func TestExecuteMerge_FlattenMergeChain_Scenario1_DBError(t *testing.T) {
 
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain fails
@@ -1209,33 +1214,36 @@ func TestExecuteMerge_MergeToNew_Success(t *testing.T) {
 					))
 
 			// CreateSimpleCatalogPosition succeeds — new position C (ID=300)
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Новое название позиции").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Новое название позиции", sql.NullString{Valid: false}, nil,
+						int64(300), "Новое название позиции", sql.NullString{String: "Новое название позиции", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for A (ID=100) → deprecated, merged_into_id=300
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(100)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(100), "мастер работа", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// SetPositionMerged for B (ID=200) → deprecated, merged_into_id=300
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат работа", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain: path compression (A→C)
@@ -1290,7 +1298,7 @@ func TestExecuteMerge_MergeToNew_DuplicateTitle(t *testing.T) {
 					))
 
 			// CreateSimpleCatalogPosition fails with unique constraint (pq 23505)
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Существующее название").
 				WillReturnError(&pq.Error{Code: "23505", Message: "duplicate key value"})
 		}),
@@ -1325,7 +1333,7 @@ func TestExecuteMerge_MergeToNew_CreatePosition_DBError(t *testing.T) {
 						"EXECUTED", now, now, now, "admin",
 					))
 
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Новая позиция").
 				WillReturnError(dbErr)
 		}),
@@ -1359,13 +1367,14 @@ func TestExecuteMerge_MergeToNew_A_AlreadyDeprecated(t *testing.T) {
 					))
 
 			// CreateSimpleCatalogPosition succeeds
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Объединённая позиция").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Объединённая позиция", sql.NullString{Valid: false}, nil,
+						int64(300), "Объединённая позиция", sql.NullString{String: "Объединённая позиция", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for A → ErrNoRows (A already deprecated)
@@ -1404,23 +1413,25 @@ func TestExecuteMerge_MergeToNew_B_AlreadyDeprecated(t *testing.T) {
 					))
 
 			// CreateSimpleCatalogPosition succeeds
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Конечная позиция").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Конечная позиция", sql.NullString{Valid: false}, nil,
+						int64(300), "Конечная позиция", sql.NullString{String: "Конечная позиция", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for A → succeeds
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(100)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(100), "мастер позиция", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// SetPositionMerged for B → ErrNoRows (B already deprecated)
@@ -1461,11 +1472,12 @@ func TestExecuteMerge_MergeToNew_SetPositionMerged_DBError(t *testing.T) {
 
 			mock.ExpectQuery("INSERT INTO catalog_positions").
 				WithArgs("Позиция XYZ").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(300), "Позиция XYZ", sql.NullString{Valid: false}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for A → DB error (not ErrNoRows)
@@ -1505,31 +1517,34 @@ func TestExecuteMerge_MergeToNew_FlattenMergeChain_MasterA_DBError(t *testing.T)
 
 			mock.ExpectQuery("INSERT INTO catalog_positions").
 				WithArgs("Новая позиция").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(300), "Новая позиция", sql.NullString{Valid: false}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for A (ID=100)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(100)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(100), "мастер", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// SetPositionMerged for B (ID=200)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain for master A → fails
@@ -1567,31 +1582,34 @@ func TestExecuteMerge_MergeToNew_FlattenMergeChain_DuplicateB_DBError(t *testing
 
 			mock.ExpectQuery("INSERT INTO catalog_positions").
 				WithArgs("Новая позиция").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(300), "Новая позиция", sql.NullString{Valid: false}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for A (ID=100)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(100)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(100), "мастер", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// SetPositionMerged for B (ID=200)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain for master A → succeeds
@@ -1635,11 +1653,12 @@ func TestExecuteMerge_WhitespaceTitle_FallsBackToScenario1(t *testing.T) {
 			// MergeCatalogPosition succeeds (Scenario 1 path, NOT CreateSimpleCatalogPosition)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат работа", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain: path compression (B→A)
@@ -1770,22 +1789,24 @@ func TestExecuteBatchMerge_Scenario1_Success(t *testing.T) {
 			// GetCatalogPositionByID — target=2 should be active
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
 						"POSITION", "active", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged + FlattenMergeChain для {59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
 			for _, posID := range []int64{59, 89, 98} {
 				mock.ExpectQuery("UPDATE catalog_positions").
 					WithArgs(sqlmock.AnyArg(), posID).
-					WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 						AddRow(
 							posID, "позиция", sql.NullString{Valid: false}, nil,
 							"POSITION", "deprecated", sql.NullInt64{Valid: false},
 							now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+							nil, nil,
 						))
 
 				// FlattenMergeChain: path compression (posID→target)
@@ -1838,21 +1859,23 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 			// GetCatalogPositionByID — target=2 should be active
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
 						"POSITION", "active", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for 59 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(59), "позиция 59", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+						nil, nil,
 					))
 			mock.ExpectExec("UPDATE catalog_positions").
 				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 59, Valid: true}).
@@ -1861,11 +1884,12 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 			// SetPositionMerged for 98 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(98), "позиция 98", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+						nil, nil,
 					))
 			mock.ExpectExec("UPDATE catalog_positions").
 				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 98, Valid: true}).
@@ -1874,11 +1898,12 @@ func TestExecuteBatchMerge_Scenario1_WithRename(t *testing.T) {
 			// UpdateCatalogPositionDetails for rename
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "Чистое имя", sql.NullString{Valid: false}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// InvalidateRelatedActionableMerges: инвалидируем "мёртвые души" (deprecated=[59,98])
@@ -1985,11 +2010,12 @@ func TestExecuteBatchMerge_Scenario1_PositionAlreadyDeprecated(t *testing.T) {
 			// GetCatalogPositionByID — target=2 is active
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
 						"POSITION", "active", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// First SetPositionMerged → ErrNoRows (already deprecated)
@@ -2032,11 +2058,12 @@ func TestExecuteBatchMerge_TargetAlreadyDeprecated(t *testing.T) {
 			// GetCatalogPositionByID — target=2 is deprecated
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+						nil, nil,
 					))
 		}),
 	)
@@ -2075,24 +2102,26 @@ func TestExecuteBatchMerge_Scenario2_Success(t *testing.T) {
 					AddRow(int64(103), int64(2), int64(98), float32(0.80), "EXECUTED", now, now, now, "admin"))
 
 			// CreateSimpleCatalogPosition → C (ID=300)
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Единая позиция").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Единая позиция", sql.NullString{Valid: false}, nil,
+						int64(300), "Единая позиция", sql.NullString{String: "Единая позиция", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged + FlattenMergeChain для {2, 59, 89, 98} — сервис сортирует posID возрастающим, поэтому порядок детерминирован.
 			for _, posID := range []int64{2, 59, 89, 98} {
 				mock.ExpectQuery("UPDATE catalog_positions").
 					WithArgs(sqlmock.AnyArg(), posID).
-					WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+					WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 						AddRow(
 							posID, "позиция", sql.NullString{Valid: false}, nil,
 							"POSITION", "deprecated", sql.NullInt64{Valid: false},
 							now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+							nil, nil,
 						))
 
 				// FlattenMergeChain: path compression (posID→C)
@@ -2208,21 +2237,23 @@ func TestExecuteBatchMerge_FlattenMergeChain_Scenario1_DBError(t *testing.T) {
 			// GetCatalogPositionByID — target=2 is active
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
 						"POSITION", "active", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for 59
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(59)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(59), "позиция 59", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain for 59 → fails
@@ -2261,23 +2292,25 @@ func TestExecuteBatchMerge_FlattenMergeChain_Scenario2_DBError(t *testing.T) {
 					AddRow(int64(101), int64(2), int64(59), float32(0.90), "EXECUTED", now, now, now, "admin"))
 
 			// CreateSimpleCatalogPosition
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Единая позиция").
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Единая позиция", sql.NullString{Valid: false}, nil,
+						int64(300), "Единая позиция", sql.NullString{String: "Единая позиция", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for 2 (first in sorted order)
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 300, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain for 2 → fails
@@ -2554,11 +2587,12 @@ func TestExecuteMerge_InvalidateRelatedActionableMerges_DBError(t *testing.T) {
 			// MergeCatalogPosition succeeds
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), int64(200)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(200), "дубликат", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Int64: 100, Valid: true},
+						nil, nil,
 					))
 
 			// FlattenMergeChain: path compression (B→A)
@@ -2611,20 +2645,22 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 			// GetCatalogPositionByID — target=2 is active
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WithArgs(int64(2)).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
 						int64(2), "позиция-target", sql.NullString{Valid: false}, nil,
 						"POSITION", "active", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
+						nil, nil,
 					))
 
 			// SetPositionMerged for 59 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(int64(59), "позиция 59", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
-						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
+						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+						nil, nil))
 			mock.ExpectExec("UPDATE catalog_positions").
 				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 59, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
@@ -2632,10 +2668,11 @@ func TestExecuteBatchMerge_InvalidateRelatedActionableMerges_DBError(t *testing.
 			// SetPositionMerged for 98 + FlattenMergeChain
 			mock.ExpectQuery("UPDATE catalog_positions").
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(catalogPositionColumns).
+				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(int64(98), "позиция 98", sql.NullString{Valid: false}, nil,
 						"POSITION", "deprecated", sql.NullInt64{Valid: false},
-						now, now, nil, sql.NullInt64{Int64: 2, Valid: true}))
+						now, now, nil, sql.NullInt64{Int64: 2, Valid: true},
+						nil, nil))
 			mock.ExpectExec("UPDATE catalog_positions").
 				WithArgs(sql.NullInt64{Int64: 2, Valid: true}, sql.NullInt64{Int64: 98, Valid: true}).
 				WillReturnResult(sqlmock.NewResult(0, 0))
