@@ -91,3 +91,10 @@ sql: expected 11 destination arguments in Scan, not 13
 - Локальная переменная `catalogPosColumns` расширена с 11 до 13 столбцов:
   к массиву добавлены `"parent_id"` и `"parameters"`.
 - В 5 вызовах `AddRow` добавлены два финальных `nil` для новых столбцов.
+
+### Возвращаемый description в mock-данных
+
+По замечаниям ревьюера: три теста (ошибки `SetPositionMerged` и `FlattenMergeChain` в сценарии
+Merge-to-New) возвращали из `CreateSimpleCatalogPosition` `description = NULL`, что не
+соответствует реальному поведению после фикса — INSERT теперь заполняет оба поля. Исправлено:
+`sql.NullString{Valid: false}` → `sql.NullString{String: "<название позиции>", Valid: true}`.

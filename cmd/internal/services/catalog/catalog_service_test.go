@@ -1470,11 +1470,11 @@ func TestExecuteMerge_MergeToNew_SetPositionMerged_DBError(t *testing.T) {
 						"EXECUTED", now, now, now, "admin",
 					))
 
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Позиция XYZ").
 				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Позиция XYZ", sql.NullString{Valid: false}, nil,
+						int64(300), "Позиция XYZ", sql.NullString{String: "Позиция XYZ", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
 						nil, nil,
@@ -1515,11 +1515,11 @@ func TestExecuteMerge_MergeToNew_FlattenMergeChain_MasterA_DBError(t *testing.T)
 						"EXECUTED", now, now, now, "admin",
 					))
 
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Новая позиция").
 				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Новая позиция", sql.NullString{Valid: false}, nil,
+						int64(300), "Новая позиция", sql.NullString{String: "Новая позиция", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
 						nil, nil,
@@ -1580,11 +1580,11 @@ func TestExecuteMerge_MergeToNew_FlattenMergeChain_DuplicateB_DBError(t *testing
 						"EXECUTED", now, now, now, "admin",
 					))
 
-			mock.ExpectQuery("INSERT INTO catalog_positions").
+			mock.ExpectQuery(`(?s)INSERT INTO catalog_positions \(.*description`).
 				WithArgs("Новая позиция").
 				WillReturnRows(sqlmock.NewRows(fullCatalogPositionColumns).
 					AddRow(
-						int64(300), "Новая позиция", sql.NullString{Valid: false}, nil,
+						int64(300), "Новая позиция", sql.NullString{String: "Новая позиция", Valid: true}, nil,
 						"POSITION", "pending_indexing", sql.NullInt64{Valid: false},
 						now, now, nil, sql.NullInt64{Valid: false},
 						nil, nil,
