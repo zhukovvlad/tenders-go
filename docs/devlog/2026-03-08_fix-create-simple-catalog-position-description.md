@@ -62,8 +62,8 @@ INSERT INTO catalog_positions (
 SQL-паттерн `"INSERT INTO catalog_positions"`, который не проверял фактическое наличие нового
 столбца `description` в запросе. Паттерн заменён на регулярное выражение:
 
-```
-`(?s)INSERT INTO catalog_positions \(.*description`
+```regex
+(?s)INSERT INTO catalog_positions \(.*description
 ```
 
 Это гарантирует регрессионную защиту: если `description` пропадёт из INSERT, тест упадёт.
@@ -77,7 +77,7 @@ SQL-паттерн `"INSERT INTO catalog_positions"`, который не про
 `sqlmock` строго проверяет соответствие числа столбцов в `NewRows` и числа значений в `AddRow`,
 поэтому тесты падали с ошибкой:
 
-```
+```text
 sql: expected 11 destination arguments in Scan, not 13
 ```
 
