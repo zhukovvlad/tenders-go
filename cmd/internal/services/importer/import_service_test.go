@@ -198,7 +198,7 @@ var (
 	contractorColumns    = []string{"id", "title", "inn", "address", "accreditation", "created_at", "updated_at"}
 	proposalColumns      = []string{"id", "lot_id", "contractor_id", "is_baseline", "contractor_coordinate", "contractor_width", "contractor_height", "created_at", "updated_at"}
 	unitColumns          = []string{"id", "normalized_name", "full_name", "description", "created_at", "updated_at"}
-	catalogPosColumns    = []string{"id", "standard_job_title", "description", "embedding", "kind", "status", "unit_id", "created_at", "updated_at", "fts_vector", "merged_into_id"}
+	catalogPosColumns    = []string{"id", "standard_job_title", "description", "embedding", "kind", "status", "unit_id", "created_at", "updated_at", "fts_vector", "merged_into_id", "parent_id", "parameters"}
 	matchingCacheColumns = []string{"job_title_hash", "norm_version", "job_title_text", "catalog_position_id", "created_at", "expires_at"}
 	positionItemColumns  = []string{
 		"id", "proposal_id", "catalog_position_id", "position_key_in_proposal",
@@ -384,7 +384,7 @@ func setupPositionExpectations(mock sqlmock.Sqlmock, proposalDBID int64) {
 	// CreateCatalogPosition
 	mock.ExpectQuery("INSERT INTO catalog_positions").
 		WillReturnRows(sqlmock.NewRows(catalogPosColumns).
-			AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "pending_indexing", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil))
+			AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "pending_indexing", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil, nil, nil))
 	// GetMatchingCache → cache miss
 	mock.ExpectQuery("SELECT .+ FROM matching_cache").
 		WillReturnError(sql.ErrNoRows)
@@ -548,7 +548,7 @@ func TestImportFullTender_Success_MatchingCacheHit(t *testing.T) {
 			// Position: catalog position exists
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WillReturnRows(sqlmock.NewRows(catalogPosColumns).
-					AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "active", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil))
+					AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "active", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil, nil, nil))
 			// Position: CACHE HIT → GetMatchingCache returns cached result
 			mock.ExpectQuery("SELECT .+ FROM matching_cache").
 				WillReturnRows(sqlmock.NewRows(matchingCacheColumns).
@@ -884,7 +884,7 @@ func TestImportFullTender_UpsertPositionItemFails_ReturnsError(t *testing.T) {
 			// Position: catalog position exists
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WillReturnRows(sqlmock.NewRows(catalogPosColumns).
-					AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "active", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil))
+					AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "active", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil, nil, nil))
 			// GetMatchingCache → cache miss
 			mock.ExpectQuery("SELECT .+ FROM matching_cache").
 				WillReturnError(sql.ErrNoRows)
@@ -1040,7 +1040,7 @@ func TestImportFullTender_MatchingCacheDBError_ReturnsError(t *testing.T) {
 			// Catalog position found (kind=POSITION)
 			mock.ExpectQuery("SELECT .+ FROM catalog_positions").
 				WillReturnRows(sqlmock.NewRows(catalogPosColumns).
-					AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "active", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil))
+					AddRow(int64(300), "устройство полов", sql.NullString{String: "Устройство полов", Valid: true}, nil, "POSITION", "active", sql.NullInt64{Int64: 10, Valid: true}, now, now, nil, nil, nil, nil))
 			// GetMatchingCache returns real DB error
 			mock.ExpectQuery("SELECT .+ FROM matching_cache").
 				WillReturnError(errors.New("connection lost"))
@@ -1208,7 +1208,7 @@ func TestImportFullTender_HeaderPosition_SkipsCache(t *testing.T) {
 			// CreateCatalogPosition with kind=HEADER
 			mock.ExpectQuery("INSERT INTO catalog_positions").
 				WillReturnRows(sqlmock.NewRows(catalogPosColumns).
-					AddRow(int64(300), "глава 1 общестроительные работы", sql.NullString{String: "Глава 1 Общестроительные работы", Valid: true}, nil, "HEADER", "pending_indexing", sql.NullInt64{}, now, now, nil, nil))
+					AddRow(int64(300), "глава 1 общестроительные работы", sql.NullString{String: "Глава 1 Общестроительные работы", Valid: true}, nil, "HEADER", "pending_indexing", sql.NullInt64{}, now, now, nil, nil, nil, nil))
 			// For HEADER kind: no GetMatchingCache call (skipped)
 			// Directly UpsertPositionItem with catalogPositionID set
 			mock.ExpectQuery("INSERT INTO position_items").

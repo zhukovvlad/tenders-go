@@ -179,13 +179,16 @@ ORDER BY id;
 -- name: CreateSimpleCatalogPosition :one
 -- Создает НОВУЮ каталожную позицию с минимальными параметрами (для Merge-to-New).
 -- В отличие от CreateCatalogPosition, не использует UPSERT — создаёт уникальную запись.
--- Статус 'pending_indexing' — позже RAG-воркер создаст эмбеддинг.
+-- Название записывается и в description (исходник), и в standard_job_title (производное).
+-- Статус 'pending_indexing' — позже RAG-воркер лемматизирует description и обновит standard_job_title.
 INSERT INTO catalog_positions (
     standard_job_title,
+    description,
     kind,
     status
 ) VALUES (
-    $1,                  -- standard_job_title (новое имя из оператора)
+    $1,                  -- standard_job_title: временное значение, воркер заменит на лемматизированную форму
+    $1,                  -- description: исходный текст от оператора (первичное поле)
     'POSITION',          -- kind: всегда POSITION
     'pending_indexing'   -- status: в очередь на индексацию
 )
