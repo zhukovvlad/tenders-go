@@ -586,3 +586,103 @@ func (s *Server) GroupBatchPositionsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// === Catalog Groups ===
+
+// ListGroupsHandler — GET /api/v1/admin/catalog/groups
+// Параметры: limit (default 50), offset (default 0).
+func (s *Server) ListGroupsHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ListGroupsHandler")
+
+	limitStr := c.DefaultQuery("limit", "50")
+	limit64, err := strconv.ParseInt(limitStr, 10, 32)
+	if err != nil || limit64 <= 0 {
+		logger.Errorf("Некорректное значение limit: %s", limitStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть целым числом > 0")))
+		return
+	}
+
+	offsetStr := c.DefaultQuery("offset", "0")
+	offset64, err := strconv.ParseInt(offsetStr, 10, 32)
+	if err != nil || offset64 < 0 {
+		logger.Errorf("Некорректное значение offset: %s", offsetStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр offset должен быть целым числом >= 0")))
+		return
+	}
+
+	response, err := s.catalogService.ListGroups(c.Request.Context(), int32(limit64), int32(offset64))
+	if err != nil {
+		logger.Errorf("Ошибка ListGroups: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// UngroupPositionHandler — POST /api/v1/admin/catalog/positions/:id/ungroup
+func (s *Server) UngroupPositionHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "UngroupPositionHandler")
+
+	idStr := c.Param("id")
+	positionID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || positionID <= 0 {
+		logger.Errorf("Некорректный ID позиции: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом > 0")))
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		logger.Errorf("user_id отсутствует в контексте")
+		c.JSON(http.StatusUnauthorized, errorResponse(fmt.Errorf("user not authenticated")))
+		return
+	}
+	uid, ok := userID.(int64)
+	if !ok {
+		logger.Errorf("user_id имеет неожиданный тип: %T", userID)
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("invalid user_id type")))
+		return
+	}
+	executedBy := strconv.FormatInt(uid, 10)
+
+	err = s.catalogService.UngroupPosition(c.Request.Context(), positionID, executedBy)
+	if err != nil {
+		logger.Errorf("Ошибка UngroupPosition(id=%d): %v", positionID, err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		}
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// ListGroupChildrenHandler — GET /api/v1/admin/catalog/groups/:id/children
+func (s *Server) ListGroupChildrenHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ListGroupChildrenHandler")
+
+	idStr := c.Param("id")
+	groupID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || groupID <= 0 {
+		logger.Errorf("Некорректный ID группы: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом > 0")))
+		return
+	}
+
+	response, err := s.catalogService.ListGroupChildren(c.Request.Context(), groupID)
+	if err != nil {
+		logger.Errorf("Ошибка ListGroupChildren(id=%d): %v", groupID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}

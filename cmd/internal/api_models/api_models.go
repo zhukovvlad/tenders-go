@@ -334,6 +334,30 @@ type SuggestedMergeGroup struct {
 	Merges       []SuggestedMergeItem   `json:"merges"`
 }
 
+// === Catalog Groups (GET /api/v1/admin/catalog/groups) ===
+
+// GroupSummary — краткая информация о родительской группе (kind='GROUP_TITLE').
+type GroupSummary struct {
+	ID               int64     `json:"id"`
+	StandardJobTitle string    `json:"standard_job_title"`
+	Description      *string   `json:"description,omitempty"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"created_at"`
+	ChildrenCount    int       `json:"children_count"`
+}
+
+// ListGroupsResponse — ответ GET /api/v1/admin/catalog/groups.
+type ListGroupsResponse struct {
+	Groups []GroupSummary `json:"groups"`
+	Total  int            `json:"total"`
+}
+
+// ListGroupChildrenResponse — ответ GET /api/v1/admin/catalog/groups/:id/children.
+type ListGroupChildrenResponse struct {
+	Children []CatalogPositionSummary `json:"children"`
+	ParentID int64                    `json:"parent_id"`
+}
+
 // ListSuggestedMergesResponse — ответ GET /api/v1/admin/suggested_merges.
 type ListSuggestedMergesResponse struct {
 	Groups      []SuggestedMergeGroup `json:"groups"`

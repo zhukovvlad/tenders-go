@@ -239,6 +239,38 @@ RETURNING *;
 -- Считает количество позиций, привязанных к данному родителю.
 SELECT COUNT(*) FROM catalog_positions WHERE parent_id = $1;
 
+-- name: ListGroups :many
+-- Возвращает список родительских групп (kind='GROUP_TITLE') с подсчетом дочерних позиций.
+-- Использует LEFT JOIN + агрегацию вместо коррелирующего подзапроса.
+SELECT
+    c1.id,
+    c1.standard_job_title,
+    c1.description,
+    c1.status,
+    c1.created_at,
+    COALESCE(ch.cnt, 0)::int AS children_count
+FROM catalog_positions c1
+LEFT JOIN (
+    SELECT parent_id, COUNT(*)::int AS cnt
+    FROM catalog_positions
+    WHERE parent_id IS NOT NULL
+    GROUP BY parent_id
+) ch ON ch.parent_id = c1.id
+WHERE c1.kind = 'GROUP_TITLE'
+ORDER BY c1.standard_job_title
+LIMIT $1 OFFSET $2;
+
+-- name: CountGroups :one
+-- Возвращает общее количество родительских групп (для пагинации).
+SELECT COUNT(*)::int FROM catalog_positions WHERE kind = 'GROUP_TITLE';
+
+-- name: ListGroupChildren :many
+-- Возвращает список позиций, привязанных к конкретной группе.
+SELECT id, standard_job_title, description, kind, status
+FROM catalog_positions
+WHERE parent_id = $1
+ORDER BY standard_job_title;
+
 -- name: SetPositionParent :one
 -- Привязывает позицию к родителю. Позиция остается активной.
 UPDATE catalog_positions
@@ -249,4 +281,17 @@ WHERE
     id = sqlc.arg(position_id)
     AND merged_into_id IS NULL
     AND status != 'deprecated'
+RETURNING *;
+
+-- name: UngroupPosition :one
+-- Исключает позицию из группы и отправляет её на переиндексацию.
+-- Возвращает sql.ErrNoRows если позиция не найдена или не состоит в группе.
+UPDATE catalog_positions
+SET parent_id = NULL,
+    status = 'pending_indexing',
+    updated_at = NOW()
+WHERE id = $1
+  AND parent_id IS NOT NULL
+  AND merged_into_id IS NULL
+  AND status != 'deprecated'
 RETURNING *;

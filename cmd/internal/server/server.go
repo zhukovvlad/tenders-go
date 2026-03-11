@@ -199,6 +199,11 @@ func NewServer(
 			admin.POST("/merges/:id/execute", server.ExecuteMergeHandler)
 			admin.POST("/merges/:id/group", server.GroupPositionsHandler)
 			admin.PATCH("/merges/:id/reject", server.RejectMergeHandler)
+
+			// Просмотр групп каталога
+			admin.GET("/catalog/groups", server.ListGroupsHandler)
+			admin.GET("/catalog/groups/:id/children", server.ListGroupChildrenHandler)
+			admin.POST("/catalog/positions/:id/ungroup", server.UngroupPositionHandler)
 		}
 	}
 

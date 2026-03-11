@@ -168,3 +168,10 @@ RETURNING *;
 DELETE FROM suggested_merges
 WHERE status = 'PENDING'
   AND similarity_score < (1.0 - sqlc.arg(distance_threshold)::float8);
+
+-- name: DeleteGroupedMergesForPosition :exec
+-- Удаляет старые предложения о слиянии в статусе GROUPED для конкретной позиции.
+-- Вызывается при исключении позиции из группы, чтобы воркер мог предложить новые слияния.
+DELETE FROM suggested_merges
+WHERE status = 'GROUPED'
+  AND (main_position_id = $1 OR duplicate_position_id = $1);

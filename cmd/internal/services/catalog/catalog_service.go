@@ -1490,3 +1490,139 @@ func (s *CatalogService) GroupBatchPositions(
 		ResolvedAt:  resolvedAt.Time,
 	}, nil
 }
+
+// === Catalog Groups (GET /api/v1/admin/catalog/groups) ===
+
+// ListGroups реализует GET /api/v1/admin/catalog/groups.
+// Возвращает пагинированный список родительских групп (kind='GROUP_TITLE') с подсчетом детей.
+func (s *CatalogService) ListGroups(
+	ctx context.Context,
+	limit, offset int32,
+) (*api_models.ListGroupsResponse, error) {
+	if limit <= 0 {
+		return nil, apierrors.NewValidationError("параметр limit должен быть положительным числом, получено: %d", limit)
+	}
+	if offset < 0 {
+		return nil, apierrors.NewValidationError("параметр offset не может быть отрицательным, получено: %d", offset)
+	}
+
+	total, err := s.store.CountGroups(ctx)
+	if err != nil {
+		s.logger.Errorf("Ошибка CountGroups: %v", err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	rows, err := s.store.ListGroups(ctx, db.ListGroupsParams{Limit: limit, Offset: offset})
+	if err != nil {
+		s.logger.Errorf("Ошибка ListGroups: %v", err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	groups := make([]api_models.GroupSummary, 0, len(rows))
+	for _, row := range rows {
+		var desc *string
+		if row.Description.Valid {
+			s := row.Description.String
+			desc = &s
+		}
+		groups = append(groups, api_models.GroupSummary{
+			ID:               row.ID,
+			StandardJobTitle: row.StandardJobTitle,
+			Description:      desc,
+			Status:           row.Status,
+			CreatedAt:        row.CreatedAt,
+			ChildrenCount:    int(row.ChildrenCount),
+		})
+	}
+
+	s.logger.Infof("ListGroups: возвращено %d групп (total=%d, limit=%d, offset=%d)", len(groups), total, limit, offset)
+	return &api_models.ListGroupsResponse{Groups: groups, Total: int(total)}, nil
+}
+
+// ListGroupChildren реализует GET /api/v1/admin/catalog/groups/:id/children.
+// Возвращает список позиций, привязанных к указанной родительской группе.
+func (s *CatalogService) ListGroupChildren(
+	ctx context.Context,
+	parentID int64,
+) (*api_models.ListGroupChildrenResponse, error) {
+	if parentID <= 0 {
+		return nil, apierrors.NewValidationError("параметр id должен быть положительным числом, получено: %d", parentID)
+	}
+
+	rows, err := s.store.ListGroupChildren(ctx, sql.NullInt64{Int64: parentID, Valid: true})
+	if err != nil {
+		s.logger.Errorf("Ошибка ListGroupChildren(parentID=%d): %v", parentID, err)
+		return nil, fmt.Errorf("ошибка БД: %w", err)
+	}
+
+	children := make([]api_models.CatalogPositionSummary, 0, len(rows))
+	for _, row := range rows {
+		var desc *string
+		if row.Description.Valid {
+			s := row.Description.String
+			desc = &s
+		}
+		children = append(children, api_models.CatalogPositionSummary{
+			ID:               row.ID,
+			StandardJobTitle: row.StandardJobTitle,
+			Description:      desc,
+			Kind:             row.Kind,
+			Status:           row.Status,
+		})
+	}
+
+	s.logger.Infof("ListGroupChildren(parentID=%d): возвращено %d дочерних позиций", parentID, len(children))
+	return &api_models.ListGroupChildrenResponse{Children: children, ParentID: parentID}, nil
+}
+
+// UngroupPosition реализует POST /api/v1/admin/catalog/positions/:id/ungroup.
+// Исключает позицию из группы: сбрасывает parent_id в NULL и отправляет позицию
+// на переиндексацию. В той же транзакции удаляет GROUPED-предложения о слиянии,
+// чтобы Python-воркер мог предложить новые слияния для этой позиции.
+func (s *CatalogService) UngroupPosition(
+	ctx context.Context,
+	positionID int64,
+	executedBy string,
+) error {
+	logger := s.logger.WithField("method", "UngroupPosition").WithField("position_id", positionID)
+
+	if positionID <= 0 {
+		return apierrors.NewValidationError("параметр id должен быть положительным, получено: %d", positionID)
+	}
+	executedBy = strings.TrimSpace(executedBy)
+	if executedBy == "" {
+		return apierrors.NewValidationError("executedBy не может быть пустым")
+	}
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		// 1. Сбрасываем parent_id и ›переводим в pending_indexing.
+		// Запрос возвращает sql.ErrNoRows если id не найден или parent_id IS NULL.
+		_, txErr := q.UngroupPosition(ctx, positionID)
+		if txErr != nil {
+			if errors.Is(txErr, sql.ErrNoRows) {
+				return apierrors.NewValidationError(
+					"позиция %d не найдена или не состоит в группе", positionID,
+				)
+			}
+			return fmt.Errorf("ошибка UngroupPosition(%d): %w", positionID, txErr)
+		}
+
+		// 2. Удаляем GROUPED-предложения, чтобы воркер мог предложить новые Upsert-предложения.
+		if delErr := q.DeleteGroupedMergesForPosition(ctx, positionID); delErr != nil {
+			return fmt.Errorf("ошибка DeleteGroupedMergesForPosition(%d): %w", positionID, delErr)
+		}
+
+		return nil
+	})
+	if err != nil {
+		var validationErr *apierrors.ValidationError
+		if errors.As(err, &validationErr) {
+			return err
+		}
+		logger.Errorf("Ошибка UngroupPosition: %v", err)
+		return err
+	}
+
+	logger.Infof("Позиция %d исключена из группы (оператор: %s)", positionID, executedBy)
+	return nil
+}
