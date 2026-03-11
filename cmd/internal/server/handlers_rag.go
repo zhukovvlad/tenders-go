@@ -664,6 +664,8 @@ func (s *Server) UngroupPositionHandler(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// ListGroupChildrenHandler — GET /api/v1/admin/catalog/groups/:id/children
 func (s *Server) ListGroupChildrenHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ListGroupChildrenHandler")
 
