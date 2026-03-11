@@ -241,14 +241,21 @@ SELECT COUNT(*) FROM catalog_positions WHERE parent_id = $1;
 
 -- name: ListGroups :many
 -- Возвращает список родительских групп (kind='GROUP_TITLE') с подсчетом дочерних позиций.
+-- Использует LEFT JOIN + агрегацию вместо коррелирующего подзапроса.
 SELECT
     c1.id,
     c1.standard_job_title,
     c1.description,
     c1.status,
     c1.created_at,
-    (SELECT COUNT(*) FROM catalog_positions c2 WHERE c2.parent_id = c1.id)::int AS children_count
+    COALESCE(ch.cnt, 0)::int AS children_count
 FROM catalog_positions c1
+LEFT JOIN (
+    SELECT parent_id, COUNT(*)::int AS cnt
+    FROM catalog_positions
+    WHERE parent_id IS NOT NULL
+    GROUP BY parent_id
+) ch ON ch.parent_id = c1.id
 WHERE c1.kind = 'GROUP_TITLE'
 ORDER BY c1.standard_job_title
 LIMIT $1 OFFSET $2;
@@ -259,7 +266,7 @@ SELECT COUNT(*)::int FROM catalog_positions WHERE kind = 'GROUP_TITLE';
 
 -- name: ListGroupChildren :many
 -- Возвращает список позиций, привязанных к конкретной группе.
-SELECT id, standard_job_title, description, kind, status, created_at
+SELECT id, standard_job_title, description, kind, status
 FROM catalog_positions
 WHERE parent_id = $1
 ORDER BY standard_job_title;
@@ -285,4 +292,6 @@ SET parent_id = NULL,
     updated_at = NOW()
 WHERE id = $1
   AND parent_id IS NOT NULL
+  AND merged_into_id IS NULL
+  AND status != 'deprecated'
 RETURNING *;

@@ -595,25 +595,25 @@ func (s *Server) ListGroupsHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ListGroupsHandler")
 
 	limitStr := c.DefaultQuery("limit", "50")
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
+	limit64, err := strconv.ParseInt(limitStr, 10, 32)
+	if err != nil || limit64 <= 0 {
 		logger.Errorf("Некорректное значение limit: %s", limitStr)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр limit должен быть целым числом > 0")))
 		return
 	}
 
 	offsetStr := c.DefaultQuery("offset", "0")
-	offset, err := strconv.Atoi(offsetStr)
-	if err != nil || offset < 0 {
+	offset64, err := strconv.ParseInt(offsetStr, 10, 32)
+	if err != nil || offset64 < 0 {
 		logger.Errorf("Некорректное значение offset: %s", offsetStr)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр offset должен быть целым числом >= 0")))
 		return
 	}
 
-	response, err := s.catalogService.ListGroups(c.Request.Context(), int32(limit), int32(offset))
+	response, err := s.catalogService.ListGroups(c.Request.Context(), int32(limit64), int32(offset64))
 	if err != nil {
 		logger.Errorf("Ошибка ListGroups: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
 		return
 	}
 
@@ -657,12 +657,12 @@ func (s *Server) UngroupPositionHandler(c *gin.Context) {
 		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
-			c.JSON(http.StatusInternalServerError, errorResponse(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ungrouped", "position_id": positionID})
+	c.Status(http.StatusNoContent)
 }
 func (s *Server) ListGroupChildrenHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ListGroupChildrenHandler")
@@ -678,7 +678,7 @@ func (s *Server) ListGroupChildrenHandler(c *gin.Context) {
 	response, err := s.catalogService.ListGroupChildren(c.Request.Context(), groupID)
 	if err != nil {
 		logger.Errorf("Ошибка ListGroupChildren(id=%d): %v", groupID, err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
 		return
 	}
 
