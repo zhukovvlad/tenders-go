@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// clusterizeRequest описывает тело POST /admin/catalog/clusterize.
+// clusterizeRequest описывает тело POST /api/v1/admin/catalog/clusterize.
 type clusterizeRequest struct {
 	MinClusterSize float64 `json:"min_cluster_size"`
 	UmapComponents float64 `json:"umap_components"`

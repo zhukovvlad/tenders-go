@@ -688,7 +688,9 @@ func (s *Server) RenameGroupHandler(c *gin.Context) {
 	}
 
 	var req renameGroupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
@@ -716,8 +718,8 @@ func (s *Server) RenameGroupHandler(c *gin.Context) {
 		Status:           result.Status,
 	}
 	if result.Description.Valid {
-		s := result.Description.String
-		summary.Description = &s
+		desc := result.Description.String
+		summary.Description = &desc
 	}
 	c.JSON(http.StatusOK, summary)
 }

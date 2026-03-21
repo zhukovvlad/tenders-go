@@ -1689,6 +1689,10 @@ func (s *CatalogService) ResetClustering(ctx context.Context) error {
 		if err := q.UnlinkAllCatalogPositions(ctx); err != nil {
 			return fmt.Errorf("ошибка UnlinkAllCatalogPositions: %w", err)
 		}
+		// TODO: Если появится механизм де-индексации, здесь нужно собрать IDs
+		// GROUP_TITLE-позиций до удаления и поставить их в очередь на удаление
+		// из внешнего индекса (Python/векторная БД). Пока удалённые позиции
+		// остаются в индексе как устаревшие записи.
 		if err := q.DeleteAllGroupTitles(ctx); err != nil {
 			return fmt.Errorf("ошибка DeleteAllGroupTitles: %w", err)
 		}

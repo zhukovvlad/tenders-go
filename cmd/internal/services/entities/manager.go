@@ -296,7 +296,7 @@ func (em *EntityManager) GetOrCreateCatalogPosition(
 		func() (db.CatalogPosition, error) {
 			opLogger.Info("Позиция каталога не найдена, создается новая.")
 
-			if kind == "POSITION" || kind == "HEADER" {
+			if kind == "POSITION" {
 				isNewPendingItem = true
 			}
 
