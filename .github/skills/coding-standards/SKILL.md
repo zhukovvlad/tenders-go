@@ -35,7 +35,7 @@ Do NOT use for:
 
 ## Module & Project Essentials
 
-```
+```text
 Module: github.com/zhukovvlad/tenders-go
 Go:     1.24+
 Router: github.com/gin-gonic/gin
@@ -48,7 +48,7 @@ Log:    cmd/pkg/logging (custom Logger interface)
 
 # Architecture: Layers & Rules
 
-```
+```text
 HTTP Layer       cmd/internal/server/handlers_*.go
     ↓ (только DTOs, никакой бизнес-логики)
 Service Layer    cmd/internal/services/<domain>/
@@ -81,7 +81,7 @@ PostgreSQL
 1. Найди аналогичный существующий домен (например, `handlers_lot.go` как шаблон для нового хендлера лотов).
 2. Прочитай структуры запросов/ответов в этом файле.
 3. Проверь, есть ли уже нужный SQL-запрос в `cmd/internal/db/query/`.
-4. Прочитай `cmd/main/app.go` чтобы понять точку сборки.
+4. Прочитай `cmd/main/app.go`, чтобы понять точку сборки.
 
 ```bash
 # Список всех хендлеров
@@ -104,7 +104,7 @@ ls cmd/internal/services/
 
 Новая таблица или изменение схемы = новый файл миграции:
 
-```
+```text
 cmd/internal/db/migration/000XXX_<description>.up.sql
 cmd/internal/db/migration/000XXX_<description>.down.sql
 ```
@@ -148,7 +148,7 @@ sqlc generate
 
 ### Структура файла
 
-```
+```text
 cmd/internal/services/<domain>/
     <domain>_service.go     # основной сервис
     <domain>_service_test.go # unit-тесты (если нужны)
@@ -221,7 +221,7 @@ return s.store.ExecTx(ctx, func(qtx *db.Queries) error {
 
 ### Структура файла
 
-```
+```text
 cmd/internal/server/handlers_<domain>.go
 ```
 
@@ -456,7 +456,7 @@ return apierrors.NewConflictError("duplicate entry", conflicts)
 
 # JSON & Converters
 
-### NULL-значения
+## NULL-значения
 
 ```go
 // Используй стандартные типы Go для nullable DB полей
@@ -540,12 +540,12 @@ logger.Warnf("invalid JSON in key_parameters for lot=%d, using empty object", lo
 
 ## Имя файла
 
-```
+```text
 docs/devlog/YYYY-MM-DD_<kebab-case-slug>.md
 ```
 
 Примеры:
-```
+```text
 2026-03-11_catalog-groups-api.md
 2026-03-08_fix-create-simple-catalog-position-description.md
 2026-03-03_reject-merge-endpoint.md
@@ -640,7 +640,7 @@ docs/devlog/YYYY-MM-DD_<kebab-case-slug>.md
 
 ## Формат строки теста
 
-```
+```markdown
 - [x] Тест <MethodName> — <описание сценария> (<ожидаемое поведение>)
 ```
 

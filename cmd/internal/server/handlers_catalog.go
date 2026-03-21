@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/textproto"
 	"strconv"
@@ -48,6 +50,11 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxClusterizeBodyBytes)
 	rawBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			c.JSON(http.StatusRequestEntityTooLarge, errorResponse(fmt.Errorf("тело запроса превышает допустимый размер (%d байт)", maxClusterizeBodyBytes)))
+			return
+		}
 		logger.Errorf("ошибка чтения тела запроса: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("ошибка чтения тела запроса")))
 		return
@@ -64,6 +71,12 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	// 3. Валидируем параметры кластеризации
 	if req.MinClusterSize <= 0 || req.UmapComponents <= 0 || req.LlmTopK <= 0 {
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("min_cluster_size, umap_components, llm_top_k должны быть > 0")))
+		return
+	}
+	if math.IsNaN(req.MinClusterSize) || math.IsInf(req.MinClusterSize, 0) ||
+		math.IsNaN(req.UmapComponents) || math.IsInf(req.UmapComponents, 0) ||
+		math.IsNaN(req.LlmTopK) || math.IsInf(req.LlmTopK, 0) {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("min_cluster_size, umap_components, llm_top_k не должны быть NaN или Inf")))
 		return
 	}
 

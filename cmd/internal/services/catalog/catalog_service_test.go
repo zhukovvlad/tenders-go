@@ -3324,3 +3324,280 @@ func TestResolveParentID_ParentID_DBError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, dbErr)
 }
+
+// =============================================================================
+// RenameGroup TESTS
+// =============================================================================
+
+func TestRenameGroup_InvalidID_Zero(t *testing.T) {
+	// GIVEN id=0
+	service, _ := setupTestService(t)
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), 0, "Новое название")
+
+	// THEN ValidationError — id не положительный
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "id")
+}
+
+func TestRenameGroup_InvalidID_Negative(t *testing.T) {
+	// GIVEN id=-5
+	service, _ := setupTestService(t)
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), -5, "Новое название")
+
+	// THEN ValidationError
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+func TestRenameGroup_EmptyName(t *testing.T) {
+	// GIVEN empty newName
+	service, _ := setupTestService(t)
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), 1, "")
+
+	// THEN ValidationError — new_name пустой
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "new_name")
+}
+
+func TestRenameGroup_WhitespaceName(t *testing.T) {
+	// GIVEN newName="   " (whitespace only — trimmed to empty)
+	service, _ := setupTestService(t)
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), 1, "   ")
+
+	// THEN ValidationError — после TrimSpace имя пустое
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "new_name")
+}
+
+func TestRenameGroup_Success(t *testing.T) {
+	// GIVEN valid id and name
+	service, mockStore := setupTestService(t)
+	now := time.Now()
+
+	expected := db.CatalogPosition{
+		ID:               99,
+		StandardJobTitle: "Монтаж систем вентиляции",
+		Kind:             "GROUP_TITLE",
+		Status:           "pending_indexing",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	mockStore.EXPECT().
+		RenameGroupTitle(gomock.Any(), db.RenameGroupTitleParams{
+			ID:      99,
+			NewName: "Монтаж систем вентиляции",
+		}).
+		Return(expected, nil)
+
+	// WHEN
+	result, err := service.RenameGroup(context.Background(), 99, "Монтаж систем вентиляции")
+
+	// THEN success — возвращается обновлённая позиция
+	require.NoError(t, err)
+	assert.Equal(t, expected.ID, result.ID)
+	assert.Equal(t, "Монтаж систем вентиляции", result.StandardJobTitle)
+	assert.Equal(t, "pending_indexing", result.Status)
+}
+
+func TestRenameGroup_WhitespaceNameTrimmed(t *testing.T) {
+	// GIVEN newName with surrounding spaces (должно быть обрезано перед вызовом store)
+	service, mockStore := setupTestService(t)
+	now := time.Now()
+
+	expected := db.CatalogPosition{
+		ID:               10,
+		StandardJobTitle: "Уборка территории",
+		Kind:             "GROUP_TITLE",
+		Status:           "pending_indexing",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	mockStore.EXPECT().
+		RenameGroupTitle(gomock.Any(), db.RenameGroupTitleParams{
+			ID:      10,
+			NewName: "Уборка территории", // trimmed
+		}).
+		Return(expected, nil)
+
+	// WHEN — передаём имя с пробелами
+	result, err := service.RenameGroup(context.Background(), 10, "  Уборка территории  ")
+
+	// THEN — имя обрезано, запрос выполнен с чистым именем
+	require.NoError(t, err)
+	assert.Equal(t, "Уборка территории", result.StandardJobTitle)
+}
+
+func TestRenameGroup_NotFound(t *testing.T) {
+	// GIVEN RenameGroupTitle возвращает sql.ErrNoRows (группа не найдена или deprecated)
+	service, mockStore := setupTestService(t)
+
+	mockStore.EXPECT().
+		RenameGroupTitle(gomock.Any(), gomock.Any()).
+		Return(db.CatalogPosition{}, sql.ErrNoRows)
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), 42, "Новое название")
+
+	// THEN NotFoundError
+	var notFoundErr *apierrors.NotFoundError
+	require.ErrorAs(t, err, &notFoundErr)
+	assert.Contains(t, notFoundErr.Error(), "42")
+}
+
+func TestRenameGroup_DuplicateName_23505(t *testing.T) {
+	// GIVEN уникальный индекс нарушен — название уже занято другой позицией
+	service, mockStore := setupTestService(t)
+
+	mockStore.EXPECT().
+		RenameGroupTitle(gomock.Any(), gomock.Any()).
+		Return(db.CatalogPosition{}, &pq.Error{Code: "23505", Message: "duplicate key value"})
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), 15, "Существующее название")
+
+	// THEN ValidationError с нейтральным сообщением (уникальный индекс не фильтрован по kind)
+	var valErr *apierrors.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Contains(t, valErr.Error(), "занято")
+}
+
+func TestRenameGroup_DBError(t *testing.T) {
+	// GIVEN произвольная ошибка БД
+	service, mockStore := setupTestService(t)
+
+	dbErr := errors.New("connection reset by peer")
+	mockStore.EXPECT().
+		RenameGroupTitle(gomock.Any(), gomock.Any()).
+		Return(db.CatalogPosition{}, dbErr)
+
+	// WHEN
+	_, err := service.RenameGroup(context.Background(), 7, "Название")
+
+	// THEN ошибка обёрнута и пробрасывается
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "ошибка переименования группы")
+}
+
+// =============================================================================
+// ResetClustering TESTS
+// =============================================================================
+
+func TestResetClustering_Success(t *testing.T) {
+	// GIVEN все три DB-операции внутри транзакции успешны
+	service, mockStore := setupTestService(t)
+
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec("UPDATE catalog_positions").
+				WillReturnResult(sqlmock.NewResult(0, 5))
+			mock.ExpectExec("DELETE FROM catalog_positions").
+				WillReturnResult(sqlmock.NewResult(0, 3))
+			mock.ExpectExec("UPDATE suggested_merges").
+				WillReturnResult(sqlmock.NewResult(0, 2))
+		}),
+	)
+
+	// WHEN
+	err := service.ResetClustering(context.Background())
+
+	// THEN success
+	require.NoError(t, err)
+}
+
+func TestResetClustering_Error_UnlinkAllCatalogPositions(t *testing.T) {
+	// GIVEN UnlinkAllCatalogPositions (первый шаг) падает с ошибкой
+	service, mockStore := setupTestService(t)
+
+	dbErr := errors.New("deadlock detected")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec("UPDATE catalog_positions").
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	err := service.ResetClustering(context.Background())
+
+	// THEN ошибка первого шага пробрасывается
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "UnlinkAllCatalogPositions")
+}
+
+func TestResetClustering_Error_DeleteAllGroupTitles(t *testing.T) {
+	// GIVEN UnlinkAll проходит, DeleteAllGroupTitles (второй шаг) падает
+	service, mockStore := setupTestService(t)
+
+	dbErr := errors.New("table not found")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec("UPDATE catalog_positions").
+				WillReturnResult(sqlmock.NewResult(0, 10))
+			mock.ExpectExec("DELETE FROM catalog_positions").
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	err := service.ResetClustering(context.Background())
+
+	// THEN ошибка второго шага пробрасывается
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "DeleteAllGroupTitles")
+}
+
+func TestResetClustering_Error_RevertGroupedMerges(t *testing.T) {
+	// GIVEN первые два шага проходят, RevertGroupedMerges (третий) падает
+	service, mockStore := setupTestService(t)
+
+	dbErr := errors.New("timeout")
+	mockStore.EXPECT().ExecTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		execTxDoAndReturn(t, func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec("UPDATE catalog_positions").
+				WillReturnResult(sqlmock.NewResult(0, 4))
+			mock.ExpectExec("DELETE FROM catalog_positions").
+				WillReturnResult(sqlmock.NewResult(0, 4))
+			mock.ExpectExec("UPDATE suggested_merges").
+				WillReturnError(dbErr)
+		}),
+	)
+
+	// WHEN
+	err := service.ResetClustering(context.Background())
+
+	// THEN ошибка третьего шага пробрасывается
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dbErr)
+	assert.Contains(t, err.Error(), "RevertGroupedMerges")
+}
+
+func TestResetClustering_ExecTx_BeginFailed(t *testing.T) {
+	// GIVEN ExecTx сам возвращает ошибку (например, BEGIN транзакции не удался)
+	service, mockStore := setupTestService(t)
+
+	txErr := errors.New("could not begin transaction")
+	mockStore.EXPECT().
+		ExecTx(gomock.Any(), gomock.Any()).
+		Return(txErr)
+
+	// WHEN
+	err := service.ResetClustering(context.Background())
+
+	// THEN ошибка пробрасывается
+	require.Error(t, err)
+	assert.ErrorIs(t, err, txErr)
+}

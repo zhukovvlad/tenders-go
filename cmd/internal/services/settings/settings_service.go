@@ -221,6 +221,8 @@ func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key st
 	}
 	v, err := strconv.ParseFloat(setting.ValueNumeric.String, 64)
 	if err != nil {
+		s.logger.Warnf("GetNumericSettingOrDefault: ошибка парсинга value_numeric для настройки %q: значение=%q, ошибка=%v (вернём дефолт %g)",
+			key, setting.ValueNumeric.String, err, defaultVal)
 		return defaultVal
 	}
 	return v

@@ -673,6 +673,12 @@ type renameGroupRequest struct {
 func (s *Server) RenameGroupHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "RenameGroupHandler")
 
+	if uidVal, ok := c.Get("user_id"); ok {
+		if uid, ok := uidVal.(int64); ok {
+			logger = logger.WithField("executedBy", strconv.FormatInt(uid, 10))
+		}
+	}
+
 	idStr := c.Param("id")
 	groupID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || groupID <= 0 {
