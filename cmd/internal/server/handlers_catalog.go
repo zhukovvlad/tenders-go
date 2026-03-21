@@ -77,11 +77,18 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 		return
 	}
 
-	// 2. Десериализуем параметры кластеризации
+	// 2. Десериализуем параметры кластеризации (строгий режим: неизвестные поля отклоняются)
 	var req clusterizeRequest
-	if err := json.Unmarshal(rawBody, &req); err != nil {
-		logger.Errorf("ошибка парсинга JSON: %v", err)
+	decoder := json.NewDecoder(bytes.NewReader(rawBody))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		logger.Errorf("Ошибка парсинга JSON: %v", err)
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректный JSON: %v", err)))
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		logger.Errorf("Лишние данные после JSON-объекта в теле запроса")
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректный JSON: лишние данные после объекта")))
 		return
 	}
 

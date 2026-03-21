@@ -240,7 +240,10 @@ func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key st
 }
 
 // GetNumericSetting возвращает числовое значение настройки по ключу.
-// Возвращает (defaultVal, nil) если настройка не найдена (sql.ErrNoRows).
+// Возвращает (defaultVal, nil) если:
+//   - настройка не найдена (sql.ErrNoRows)
+//   - настройка есть, но value_numeric = NULL (Valid == false) — семантически эквивалентно «не задана»
+//
 // Возвращает (0, err) при пустом key, любой другой ошибке БД или некорректном float64 в value_numeric.
 func (s *SettingsService) GetNumericSetting(ctx context.Context, key string, defaultVal float64) (float64, error) {
 	if strings.TrimSpace(key) == "" {
