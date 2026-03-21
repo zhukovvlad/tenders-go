@@ -691,7 +691,8 @@ func (s *Server) RenameGroupHandler(c *gin.Context) {
 	decoder := json.NewDecoder(c.Request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse(err))
+		logger.Errorf("Некорректный JSON в теле запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса")))
 		return
 	}
 
