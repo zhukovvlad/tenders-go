@@ -25,13 +25,26 @@ type clusterizeRequest struct {
 }
 
 // GetClusteringSettingsHandler обрабатывает GET /api/v1/admin/catalog/clusterize/settings.
-// Возвращает текущие параметры кластеризации из system_settings (или дефолты).
+// Возвращает текущие параметры кластеризации из system_settings (или дефолты при отсутствии).
+// При ошибке БД возвращает 500, чтобы не маскировать сбой фиктивными дефолтами.
 func (s *Server) GetClusteringSettingsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	minClusterSize := s.settingsService.GetNumericSettingOrDefault(ctx, "clustering_min_size", 5)
-	umapComponents := s.settingsService.GetNumericSettingOrDefault(ctx, "clustering_umap_components", 15)
-	llmTopK := s.settingsService.GetNumericSettingOrDefault(ctx, "clustering_llm_top_k", 10)
+	minClusterSize, err := s.settingsService.GetNumericSetting(ctx, "clustering_min_size", 5)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("ошибка чтения настроек кластеризации")))
+		return
+	}
+	umapComponents, err := s.settingsService.GetNumericSetting(ctx, "clustering_umap_components", 15)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("ошибка чтения настроек кластеризации")))
+		return
+	}
+	llmTopK, err := s.settingsService.GetNumericSetting(ctx, "clustering_llm_top_k", 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("ошибка чтения настроек кластеризации")))
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"min_cluster_size": minClusterSize,

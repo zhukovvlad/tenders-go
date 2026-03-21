@@ -666,7 +666,7 @@ func (s *Server) UngroupPositionHandler(c *gin.Context) {
 }
 
 type renameGroupRequest struct {
-	NewName string `json:"new_name" binding:"required"`
+	NewName string `json:"new_name"`
 }
 
 // RenameGroupHandler — PATCH /api/v1/admin/catalog/groups/:id/rename

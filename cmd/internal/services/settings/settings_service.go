@@ -207,7 +207,13 @@ func settingToResponse(s db.SystemSetting, logger logging.Logger) *api_models.Sy
 }
 
 // GetNumericSettingOrDefault возвращает числовое значение настройки по ключу.
-// Если настройка не найдена или значение не парсится — возвращает defaultVal.
+// Возвращает defaultVal при любом из условий:
+//   - настройка не найдена (sql.ErrNoRows)
+//   - значение не парсится как float64
+//   - произошла ошибка БД (не ErrNoRows): в этом случае ошибка логируется через Warnf
+//
+// Не пробрасывает ошибки наружу — использовать только там, где дефолт приемлем.
+// Для строгого чтения (с возвратом ошибки при сбое БД) используйте GetNumericSetting.
 func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key string, defaultVal float64) float64 {
 	setting, err := s.store.GetSystemSettingByKey(ctx, key)
 	if err != nil {
@@ -226,6 +232,28 @@ func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key st
 		return defaultVal
 	}
 	return v
+}
+
+// GetNumericSetting возвращает числовое значение настройки по ключу.
+// Возвращает (defaultVal, nil) если настройка не найдена (sql.ErrNoRows).
+// Возвращает (0, err) при любой другой ошибке (БД или некорректный float64 в value_numeric).
+func (s *SettingsService) GetNumericSetting(ctx context.Context, key string, defaultVal float64) (float64, error) {
+	setting, err := s.store.GetSystemSettingByKey(ctx, key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return defaultVal, nil
+		}
+		return 0, fmt.Errorf("GetNumericSetting: ошибка получения настройки %q: %w", key, err)
+	}
+	if !setting.ValueNumeric.Valid {
+		return defaultVal, nil
+	}
+	v, err := strconv.ParseFloat(setting.ValueNumeric.String, 64)
+	if err != nil {
+		return 0, fmt.Errorf("GetNumericSetting: ошибка парсинга value_numeric для настройки %q (значение=%q): %w",
+			key, setting.ValueNumeric.String, err)
+	}
+	return v, nil
 }
 
 // SaveClusteringSettings сохраняет параметры кластеризации в system_settings.

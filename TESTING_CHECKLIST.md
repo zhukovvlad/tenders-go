@@ -250,7 +250,7 @@
 - [ ] Тест RenameGroup — группа deprecated (sql.ErrNoRows → NotFoundError, т.к. guard clause в SQL)
 - [x] Тест RenameGroup — дубликат названия (pq 23505 → ValidationError "название уже занято")
 - [x] Тест RenameGroup — ошибка БД (wrapped error)
-- [x] **Результат: 9 unit тестов RenameGroup, все проходят.**
+- [x] **Результат: 8 unit тестов RenameGroup, все проходят (кейс deprecated-группы не добавлен — поведение идентично sql.ErrNoRows → NotFoundError).**
 
 #### ResetClustering (CatalogService) — unit-тесты
 
