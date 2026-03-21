@@ -18,6 +18,7 @@ package settings
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -203,4 +204,95 @@ func settingToResponse(s db.SystemSetting, logger logging.Logger) *api_models.Sy
 	}
 
 	return resp
+}
+
+// GetNumericSettingOrDefault возвращает числовое значение настройки по ключу.
+// Возвращает defaultVal при любом из условий:
+//   - настройка не найдена (sql.ErrNoRows)
+//   - значение не парсится как float64
+//   - произошла ошибка БД (не ErrNoRows): в этом случае ошибка логируется через Warnf
+//   - key пустой или состоит только из пробелов: логируется предупреждение и возвращается defaultVal
+//
+// Не пробрасывает ошибки наружу — использовать только там, где дефолт приемлем.
+// Для строгого чтения (с возвратом ошибки при сбое БД) используйте GetNumericSetting.
+func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key string, defaultVal float64) float64 {
+	if strings.TrimSpace(key) == "" {
+		s.logger.Warnf("GetNumericSettingOrDefault: пустой ключ (key=%q), возвращаем дефолт %g", key, defaultVal)
+		return defaultVal
+	}
+	setting, err := s.store.GetSystemSettingByKey(ctx, key)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			s.logger.Warnf("GetNumericSettingOrDefault: ошибка получения настройки %q: %v (вернём дефолт %g)", key, err, defaultVal)
+		}
+		return defaultVal
+	}
+	if !setting.ValueNumeric.Valid {
+		return defaultVal
+	}
+	v, err := strconv.ParseFloat(setting.ValueNumeric.String, 64)
+	if err != nil {
+		s.logger.Warnf("GetNumericSettingOrDefault: ошибка парсинга value_numeric для настройки %q: значение=%q, ошибка=%v (вернём дефолт %g)",
+			key, setting.ValueNumeric.String, err, defaultVal)
+		return defaultVal
+	}
+	return v
+}
+
+// GetNumericSetting возвращает числовое значение настройки по ключу.
+// Возвращает (defaultVal, nil) если:
+//   - настройка не найдена (sql.ErrNoRows)
+//   - настройка есть, но value_numeric = NULL (Valid == false) — семантически эквивалентно «не задана»
+//
+// Возвращает (0, err) при пустом key, любой другой ошибке БД или некорректном float64 в value_numeric.
+func (s *SettingsService) GetNumericSetting(ctx context.Context, key string, defaultVal float64) (float64, error) {
+	if strings.TrimSpace(key) == "" {
+		return 0, fmt.Errorf("GetNumericSetting: пустой ключ")
+	}
+	setting, err := s.store.GetSystemSettingByKey(ctx, key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return defaultVal, nil
+		}
+		return 0, fmt.Errorf("GetNumericSetting: ошибка получения настройки %q: %w", key, err)
+	}
+	if !setting.ValueNumeric.Valid {
+		return defaultVal, nil
+	}
+	v, err := strconv.ParseFloat(setting.ValueNumeric.String, 64)
+	if err != nil {
+		return 0, fmt.Errorf("GetNumericSetting: ошибка парсинга value_numeric для настройки %q (значение=%q): %w",
+			key, setting.ValueNumeric.String, err)
+	}
+	return v, nil
+}
+
+// SaveClusteringSettings сохраняет параметры кластеризации в system_settings.
+func (s *SettingsService) SaveClusteringSettings(ctx context.Context, minSize, umap, topK float64, updatedBy string) error {
+	desc := sql.NullString{String: "Настройка алгоритма кластеризации", Valid: true}
+
+	keys := []struct {
+		key string
+		val float64
+	}{
+		{"clustering_min_size", minSize},
+		{"clustering_umap_components", umap},
+		{"clustering_llm_top_k", topK},
+	}
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		for _, kv := range keys {
+			numStr := strconv.FormatFloat(kv.val, 'f', -1, 64)
+			if _, err := q.UpsertSystemSettingNumeric(ctx, db.UpsertSystemSettingNumericParams{
+				Key:          kv.key,
+				ValueNumeric: sql.NullString{String: numStr, Valid: true},
+				Description:  desc,
+				UpdatedBy:    updatedBy,
+			}); err != nil {
+				return fmt.Errorf("ошибка сохранения настройки %q: %w", kv.key, err)
+			}
+		}
+		return nil
+	})
+	return err
 }

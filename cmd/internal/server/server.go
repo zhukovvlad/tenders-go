@@ -203,7 +203,13 @@ func NewServer(
 			// Просмотр групп каталога
 			admin.GET("/catalog/groups", server.ListGroupsHandler)
 			admin.GET("/catalog/groups/:id/children", server.ListGroupChildrenHandler)
+			admin.PATCH("/catalog/groups/:id/rename", server.RenameGroupHandler)
 			admin.POST("/catalog/positions/:id/ungroup", server.UngroupPositionHandler)
+
+			// Кластеризация каталога
+			admin.GET("/catalog/clusterize/settings", server.GetClusteringSettingsHandler)
+			admin.POST("/catalog/clusterize", server.ProxyClusterizeHandler)
+			admin.POST("/catalog/clusterize/reset", server.ResetClusteringHandler)
 		}
 	}
 

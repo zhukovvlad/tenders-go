@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -663,6 +664,72 @@ func (s *Server) UngroupPositionHandler(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+type renameGroupRequest struct {
+	NewName string `json:"new_name"`
+}
+
+// RenameGroupHandler — PATCH /api/v1/admin/catalog/groups/:id/rename
+func (s *Server) RenameGroupHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "RenameGroupHandler")
+
+	if uidVal, ok := c.Get("user_id"); ok {
+		if uid, ok := uidVal.(int64); ok {
+			logger = logger.WithField("executedBy", strconv.FormatInt(uid, 10))
+		}
+	}
+
+	idStr := c.Param("id")
+	groupID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || groupID <= 0 {
+		logger.Errorf("Некорректный ID группы: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом > 0")))
+		return
+	}
+
+	var req renameGroupRequest
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		logger.Errorf("Некорректный JSON в теле запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса")))
+		return
+	}
+	// Проверяем, что после первого объекта в теле нет лишних токенов (например, два JSON-объекта подряд).
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		logger.Errorf("Тело запроса содержит лишние данные после JSON-объекта")
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса")))
+		return
+	}
+
+	result, err := s.catalogService.RenameGroup(c.Request.Context(), groupID, req.NewName)
+	if err != nil {
+		logger.Errorf("Ошибка RenameGroup(id=%d): %v", groupID, err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		}
+		return
+	}
+
+	summary := api_models.CatalogPositionSummary{
+		ID:               result.ID,
+		StandardJobTitle: result.StandardJobTitle,
+		Kind:             result.Kind,
+		Status:           result.Status,
+	}
+	if result.Description.Valid {
+		desc := result.Description.String
+		summary.Description = &desc
+	}
+	c.JSON(http.StatusOK, summary)
 }
 
 // ListGroupChildrenHandler — GET /api/v1/admin/catalog/groups/:id/children

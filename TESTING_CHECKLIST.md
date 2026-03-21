@@ -237,6 +237,31 @@
 - [ ] Тест ListGroupChildren — parentID <= 0 (ValidationError)
 - [ ] Тест ListGroupChildren — ошибка БД ListGroupChildren (wrapped error)
 
+#### Rename Group (RenameGroup) — unit-тесты
+
+**Новые тесты:**
+- [x] Тест RenameGroup — успешное переименование (RenameGroupTitle вызывается с {ID, NewName})
+- [x] Тест RenameGroup — ответ содержит обновлённую db.CatalogPosition (status=pending_indexing)
+- [x] Тест RenameGroup — newName с пробелами по краям (TrimSpace → нормализованное имя передаётся в запрос)
+- [x] Тест RenameGroup — newName только из пробелов (TrimSpace → пустая строка → ValidationError)
+- [x] Тест RenameGroup — пустой newName (ValidationError)
+- [x] Тест RenameGroup — id <= 0 / id < 0 (два теста: нулевой и отрицательный → ValidationError)
+- [x] Тест RenameGroup — группа не найдена (sql.ErrNoRows → NotFoundError)
+- [ ] Тест RenameGroup — группа deprecated (sql.ErrNoRows → NotFoundError, т.к. guard clause в SQL)
+- [x] Тест RenameGroup — дубликат названия (pq 23505 → ValidationError "название уже занято")
+- [x] Тест RenameGroup — ошибка БД (wrapped error)
+- [x] **Результат: 8 unit тестов RenameGroup, все проходят (кейс deprecated-группы не добавлен — поведение идентично sql.ErrNoRows → NotFoundError).**
+
+#### ResetClustering (CatalogService) — unit-тесты
+
+**Новые тесты:**
+- [x] Тест ResetClustering — успешный сброс (все 3 DB-операции внутри ExecTx проходят → nil)
+- [x] Тест ResetClustering — ошибка UnlinkAllCatalogPositions (→ propagated с "UnlinkAllCatalogPositions")
+- [x] Тест ResetClustering — ошибка DeleteAllGroupTitles (→ propagated с "DeleteAllGroupTitles")
+- [x] Тест ResetClustering — ошибка RevertGroupedMerges (→ propagated с "RevertGroupedMerges")
+- [x] Тест ResetClustering — ExecTx BEGIN failed (ExecTx сам возвращает ошибку → propagated)
+- [x] **Результат: 5 unit тестов ResetClustering, все проходят.**
+
 #### Group Batch Positions (GroupBatchPositions) — unit-тесты
 
 **Новые тесты:**

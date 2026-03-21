@@ -43,30 +43,32 @@ LIMIT $1
 OFFSET $2;
 
 -- name: ListCatalogPositionsForEmbedding :many
--- Основная очередь для воркера. Захватываем и POSITION, и GROUP_TITLE.
+-- Основная очередь для воркера. Захватываем POSITION, GROUP_TITLE и HEADER.
 SELECT id, standard_job_title, description, kind 
 FROM catalog_positions
 WHERE 
     status = 'pending_indexing'
-    AND kind IN ('POSITION', 'GROUP_TITLE')
+    AND kind IN ('POSITION', 'GROUP_TITLE', 'HEADER')
 ORDER BY id
 LIMIT $1;
 
 -- name: UpdateCatalogPositionDetails :one
 -- Обновляет детали, сбрасывает статус и удаляет старый вектор.
+-- ВАЖНО: явные касты ::text / ::bigint нужны для lib/pq — без них untyped NULL вызывает
+-- "could not determine data type of parameter $N" при передаче sql.NullString{Valid:false}.
 UPDATE catalog_positions
 SET
-    standard_job_title = COALESCE(sqlc.narg(standard_job_title), standard_job_title),
-    description = COALESCE(sqlc.narg(description), description),
-    unit_id = COALESCE(sqlc.narg(unit_id), unit_id),
+    standard_job_title = COALESCE(sqlc.narg(standard_job_title)::text, standard_job_title),
+    description = COALESCE(sqlc.narg(description)::text, description),
+    unit_id = COALESCE(sqlc.narg(unit_id)::bigint, unit_id),
     status = 'pending_indexing',
     embedding = NULL,
     updated_at = NOW()
 WHERE id = sqlc.arg(id)
   AND (
-    (sqlc.narg(standard_job_title) IS NOT NULL AND sqlc.narg(standard_job_title) IS DISTINCT FROM standard_job_title)
-    OR (sqlc.narg(description) IS NOT NULL AND sqlc.narg(description) IS DISTINCT FROM description)
-    OR (sqlc.narg(unit_id) IS NOT NULL AND sqlc.narg(unit_id) IS DISTINCT FROM unit_id)
+    (sqlc.narg(standard_job_title)::text IS NOT NULL AND sqlc.narg(standard_job_title)::text IS DISTINCT FROM standard_job_title)
+    OR (sqlc.narg(description)::text IS NOT NULL AND sqlc.narg(description)::text IS DISTINCT FROM description)
+    OR (sqlc.narg(unit_id)::bigint IS NOT NULL AND sqlc.narg(unit_id)::bigint IS DISTINCT FROM unit_id)
   )
 RETURNING *;
 
@@ -98,8 +100,22 @@ OFFSET sqlc.arg(page_offset)::int;
 SELECT * FROM catalog_positions
 WHERE kind = 'TO_REVIEW'
 ORDER BY created_at DESC
-LIMIT $1
-OFFSET $2;
+LIMIT sqlc.arg(page_limit)::int
+OFFSET sqlc.arg(page_offset)::int;
+
+-- name: UnlinkAllCatalogPositions :exec
+-- (Nuclear reset) Отвязывает все дочерние позиции от родителей.
+-- ДОЛЖЕН выполняться ПЕРВЫМ в транзакции перед DeleteAllGroupTitles,
+-- иначе ON DELETE RESTRICT заблокирует удаление.
+UPDATE catalog_positions
+SET parent_id = NULL, updated_at = NOW()
+WHERE parent_id IS NOT NULL;
+
+-- name: DeleteAllGroupTitles :exec
+-- (Nuclear reset) Удаляет все GROUP_TITLE-позиции из каталога.
+-- Выполнять ПОСЛЕ UnlinkAllCatalogPositions.
+DELETE FROM catalog_positions
+WHERE kind = 'GROUP_TITLE';
 
 -- name: SetCatalogStatusActive :exec
 -- Оставляем на случай массовой активации, если понадобится.
@@ -294,4 +310,21 @@ WHERE id = $1
   AND parent_id IS NOT NULL
   AND merged_into_id IS NULL
   AND status != 'deprecated'
+RETURNING *;
+
+-- name: RenameGroupTitle :one
+-- Переименовывает группу (kind='GROUP_TITLE'): записывает новое название в оба поля
+-- standard_job_title и description, сбрасывает эмбеддинг на переиндексацию.
+-- Возвращает sql.ErrNoRows если группа не найдена или имеет статус 'deprecated'.
+UPDATE catalog_positions
+SET
+    standard_job_title = sqlc.arg(new_name),
+    description        = sqlc.arg(new_name),
+    status             = 'pending_indexing',
+    embedding          = NULL,
+    updated_at         = NOW()
+WHERE
+    id     = sqlc.arg(id)
+    AND kind   = 'GROUP_TITLE'
+    AND status != 'deprecated'
 RETURNING *;

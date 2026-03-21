@@ -175,3 +175,14 @@ WHERE status = 'PENDING'
 DELETE FROM suggested_merges
 WHERE status = 'GROUPED'
   AND (main_position_id = $1 OR duplicate_position_id = $1);
+
+-- name: RevertGroupedMerges :exec
+-- (Nuclear reset) Возвращает все GROUPED-предложения в статус PENDING,
+-- сбрасывая информацию о разрешении. Часть полного сброса кластеризации.
+UPDATE suggested_merges
+SET
+    status = 'PENDING',
+    resolved_at = NULL,
+    resolved_by = NULL,
+    updated_at = NOW()
+WHERE status = 'GROUPED';
