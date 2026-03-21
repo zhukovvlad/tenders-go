@@ -239,16 +239,19 @@ func (s *SettingsService) SaveClusteringSettings(ctx context.Context, minSize, u
 		{"clustering_llm_top_k", topK},
 	}
 
-	for _, kv := range keys {
-		numStr := strconv.FormatFloat(kv.val, 'f', -1, 64)
-		if _, err := s.store.UpsertSystemSettingNumeric(ctx, db.UpsertSystemSettingNumericParams{
-			Key:          kv.key,
-			ValueNumeric: sql.NullString{String: numStr, Valid: true},
-			Description:  desc,
-			UpdatedBy:    updatedBy,
-		}); err != nil {
-			return fmt.Errorf("ошибка сохранения настройки %q: %w", kv.key, err)
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		for _, kv := range keys {
+			numStr := strconv.FormatFloat(kv.val, 'f', -1, 64)
+			if _, err := q.UpsertSystemSettingNumeric(ctx, db.UpsertSystemSettingNumericParams{
+				Key:          kv.key,
+				ValueNumeric: sql.NullString{String: numStr, Valid: true},
+				Description:  desc,
+				UpdatedBy:    updatedBy,
+			}); err != nil {
+				return fmt.Errorf("ошибка сохранения настройки %q: %w", kv.key, err)
+			}
 		}
-	}
-	return nil
+		return nil
+	})
+	return err
 }

@@ -137,7 +137,7 @@ WHERE id = sqlc.arg(id);
 После изменения SQL-файлов обязательно регенерируй:
 
 ```bash
-make sqlc-generate
+make sqlc
 # или
 sqlc generate
 ```

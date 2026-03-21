@@ -703,7 +703,17 @@ func (s *Server) RenameGroupHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, result)
+	summary := api_models.CatalogPositionSummary{
+		ID:               result.ID,
+		StandardJobTitle: result.StandardJobTitle,
+		Kind:             result.Kind,
+		Status:           result.Status,
+	}
+	if result.Description.Valid {
+		s := result.Description.String
+		summary.Description = &s
+	}
+	c.JSON(http.StatusOK, summary)
 }
 
 // ListGroupChildrenHandler — GET /api/v1/admin/catalog/groups/:id/children

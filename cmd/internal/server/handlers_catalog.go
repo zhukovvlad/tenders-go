@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/textproto"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,7 +43,9 @@ func (s *Server) GetClusteringSettingsHandler(c *gin.Context) {
 func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ProxyClusterizeHandler")
 
-	// 1. Читаем тело запроса
+	// 1. Читаем тело запроса (ограничиваем 1 MiB для защиты от DoS)
+	const maxClusterizeBodyBytes int64 = 1 << 20 // 1 MiB
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxClusterizeBodyBytes)
 	rawBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		logger.Errorf("ошибка чтения тела запроса: %v", err)
@@ -108,7 +112,11 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	logger.Infof("Проксирование запроса кластеризации на Python сервис (min_cluster_size=%g, umap_components=%g, llm_top_k=%g)",
 		req.MinClusterSize, req.UmapComponents, req.LlmTopK)
 
-	resp, err := s.httpClient.Do(proxyReq)
+	// Используем отдельный клиент без глобального Timeout — управление временем целиком
+	// через context.WithTimeout выше (10 минут). s.httpClient имеет Timeout=5min что было бы
+	// жёстким ограничением независимым от контекста.
+	clusterizeClient := &http.Client{}
+	resp, err := clusterizeClient.Do(proxyReq)
 	if err != nil {
 		logger.Errorf("сервис кластеризации недоступен: %v", err)
 		c.JSON(http.StatusBadGateway, errorResponse(fmt.Errorf("сервис кластеризации временно недоступен")))
@@ -116,11 +124,20 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	// 7. Проксируем ответ от Python обратно клиенту (hop-by-hop заголовки не проксируются — RFC 2616 §13.5.1)
+	// 7. Проксируем ответ от Python обратно клиенту.
+	// Статические hop-by-hop заголовки (RFC 2616 §13.5.1) не проксируются.
+	// Динамические hop-by-hop заголовки, перечисленные в поле Connection (RFC 7230 §6.1), — тоже.
 	hopByHop := map[string]bool{
 		"Connection": true, "Keep-Alive": true, "Proxy-Authenticate": true,
 		"Proxy-Authorization": true, "Te": true, "Trailer": true,
 		"Transfer-Encoding": true, "Upgrade": true,
+	}
+	for _, v := range resp.Header.Values("Connection") {
+		for _, token := range strings.Split(v, ",") {
+			if h := textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(token)); h != "" {
+				hopByHop[h] = true
+			}
+		}
 	}
 	c.Status(resp.StatusCode)
 	for key, values := range resp.Header {
@@ -131,5 +148,7 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 			c.Writer.Header().Add(key, value)
 		}
 	}
-	io.Copy(c.Writer, resp.Body)
+	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		logger.Errorf("ошибка проксирования ответа Python сервиса: %v", err)
+	}
 }

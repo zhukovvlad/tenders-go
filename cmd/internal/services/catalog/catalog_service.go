@@ -133,7 +133,7 @@ func buildContextString(description sql.NullString, standardJobTitle string) str
 //
 //   - Переиспользуется DTO UnmatchedPositionResponse (изначально для Процесса 2)
 //   - PositionItemID содержит catalog_id (не position_item.id!)
-//   - Возвращаются записи с kind='POSITION' и kind='GROUP_TITLE' (исключаются HEADER, LOT_HEADER и т.д.)
+//   - Возвращаются записи с kind='POSITION', kind='GROUP_TITLE' и kind='HEADER' (исключаются LOT_HEADER и т.д.)
 //   - Поле kind не передаётся в API-ответ — воркер обрабатывает оба вида одинаково
 func (s *CatalogService) GetUnindexedCatalogItems(
 	ctx context.Context,
@@ -1663,7 +1663,7 @@ func (s *CatalogService) RenameGroup(
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			return db.CatalogPosition{}, apierrors.NewValidationError(
-				"группа с таким названием уже существует",
+				"название уже занято",
 			)
 		}
 		logger.Errorf("Ошибка RenameGroupTitle: %v", err)
