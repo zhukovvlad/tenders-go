@@ -99,7 +99,9 @@ OFFSET sqlc.arg(page_offset)::int;
 -- name: ListCatalogPositionsToReview :many
 SELECT * FROM catalog_positions
 WHERE kind = 'TO_REVIEW'
-ORDER BY created_at DESC;
+ORDER BY created_at DESC
+LIMIT sqlc.arg(page_limit)::int
+OFFSET sqlc.arg(page_offset)::int;
 
 -- name: UnlinkAllCatalogPositions :exec
 -- (Nuclear reset) Отвязывает все дочерние позиции от родителей.

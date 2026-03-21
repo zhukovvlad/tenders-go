@@ -18,6 +18,7 @@ package settings
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -210,6 +211,9 @@ func settingToResponse(s db.SystemSetting, logger logging.Logger) *api_models.Sy
 func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key string, defaultVal float64) float64 {
 	setting, err := s.store.GetSystemSettingByKey(ctx, key)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			s.logger.Warnf("GetNumericSettingOrDefault: ошибка получения настройки %q: %v (вернём дефолт %g)", key, err, defaultVal)
+		}
 		return defaultVal
 	}
 	if !setting.ValueNumeric.Valid {

@@ -57,7 +57,13 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 		return
 	}
 
-	// 3. Извлекаем user_id из JWT-контекста
+	// 3. Валидируем параметры кластеризации
+	if req.MinClusterSize <= 0 || req.UmapComponents <= 0 || req.LlmTopK <= 0 {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("min_cluster_size, umap_components, llm_top_k должны быть > 0")))
+		return
+	}
+
+	// 4. Извлекаем user_id из JWT-контекста
 	userID, exists := c.Get("user_id")
 	if !exists {
 		logger.Errorf("user_id отсутствует в контексте (middleware не установил)")
@@ -72,7 +78,7 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	}
 	updatedBy := strconv.FormatInt(uid, 10)
 
-	// 4. Сохраняем параметры как новые дефолты
+	// 5. Сохраняем параметры как новые дефолты
 	if err := s.settingsService.SaveClusteringSettings(
 		c.Request.Context(),
 		req.MinClusterSize,
@@ -85,7 +91,7 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 		return
 	}
 
-	// 5. Проксируем запрос в Python
+	// 6. Проксируем запрос в Python
 	pythonURL := s.config.Services.ParserService.URL + "/clusterize"
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
@@ -99,7 +105,7 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	}
 	proxyReq.Header.Set("Content-Type", "application/json")
 
-	logger.Infof("Проксирование запроса кластеризации на Python сервис (min_cluster_size=%.0f, umap_components=%.0f, llm_top_k=%.0f)",
+	logger.Infof("Проксирование запроса кластеризации на Python сервис (min_cluster_size=%g, umap_components=%g, llm_top_k=%g)",
 		req.MinClusterSize, req.UmapComponents, req.LlmTopK)
 
 	resp, err := s.httpClient.Do(proxyReq)
@@ -110,9 +116,17 @@ func (s *Server) ProxyClusterizeHandler(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	// 6. Проксируем ответ от Python обратно клиенту
+	// 7. Проксируем ответ от Python обратно клиенту (hop-by-hop заголовки не проксируются — RFC 2616 §13.5.1)
+	hopByHop := map[string]bool{
+		"Connection": true, "Keep-Alive": true, "Proxy-Authenticate": true,
+		"Proxy-Authorization": true, "Te": true, "Trailer": true,
+		"Transfer-Encoding": true, "Upgrade": true,
+	}
 	c.Status(resp.StatusCode)
 	for key, values := range resp.Header {
+		if hopByHop[key] {
+			continue
+		}
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}

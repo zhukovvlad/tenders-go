@@ -194,7 +194,7 @@ func (s *Server) ResetClusteringHandler(c *gin.Context) {
 
 	if err := s.catalogService.ResetClustering(c.Request.Context()); err != nil {
 		logger.Errorf("Ошибка ResetClustering: %v", err)
-		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
 		return
 	}
 

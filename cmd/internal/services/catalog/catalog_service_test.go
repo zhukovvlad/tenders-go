@@ -776,10 +776,6 @@ var (
 		"id", "main_position_id", "duplicate_position_id", "similarity_score",
 		"status", "created_at", "updated_at", "resolved_at", "resolved_by",
 	}
-	catalogPositionColumns = []string{
-		"id", "standard_job_title", "description", "embedding", "kind", "status",
-		"unit_id", "created_at", "updated_at", "fts_vector", "merged_into_id",
-	}
 	// fullCatalogPositionColumns — все 13 колонок CatalogPosition (включая parent_id, parameters).
 	// Используется для запросов, возвращающих RETURNING * (GetCatalogPositionByID, CreateParentCatalogPosition).
 	fullCatalogPositionColumns = []string{
