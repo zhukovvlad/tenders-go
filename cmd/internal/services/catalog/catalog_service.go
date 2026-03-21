@@ -1626,3 +1626,82 @@ func (s *CatalogService) UngroupPosition(
 	logger.Infof("Позиция %d исключена из группы (оператор: %s)", positionID, executedBy)
 	return nil
 }
+
+// RenameGroup реализует PATCH /api/v1/admin/catalog/groups/:id/rename.
+//
+// Переименовывает GROUP_TITLE-позицию: обновляет standard_job_title, description
+// и переводит позицию в статус 'pending_indexing' для переиндексации в RAG.
+//
+// Возвращает NotFoundError если группа не найдена, не является GROUP_TITLE
+// или имеет статус 'deprecated'. Возвращает ValidationError при пустом имени
+// или дублирующемся названии (23505).
+func (s *CatalogService) RenameGroup(
+	ctx context.Context,
+	id int64,
+	newName string,
+) (db.CatalogPosition, error) {
+	logger := s.logger.WithField("method", "RenameGroup").WithField("group_id", id)
+
+	newName = strings.TrimSpace(newName)
+	if id <= 0 {
+		return db.CatalogPosition{}, apierrors.NewValidationError("id должен быть положительным")
+	}
+	if newName == "" {
+		return db.CatalogPosition{}, apierrors.NewValidationError("new_name не может быть пустым")
+	}
+
+	result, err := s.store.RenameGroupTitle(ctx, db.RenameGroupTitleParams{
+		ID:      id,
+		NewName: newName,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return db.CatalogPosition{}, apierrors.NewNotFoundError(
+				"группа %d не найдена или недоступна для переименования", id,
+			)
+		}
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return db.CatalogPosition{}, apierrors.NewValidationError(
+				"группа с таким названием уже существует",
+			)
+		}
+		logger.Errorf("Ошибка RenameGroupTitle: %v", err)
+		return db.CatalogPosition{}, fmt.Errorf("ошибка переименования группы: %w", err)
+	}
+
+	logger.Infof("Группа %d переименована в %q", id, newName)
+	return result, nil
+}
+
+// ResetClustering выполняет полный сброс кластеризации каталога в одной транзакции:
+//  1. Отвязывает все дочерние позиции от родителей (UnlinkAllCatalogPositions).
+//  2. Удаляет все GROUP_TITLE-позиции (DeleteAllGroupTitles).
+//  3. Возвращает все GROUPED-предложения о слиянии в статус PENDING (RevertGroupedMerges).
+//
+// Порядок операций важен: UnlinkAllCatalogPositions должен выполняться первым,
+// иначе ON DELETE RESTRICT заблокирует удаление Group Title строк.
+func (s *CatalogService) ResetClustering(ctx context.Context) error {
+	logger := s.logger.WithField("method", "ResetClustering")
+	logger.Warn("Запуск полного сброса кластеризации каталога")
+
+	err := s.store.ExecTx(ctx, func(q *db.Queries) error {
+		if err := q.UnlinkAllCatalogPositions(ctx); err != nil {
+			return fmt.Errorf("ошибка UnlinkAllCatalogPositions: %w", err)
+		}
+		if err := q.DeleteAllGroupTitles(ctx); err != nil {
+			return fmt.Errorf("ошибка DeleteAllGroupTitles: %w", err)
+		}
+		if err := q.RevertGroupedMerges(ctx); err != nil {
+			return fmt.Errorf("ошибка RevertGroupedMerges: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Errorf("Ошибка ResetClustering: %v", err)
+		return err
+	}
+
+	logger.Info("Кластеризация каталога успешно сброшена")
+	return nil
+}

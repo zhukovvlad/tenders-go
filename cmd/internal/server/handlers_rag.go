@@ -665,6 +665,47 @@ func (s *Server) UngroupPositionHandler(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+type renameGroupRequest struct {
+	NewName string `json:"new_name" binding:"required"`
+}
+
+// RenameGroupHandler — PATCH /api/v1/admin/catalog/groups/:id/rename
+func (s *Server) RenameGroupHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "RenameGroupHandler")
+
+	idStr := c.Param("id")
+	groupID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || groupID <= 0 {
+		logger.Errorf("Некорректный ID группы: %s", idStr)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("параметр id должен быть целым числом > 0")))
+		return
+	}
+
+	var req renameGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	result, err := s.catalogService.RenameGroup(c.Request.Context(), groupID, req.NewName)
+	if err != nil {
+		logger.Errorf("Ошибка RenameGroup(id=%d): %v", groupID, err)
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
+			c.JSON(http.StatusBadRequest, errorResponse(err))
+		case errors.As(err, &notFoundErr):
+			c.JSON(http.StatusNotFound, errorResponse(err))
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_server_error", "message": "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // ListGroupChildrenHandler — GET /api/v1/admin/catalog/groups/:id/children
 func (s *Server) ListGroupChildrenHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "ListGroupChildrenHandler")

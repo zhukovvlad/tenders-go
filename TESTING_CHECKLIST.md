@@ -237,6 +237,20 @@
 - [ ] Тест ListGroupChildren — parentID <= 0 (ValidationError)
 - [ ] Тест ListGroupChildren — ошибка БД ListGroupChildren (wrapped error)
 
+#### Rename Group (RenameGroup) — unit-тесты
+
+**Новые тесты:**
+- [ ] Тест RenameGroup — успешное переименование (RenameGroupTitle вызывается с {ID, NewName})
+- [ ] Тест RenameGroup — ответ содержит обновлённую db.CatalogPosition (status=pending_indexing)
+- [ ] Тест RenameGroup — newName с пробелами по краям (TrimSpace → нормализованное имя передаётся в запрос)
+- [ ] Тест RenameGroup — newName только из пробелов (TrimSpace → пустая строка → ValidationError)
+- [ ] Тест RenameGroup — пустой newName (ValidationError)
+- [ ] Тест RenameGroup — id <= 0 (ValidationError)
+- [ ] Тест RenameGroup — группа не найдена (sql.ErrNoRows → NotFoundError)
+- [ ] Тест RenameGroup — группа deprecated (sql.ErrNoRows → NotFoundError, т.к. guard clause в SQL)
+- [ ] Тест RenameGroup — дубликат названия (pq 23505 → ValidationError)
+- [ ] Тест RenameGroup — ошибка БД (wrapped error)
+
 #### Group Batch Positions (GroupBatchPositions) — unit-тесты
 
 **Новые тесты:**

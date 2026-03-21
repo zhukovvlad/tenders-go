@@ -204,3 +204,47 @@ func settingToResponse(s db.SystemSetting, logger logging.Logger) *api_models.Sy
 
 	return resp
 }
+
+// GetNumericSettingOrDefault возвращает числовое значение настройки по ключу.
+// Если настройка не найдена или значение не парсится — возвращает defaultVal.
+func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key string, defaultVal float64) float64 {
+	setting, err := s.store.GetSystemSettingByKey(ctx, key)
+	if err != nil {
+		return defaultVal
+	}
+	if !setting.ValueNumeric.Valid {
+		return defaultVal
+	}
+	v, err := strconv.ParseFloat(setting.ValueNumeric.String, 64)
+	if err != nil {
+		return defaultVal
+	}
+	return v
+}
+
+// SaveClusteringSettings сохраняет параметры кластеризации в system_settings.
+func (s *SettingsService) SaveClusteringSettings(ctx context.Context, minSize, umap, topK float64, updatedBy string) error {
+	desc := sql.NullString{String: "Настройка алгоритма кластеризации", Valid: true}
+
+	keys := []struct {
+		key string
+		val float64
+	}{
+		{"clustering_min_size", minSize},
+		{"clustering_umap_components", umap},
+		{"clustering_llm_top_k", topK},
+	}
+
+	for _, kv := range keys {
+		numStr := strconv.FormatFloat(kv.val, 'f', -1, 64)
+		if _, err := s.store.UpsertSystemSettingNumeric(ctx, db.UpsertSystemSettingNumericParams{
+			Key:          kv.key,
+			ValueNumeric: sql.NullString{String: numStr, Valid: true},
+			Description:  desc,
+			UpdatedBy:    updatedBy,
+		}); err != nil {
+			return fmt.Errorf("ошибка сохранения настройки %q: %w", kv.key, err)
+		}
+	}
+	return nil
+}

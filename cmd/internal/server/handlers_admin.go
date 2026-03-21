@@ -180,3 +180,23 @@ func (s *Server) ListSuggestedMergesHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// ResetClusteringHandler обрабатывает POST /api/v1/admin/catalog/clusterize/reset.
+//
+// Выполняет полный "ядерный" сброс кластеризации каталога в одной транзакции:
+// отвязывает все дочерние позиции, удаляет все GROUP_TITLE-записи и
+// возвращает все GROUPED-предложения в статус PENDING.
+//
+// Response: 200 OK с сообщением об успехе.
+// Errors:   401 (не аутентифицирован), 403 (не admin), 500 (ошибка БД)
+func (s *Server) ResetClusteringHandler(c *gin.Context) {
+	logger := s.logger.WithField("handler", "ResetClusteringHandler")
+
+	if err := s.catalogService.ResetClustering(c.Request.Context()); err != nil {
+		logger.Errorf("Ошибка ResetClustering: %v", err)
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "кластеризация каталога успешно сброшена"})
+}
