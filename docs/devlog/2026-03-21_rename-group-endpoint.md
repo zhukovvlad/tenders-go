@@ -76,14 +76,15 @@ RETURNING *;
 
 ```go
 type renameGroupRequest struct {
-    NewName string `json:"new_name" binding:"required"`
+    NewName string `json:"new_name"`
 }
 ```
 
 - Парсит `:id` через `strconv.ParseInt`, валидирует `> 0`
-- Привязывает JSON-тело через `c.ShouldBindJSON` (ошибка привязки → 400)
+- Декодирует JSON-тело через `json.NewDecoder` + `DisallowUnknownFields` (ошибка декодинга → 400)
+- Проверяет отсутствие лишних токенов после объекта (не `io.EOF` → 400)
 - Диспетчеризация ошибок: `ValidationError` → 400, `NotFoundError` → 404, остальное → 500
-- При успехе возвращает `db.CatalogPosition` с кодом 200
+- При успехе возвращает `api_models.CatalogPositionSummary` с кодом 200
 
 Хендлер размещён рядом с `UngroupPositionHandler` и `ListGroupChildrenHandler` в `handlers_rag.go`.
 

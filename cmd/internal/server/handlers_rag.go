@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -692,6 +693,12 @@ func (s *Server) RenameGroupHandler(c *gin.Context) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		logger.Errorf("Некорректный JSON в теле запроса: %v", err)
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса")))
+		return
+	}
+	// Проверяем, что после первого объекта в теле нет лишних токенов (например, два JSON-объекта подряд).
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		logger.Errorf("Тело запроса содержит лишние данные после JSON-объекта")
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("некорректное тело запроса")))
 		return
 	}

@@ -211,10 +211,15 @@ func settingToResponse(s db.SystemSetting, logger logging.Logger) *api_models.Sy
 //   - настройка не найдена (sql.ErrNoRows)
 //   - значение не парсится как float64
 //   - произошла ошибка БД (не ErrNoRows): в этом случае ошибка логируется через Warnf
+//   - key пустой или состоит только из пробелов: логируется предупреждение и возвращается defaultVal
 //
 // Не пробрасывает ошибки наружу — использовать только там, где дефолт приемлем.
 // Для строгого чтения (с возвратом ошибки при сбое БД) используйте GetNumericSetting.
 func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key string, defaultVal float64) float64 {
+	if strings.TrimSpace(key) == "" {
+		s.logger.Warnf("GetNumericSettingOrDefault: пустой ключ (key=%q), возвращаем дефолт %g", key, defaultVal)
+		return defaultVal
+	}
 	setting, err := s.store.GetSystemSettingByKey(ctx, key)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -236,8 +241,11 @@ func (s *SettingsService) GetNumericSettingOrDefault(ctx context.Context, key st
 
 // GetNumericSetting возвращает числовое значение настройки по ключу.
 // Возвращает (defaultVal, nil) если настройка не найдена (sql.ErrNoRows).
-// Возвращает (0, err) при любой другой ошибке (БД или некорректный float64 в value_numeric).
+// Возвращает (0, err) при пустом key, любой другой ошибке БД или некорректном float64 в value_numeric.
 func (s *SettingsService) GetNumericSetting(ctx context.Context, key string, defaultVal float64) (float64, error) {
+	if strings.TrimSpace(key) == "" {
+		return 0, fmt.Errorf("GetNumericSetting: пустой ключ")
+	}
 	setting, err := s.store.GetSystemSettingByKey(ctx, key)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
