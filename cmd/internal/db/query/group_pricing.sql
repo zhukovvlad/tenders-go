@@ -35,6 +35,7 @@ SELECT
     COALESCE(u.normalized_name, 'Не указано') AS unit_name,
     w.rank AS winner_rank,
     w.awarded_share AS winner_share,
+    w.id AS winner_id,
     pi.created_at
 FROM position_items pi
 JOIN group_tree gt ON pi.catalog_position_id = gt.id

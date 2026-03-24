@@ -75,7 +75,7 @@ ORDER BY pi.created_at DESC;
 - `parseNullNumeric()` — конвертация `sql.NullString` (PostgreSQL numeric) → `*float64`
 - Пустые слайсы `Items: []api_models.PositionPriceItem{}` для консистентного JSON (`[]`, не `null`)
 
-### 3. HTTP-хендлер (`handlers_pricing.go`)
+### 4. HTTP-хендлер (`handlers_pricing.go`)
 
 **`GetPositionPricingHandler`** — `GET /api/v1/catalog/positions/:id/pricing`:
 
@@ -84,7 +84,7 @@ ORDER BY pi.created_at DESC;
 - Диспетчеризация ошибок: `NotFoundError` → 404, остальное → 500
 - При успехе — 200 с `PositionPricingResponse`
 
-### 4. Маршрут (`server.go`)
+### 5. Маршрут (`server.go`)
 
 ```go
 protected.GET("/catalog/positions/:id/pricing", server.GetPositionPricingHandler)
