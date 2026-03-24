@@ -178,6 +178,12 @@ func NewServer(
 			protected.POST("/tender-categories", server.createTenderCategoryHandler)
 			protected.PUT("/tender-categories/:id", server.updateTenderCategoryHandler)
 			protected.DELETE("/tender-categories/:id", server.deleteTenderCategoryHandler)
+
+			// Аналитика цен каталожной позиции
+			protected.GET("/catalog/positions/:id/pricing", server.GetPositionPricingHandler)
+
+			// Аналитика цен группы позиций (рекурсивно)
+			protected.GET("/catalog/groups/:id/pricing", server.GetGroupPricingHandler)
 		}
 
 		// Админские роуты (требуют роль admin)
