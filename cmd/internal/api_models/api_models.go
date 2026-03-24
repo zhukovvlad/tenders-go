@@ -412,3 +412,46 @@ type GroupConflict struct {
 	CurrentParentTitle string `json:"current_parent_title"`
 	SiblingsCount      int64  `json:"siblings_count"`
 }
+
+// === Position Pricing Analytics (GET /api/v1/catalog/positions/:id/pricing) ===
+
+// PositionPriceItem — одна строка из сметы подрядчика.
+type PositionPriceItem struct {
+	TenderNumber       string   `json:"tender_number"`
+	LotKey             string   `json:"lot_key"`
+	ContractorTitle    string   `json:"contractor_title"`
+	ContractorInn      string   `json:"contractor_inn"`
+	OriginalTitle      string   `json:"original_title"`
+	ChildPositionTitle string   `json:"child_position_title,omitempty"`
+	Quantity           *float64 `json:"quantity"`
+	UnitCostMaterials  *float64 `json:"unit_cost_materials"`
+	UnitCostWorks      *float64 `json:"unit_cost_works"`
+	UnitCostIndirect   *float64 `json:"unit_cost_indirect"`
+	UnitCostTotal      *float64 `json:"unit_cost_total"`
+	WinnerRank         *int     `json:"winner_rank"`
+	WinnerShare        *float64 `json:"winner_share"`
+	CreatedAt          string   `json:"created_at"`
+}
+
+// UnitPricingStats — агрегированная статистика по одной единице измерения.
+type UnitPricingStats struct {
+	UnitName    string              `json:"unit_name"`
+	TotalCount  int                 `json:"total_count"`
+	WinnerCount int                 `json:"winner_count"`
+	MinUnitCost *float64            `json:"min_unit_cost"`
+	MaxUnitCost *float64            `json:"max_unit_cost"`
+	AvgUnitCost *float64            `json:"avg_unit_cost"`
+	Items       []PositionPriceItem `json:"items"`
+}
+
+// PositionPricingResponse — корневой ответ аналитики цен.
+type PositionPricingResponse struct {
+	CatalogPositionID int64                        `json:"catalog_position_id"`
+	StatsByUnit       map[string]*UnitPricingStats `json:"stats_by_unit"`
+}
+
+// GroupPricingResponse — корневой ответ аналитики цен для группы позиций.
+type GroupPricingResponse struct {
+	GroupID     int64                        `json:"group_id"`
+	StatsByUnit map[string]*UnitPricingStats `json:"stats_by_unit"`
+}

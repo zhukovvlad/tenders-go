@@ -328,6 +328,25 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
 - [x] Тест ExecuteBatchMerge Сценарий 1 — FlattenMergeChain вызывается для каждой deprecated-позиции с NewMasterID=target
 - [x] Тест ExecuteBatchMerge Сценарий 2 — FlattenMergeChain вызывается для каждой позиции с NewMasterID=newPos.ID
 
+#### GetPositionPricingStats (CatalogService) — unit-тесты
+
+**Новые тесты:**
+- [ ] Тест GetPositionPricingStats — успешная агрегация: несколько строк, две ед. изм. → StatsByUnit содержит 2 ключа
+- [ ] Тест GetPositionPricingStats — пустой результат (нет данных) → StatsByUnit пустая мапа
+- [ ] Тест GetPositionPricingStats — MinUnitCost, MaxUnitCost, AvgUnitCost корректно вычисляются для единицы измерения
+- [ ] Тест GetPositionPricingStats — AvgUnitCost округляется до 2 знаков
+- [ ] Тест GetPositionPricingStats — NULL unit_cost_total → MinUnitCost/MaxUnitCost/AvgUnitCost = nil, TotalCount инкрементируется
+- [ ] Тест GetPositionPricingStats — все unit_cost_total NULL → AvgUnitCost = nil
+- [ ] Тест GetPositionPricingStats — WinnerRank != nil → WinnerCount инкрементируется
+- [ ] Тест GetPositionPricingStats — WinnerRank = nil → WinnerCount не меняется
+- [ ] Тест GetPositionPricingStats — nullable поля (Quantity, UnitCostMaterials, WinnerShare) корректно конвертируются в *float64
+- [ ] Тест GetPositionPricingStats — COALESCE unit_name: строка без unit_id → "Не указано"
+- [ ] Тест GetPositionPricingStats — Items содержит элементы в порядке из запроса
+- [ ] Тест GetPositionPricingStats — ошибка БД GetPositionPricingData (wrapped error)
+- [ ] Тест parseNullNumeric — valid=true, корректная строка → *float64
+- [ ] Тест parseNullNumeric — valid=false → nil
+- [ ] Тест parseNullNumeric — valid=true, некорректная строка → nil
+
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
 - [x] Введён Logger interface с поддержкой WithField/WithFields для тестируемости (по аналогии с auth/catalog)
@@ -752,7 +771,16 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
   - [ ] Unauthorized (нет JWT) → 401
   - [ ] user_id из JWT передаётся как executedBy
 
-### Задача 5.9: Тесты для handlers_admin.go (System Settings)
+### Задача 5.9: Тесты для handlers_pricing.go
+- [ ] Создать `cmd/internal/server/handlers_pricing_test.go`
+- [ ] Тест `GET /catalog/positions/:id/pricing` — успешный запрос → 200 + PositionPricingResponse с catalog_position_id и stats_by_unit
+- [ ] Тест `GET /catalog/positions/:id/pricing` — невалидный ID (строка) → 400
+- [ ] Тест `GET /catalog/positions/:id/pricing` — нет данных → 200 + пустая stats_by_unit
+- [ ] Тест `GET /catalog/positions/:id/pricing` — ошибка сервиса → 500 (generic error, без утечки деталей)
+- [ ] Тест `GET /catalog/positions/:id/pricing` — NotFoundError от сервиса → 404
+- [ ] Тест `GET /catalog/positions/:id/pricing` — Unauthorized (нет JWT) → 401
+
+### Задача 5.10: Тесты для handlers_admin.go (System Settings)
 - [ ] Создать `cmd/internal/server/handlers_admin_test.go`
 - [ ] Тест `PUT /api/v1/admin/settings` — успешное обновление числовой настройки (200 + SystemSettingResponse)
 - [ ] Тест `PUT /api/v1/admin/settings` — strict JSON: неизвестное поле → 400
