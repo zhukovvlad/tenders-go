@@ -113,6 +113,14 @@ func accumulateItem(accumulators map[string]*unitAccumulator, unitName string, i
 func finalizeStats(accumulators map[string]*unitAccumulator) map[string]*api_models.UnitPricingStats {
 	statsByUnit := make(map[string]*api_models.UnitPricingStats, len(accumulators))
 	for unitName, acc := range accumulators {
+		if acc.stats.MinUnitCost != nil {
+			v := math.Round(*acc.stats.MinUnitCost*100) / 100
+			acc.stats.MinUnitCost = &v
+		}
+		if acc.stats.MaxUnitCost != nil {
+			v := math.Round(*acc.stats.MaxUnitCost*100) / 100
+			acc.stats.MaxUnitCost = &v
+		}
 		if acc.validCostCount > 0 {
 			avg := acc.sumTotalCost / float64(acc.validCostCount)
 			avg = math.Round(avg*100) / 100
