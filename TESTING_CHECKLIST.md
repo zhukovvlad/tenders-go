@@ -332,7 +332,7 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
 
 **Новые тесты:**
 - [ ] Тест GetPositionPricingStats — успешная агрегация: несколько строк, две ед. изм. → StatsByUnit содержит 2 ключа
-- [ ] Тест GetPositionPricingStats — пустой результат (нет данных) → StatsByUnit пустая мапа
+- [ ] Тест GetPositionPricingStats — пустой результат (позиция существует, нет данных) → StatsByUnit пустая мапа
 - [ ] Тест GetPositionPricingStats — MinUnitCost, MaxUnitCost, AvgUnitCost корректно вычисляются для единицы измерения
 - [ ] Тест GetPositionPricingStats — AvgUnitCost округляется до 2 знаков
 - [ ] Тест GetPositionPricingStats — NULL unit_cost_total → MinUnitCost/MaxUnitCost/AvgUnitCost = nil, TotalCount инкрементируется
@@ -342,10 +342,28 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
 - [ ] Тест GetPositionPricingStats — nullable поля (Quantity, UnitCostMaterials, WinnerShare) корректно конвертируются в *float64
 - [ ] Тест GetPositionPricingStats — COALESCE unit_name: строка без unit_id → "Не указано"
 - [ ] Тест GetPositionPricingStats — Items содержит элементы в порядке из запроса
+- [ ] Тест GetPositionPricingStats — id <= 0 → ValidationError
+- [ ] Тест GetPositionPricingStats — несуществующая позиция → NotFoundError
+- [ ] Тест GetPositionPricingStats — ошибка БД GetCatalogPositionByID (wrapped error)
 - [ ] Тест GetPositionPricingStats — ошибка БД GetPositionPricingData (wrapped error)
+
+#### GetGroupPricingStats (CatalogService) — unit-тесты
+
+**Новые тесты:**
+- [ ] Тест GetGroupPricingStats — успешная агрегация: рекурсивный обход, данные из дочерних позиций → StatsByUnit с ChildPositionTitle
+- [ ] Тест GetGroupPricingStats — пустой результат (группа существует, нет данных) → StatsByUnit пустая мапа
+- [ ] Тест GetGroupPricingStats — MinUnitCost, MaxUnitCost, AvgUnitCost корректно вычисляются
+- [ ] Тест GetGroupPricingStats — AvgUnitCost округляется до 2 знаков
+- [ ] Тест GetGroupPricingStats — id <= 0 → ValidationError
+- [ ] Тест GetGroupPricingStats — несуществующая группа → NotFoundError
+- [ ] Тест GetGroupPricingStats — позиция не является группой (kind != GROUP_TITLE) → ValidationError
+- [ ] Тест GetGroupPricingStats — ошибка БД GetCatalogPositionByID (wrapped error)
+- [ ] Тест GetGroupPricingStats — ошибка БД GetGroupPricingData (wrapped error)
+
+**parseNullNumeric:**
 - [ ] Тест parseNullNumeric — valid=true, корректная строка → *float64
 - [ ] Тест parseNullNumeric — valid=false → nil
-- [ ] Тест parseNullNumeric — valid=true, некорректная строка → nil
+- [ ] Тест parseNullNumeric — valid=true, некорректная строка → nil (+ warning log)
 
 ### ✅ Задача 2.3: Тесты для Lot Service
 - [x] Создать `cmd/internal/services/lot/lot_service_test.go`
@@ -773,12 +791,22 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
 
 ### Задача 5.9: Тесты для handlers_pricing.go
 - [ ] Создать `cmd/internal/server/handlers_pricing_test.go`
-- [ ] Тест `GET /catalog/positions/:id/pricing` — успешный запрос → 200 + PositionPricingResponse с catalog_position_id и stats_by_unit
-- [ ] Тест `GET /catalog/positions/:id/pricing` — невалидный ID (строка) → 400
-- [ ] Тест `GET /catalog/positions/:id/pricing` — нет данных → 200 + пустая stats_by_unit
-- [ ] Тест `GET /catalog/positions/:id/pricing` — ошибка сервиса → 500 (generic error, без утечки деталей)
-- [ ] Тест `GET /catalog/positions/:id/pricing` — NotFoundError от сервиса → 404
-- [ ] Тест `GET /catalog/positions/:id/pricing` — Unauthorized (нет JWT) → 401
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — успешный запрос → 200 + PositionPricingResponse с catalog_position_id и stats_by_unit
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — невалидный ID (строка) → 400
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — ID <= 0 → 400
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — нет данных → 200 + пустая stats_by_unit
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — ошибка сервиса → 500 (generic error, без утечки деталей)
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — NotFoundError от сервиса → 404
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — ValidationError от сервиса → 400
+- [ ] Тест `GET /api/v1/catalog/positions/:id/pricing` — Unauthorized (нет JWT) → 401
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — успешный запрос → 200 + GroupPricingResponse с group_id и stats_by_unit
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — невалидный ID (строка) → 400
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — ID <= 0 → 400
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — нет данных → 200 + пустая stats_by_unit
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — ошибка сервиса → 500 (generic error, без утечки деталей)
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — NotFoundError от сервиса → 404
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — ValidationError от сервиса → 400
+- [ ] Тест `GET /api/v1/catalog/groups/:id/pricing` — Unauthorized (нет JWT) → 401
 
 ### Задача 5.10: Тесты для handlers_admin.go (System Settings)
 - [ ] Создать `cmd/internal/server/handlers_admin_test.go`

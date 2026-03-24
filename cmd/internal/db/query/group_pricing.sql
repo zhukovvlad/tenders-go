@@ -10,7 +10,7 @@ WITH RECURSIVE group_tree AS (
     FROM catalog_positions
     WHERE id = sqlc.arg(group_id)::bigint
 
-    UNION ALL
+    UNION
 
     -- Рекурсивный спуск по детям
     SELECT cp.id, cp.standard_job_title

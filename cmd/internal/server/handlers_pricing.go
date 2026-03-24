@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -16,17 +17,19 @@ func (s *Server) GetPositionPricingHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "GetPositionPricingHandler")
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("невалидный id каталожной позиции")))
 		return
 	}
 
 	result, err := s.catalogService.GetPositionPricingStats(c.Request.Context(), id)
 	if err != nil {
-		switch err.(type) {
-		case *apierrors.ValidationError:
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
 			c.JSON(http.StatusBadRequest, errorResponse(err))
-		case *apierrors.NotFoundError:
+		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
 			logger.WithError(err).Errorf("failed to get pricing stats for position=%d", id)
@@ -45,17 +48,19 @@ func (s *Server) GetGroupPricingHandler(c *gin.Context) {
 	logger := s.logger.WithField("handler", "GetGroupPricingHandler")
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("невалидный id группы")))
 		return
 	}
 
 	result, err := s.catalogService.GetGroupPricingStats(c.Request.Context(), id)
 	if err != nil {
-		switch err.(type) {
-		case *apierrors.ValidationError:
+		var validationErr *apierrors.ValidationError
+		var notFoundErr *apierrors.NotFoundError
+		switch {
+		case errors.As(err, &validationErr):
 			c.JSON(http.StatusBadRequest, errorResponse(err))
-		case *apierrors.NotFoundError:
+		case errors.As(err, &notFoundErr):
 			c.JSON(http.StatusNotFound, errorResponse(err))
 		default:
 			logger.WithError(err).Errorf("failed to get pricing stats for group=%d", id)
