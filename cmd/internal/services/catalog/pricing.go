@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -135,7 +136,7 @@ func (s *CatalogService) GetPositionPricingStats(ctx context.Context, catalogPos
 	// Проверяем существование позиции
 	_, err := s.store.GetCatalogPositionByID(ctx, catalogPositionID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, apierrors.NewNotFoundError("каталожная позиция %d не найдена", catalogPositionID)
 		}
 		logger.WithError(err).Errorf("failed to check catalog position existence for id=%d", catalogPositionID)
@@ -191,7 +192,7 @@ func (s *CatalogService) GetGroupPricingStats(ctx context.Context, groupID int64
 	// Проверяем существование и тип записи
 	pos, err := s.store.GetCatalogPositionByID(ctx, groupID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, apierrors.NewNotFoundError("группа %d не найдена", groupID)
 		}
 		logger.WithError(err).Errorf("failed to check catalog position existence for id=%d", groupID)

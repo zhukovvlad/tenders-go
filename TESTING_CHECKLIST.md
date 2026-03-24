@@ -337,8 +337,8 @@ Deterministic tiebreakers добавлены и в подзапрос, и во �
 - [ ] Тест GetPositionPricingStats — AvgUnitCost округляется до 2 знаков
 - [ ] Тест GetPositionPricingStats — NULL unit_cost_total → MinUnitCost/MaxUnitCost/AvgUnitCost = nil, TotalCount инкрементируется
 - [ ] Тест GetPositionPricingStats — все unit_cost_total NULL → AvgUnitCost = nil
-- [ ] Тест GetPositionPricingStats — WinnerRank != nil → WinnerCount инкрементируется
-- [ ] Тест GetPositionPricingStats — WinnerRank = nil → WinnerCount не меняется
+- [ ] Тест GetPositionPricingStats — есть запись в winners (winner_id IS NOT NULL) → WinnerCount инкрементируется
+- [ ] Тест GetPositionPricingStats — нет записи в winners (winner_id IS NULL) → WinnerCount не меняется
 - [ ] Тест GetPositionPricingStats — nullable поля (Quantity, UnitCostMaterials, WinnerShare) корректно конвертируются в *float64
 - [ ] Тест GetPositionPricingStats — COALESCE unit_name: строка без unit_id → "Не указано"
 - [ ] Тест GetPositionPricingStats — Items содержит элементы в порядке из запроса
