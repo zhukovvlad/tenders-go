@@ -30,4 +30,4 @@ WHERE
     pi.catalog_position_id = sqlc.arg(catalog_position_id)::bigint
     AND pi.is_chapter = false
     AND p.is_baseline = false
-ORDER BY pi.created_at DESC;
+ORDER BY pi.created_at DESC, pi.id DESC;
