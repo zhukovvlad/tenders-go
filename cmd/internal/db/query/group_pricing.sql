@@ -5,17 +5,18 @@
 -- с джоинами на подрядчика, лот, тендер, единицу измерения и победителя.
 -- Агрегация (min/max/avg, группировка по ед.изм.) выполняется в Go-коде.
 WITH RECURSIVE group_tree AS (
-    -- Базовый узел (запрашиваемая группа)
-    SELECT id, standard_job_title
+    -- Базовый узел (запрашиваемая группа); path хранит посещённые id для защиты от циклов
+    SELECT id, standard_job_title, ARRAY[id] AS path
     FROM catalog_positions
     WHERE id = sqlc.arg(group_id)::bigint
 
-    UNION
+    UNION ALL
 
-    -- Рекурсивный спуск по детям
-    SELECT cp.id, cp.standard_job_title
+    -- Рекурсивный спуск по детям; исключаем уже посещённые узлы
+    SELECT cp.id, cp.standard_job_title, gt.path || cp.id
     FROM catalog_positions cp
     JOIN group_tree gt ON cp.parent_id = gt.id
+    WHERE NOT cp.id = ANY(gt.path)
 )
 SELECT
     t.etp_id AS tender_number,
